@@ -100,7 +100,25 @@ function firstSpid(el: Element): string | null {
 }
 
 /** p:timing → 애니메이션. objects의 sourceId로 대상 매칭. 해석 못 한 효과 수도 반환 */
-export function parseTiming(timing: Element, objects: SlideObject[], slideW: number, slideH: number): { animations: Animation[]; approximated: number; skipped: number } {
+/** 미디어 재생 설정 (mediacall playFrom + cMediaNode) — 원본 도형 ID별 */
+export interface MediaTiming {
+  autoPlay?: boolean;
+  hideInShow?: boolean;
+  loop?: boolean;
+}
+
+export function parseTiming(
+  timing: Element,
+  objects: SlideObject[],
+  slideW: number,
+  slideH: number,
+): { animations: Animation[]; approximated: number; skipped: number; media: Map<string, MediaTiming> } {
+  const media = new Map<string, MediaTiming>();
+  const mediaOf = (spid: string) => {
+    let m = media.get(spid);
+    if (!m) media.set(spid, (m = {}));
+    return m;
+  };
   const bySpid = new Map(objects.filter((o) => o.sourceId !== undefined).map((o) => [String(o.sourceId), o.id]));
   const out: Animation[] = [];
   let approximated = 0;
@@ -115,6 +133,14 @@ export function parseTiming(timing: Element, objects: SlideObject[], slideW: num
         const c = kid(effPar, 'cTn');
         if (!c) continue;
         const spid = firstSpid(effPar);
+        // 미디어 재생 명령 (자동 재생): 애니메이션이 아니라 미디어 개체의 설정으로
+        if (c.getAttribute('presetClass') === 'mediacall') {
+          const cmd = Array.from(effPar.getElementsByTagName('*')).find((e) => e.localName === 'cmd');
+          const nodeType = c.getAttribute('nodeType');
+          if (spid && /^play/i.test(cmd?.getAttribute('cmd') ?? '') && !triggerId && nodeType !== 'clickEffect' && isFirstStep(stepPar)) mediaOf(spid).autoPlay = true;
+          else if (spid) mediaOf(spid);
+          continue;
+        }
         const target = spid ? bySpid.get(spid) : undefined;
         if (!target) {
           skipped++;
@@ -160,6 +186,21 @@ export function parseTiming(timing: Element, objects: SlideObject[], slideW: num
     }
   };
 
+  // 첫 단계가 슬라이드 시작과 함께 자동으로 시작되는지 (onBegin 조건)
+  const isFirstStep = (stepPar: Element) => {
+    const conds = kids(kid(kid(stepPar, 'cTn'), 'stCondLst'), 'cond');
+    return conds.some((x) => x.getAttribute('evt') === 'onBegin');
+  };
+  // 미디어 노드: 쇼 중 숨기기 / 반복
+  for (const node of [...kids(kid(root, 'childTnLst'), 'audio'), ...kids(kid(root, 'childTnLst'), 'video')]) {
+    const cm = kid(node, 'cMediaNode');
+    const spid = cm && firstSpid(kid(cm, 'tgtEl') ?? cm);
+    if (!cm || !spid) continue;
+    const m = mediaOf(spid);
+    if (cm.getAttribute('showWhenStopped') === '0') m.hideInShow = true;
+    if (kid(cm, 'cTn')?.getAttribute('repeatCount') === 'indefinite') m.loop = true;
+  }
+
   for (const seq of seqs) {
     const c = kid(seq, 'cTn');
     const type = c?.getAttribute('nodeType');
@@ -174,5 +215,5 @@ export function parseTiming(timing: Element, objects: SlideObject[], slideW: num
       for (const stepPar of kids(kid(c, 'childTnLst'), 'par')) readStep(stepPar, trig);
     }
   }
-  return { animations: out, approximated, skipped };
+  return { animations: out, approximated, skipped, media };
 }

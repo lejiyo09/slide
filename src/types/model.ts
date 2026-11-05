@@ -267,6 +267,10 @@ export interface MediaObject extends BaseObject {
   posterId?: ID;
   autoPlay?: boolean;
   loop?: boolean;
+  /** 쇼 중에 숨기기 (PPTX cMediaNode showWhenStopped="0") */
+  hideInShow?: boolean;
+  /** 녹화한 내레이션 (녹화 탭에서 만들고 지울 수 있음, 쇼 설정의 '내레이션 없이 쇼 진행'에 따라 재생) */
+  narration?: boolean;
 }
 
 export type UnsupportedKind = 'table' | 'chart' | 'smartart' | 'media' | 'ole' | 'image' | 'other';
@@ -321,6 +325,8 @@ export interface Slide {
     /** 가져온 직후 전환/애니메이션 모델의 지문 (그대로면 저장 시 원본 XML 사용) */
     transitionFingerprint?: string;
     animationFingerprint?: string;
+    /** 가져온 직후 미디어 재생 설정 지문 (자동 재생 등은 p:timing에 기록되므로 바뀌면 타이밍을 새로 생성) */
+    mediaFingerprint?: string;
   };
 }
 
@@ -442,7 +448,38 @@ export interface Presentation {
     fileName: string;
     importedAt: number;
   };
+  /** 슬라이드 쇼 설정 (PPTX presProps.xml p:showPr) */
+  showSettings?: ShowSettings;
+  /** 재구성한 쇼 (PPTX presentation.xml p:custShowLst) */
+  customShows?: CustomShow[];
   createdAt: number;
   updatedAt: number;
   version: 1;
+}
+
+/* ───────────── 슬라이드 쇼 설정 ───────────── */
+
+export interface ShowSettings {
+  /** 발표자가 진행(전체 화면) / 웹 형식으로 진행(창) / 대화형 자동 진행(키오스크, 전체 화면) */
+  showType: 'speaker' | 'browsed' | 'kiosk';
+  /** <Esc> 키를 누를 때까지 계속 실행 (키오스크는 항상) */
+  loop: boolean;
+  /** 내레이션 없이 쇼 진행 */
+  noNarration: boolean;
+  /** 애니메이션 없이 쇼 진행 */
+  noAnimation: boolean;
+  /** 표시할 슬라이드 */
+  range: { kind: 'all' } | { kind: 'range'; from: number; to: number } | { kind: 'custom'; showId: ID };
+  /** 화면 전환: false = 수동, true = 설정된 시간 사용 */
+  useTimings: boolean;
+  penColor: Color;
+  laserColor: Color;
+  /** 발표자 보기 사용 */
+  presenterView: boolean;
+}
+
+export interface CustomShow {
+  id: ID;
+  name: string;
+  slideIds: ID[];
 }

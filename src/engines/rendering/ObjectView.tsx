@@ -1,4 +1,4 @@
-import { memo, type CSSProperties, type ReactNode } from 'react';
+import { createContext, memo, useContext, type CSSProperties, type ReactNode } from 'react';
 import type { Asset, Fill, ImageObject, LineObject, MediaObject, Paragraph, ShapeObject, SlideObject, Stroke, TableObject, TextBody, TextObject, Theme, UnsupportedObject } from '../../types/model';
 import { ChartView } from './ChartView';
 import { useAssetUrl } from '../../hooks/useAssetUrl';
@@ -13,6 +13,9 @@ import { frameToCss } from '../animation/timeline';
 import type { Frame } from '../animation/effects';
 
 export type Assets = Record<string, Asset>;
+
+/** 슬라이드 쇼 미디어 재생 옵션: 발표자 보기처럼 같은 슬라이드를 두 번 그릴 때 한쪽은 소리를 끔 */
+export const ShowMediaContext = createContext<{ muted: boolean }>({ muted: false });
 
 /* ───────────── 채우기 → CSS / SVG ───────────── */
 
@@ -538,14 +541,19 @@ function MediaContent({ obj, assets, mode }: { obj: MediaObject; assets: Assets;
   const asset = assets[obj.assetId];
   const poster = obj.posterId ? assets[obj.posterId]?.dataUrl : undefined;
   const url = useAssetUrl(mode === 'thumb' ? undefined : asset);
+  const { muted } = useContext(ShowMediaContext);
   if (obj.kind === 'audio') {
+    // 쇼 중 숨기기(내레이션 등): 아이콘은 숨기고 소리만 재생
+    if (mode === 'show' && obj.hideInShow) {
+      return <div style={{ visibility: 'hidden' }}>{url && <audio src={url} autoPlay={obj.autoPlay} loop={obj.loop} muted={muted} />}</div>;
+    }
     return (
       <div className="sl-media sl-audio">
         <svg viewBox="0 0 24 24" width="60%" height="60%" fill="none" stroke="#3a3a3a" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="M11 5 6 9H2v6h4l5 4V5z" fill="#3a3a3a" />
           <path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14" />
         </svg>
-        {mode === 'show' && url && <audio src={url} controls autoPlay={obj.autoPlay} loop={obj.loop} className="sl-media-controls" />}
+        {mode === 'show' && url && <audio src={url} controls autoPlay={obj.autoPlay} loop={obj.loop} muted={muted} className="sl-media-controls" />}
       </div>
     );
   }
@@ -566,7 +574,7 @@ function MediaContent({ obj, assets, mode }: { obj: MediaObject; assets: Assets;
       autoPlay={mode === 'show' && obj.autoPlay}
       loop={obj.loop}
       preload="metadata"
-      muted={mode !== 'show'}
+      muted={mode !== 'show' || muted}
       style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000', pointerEvents: mode === 'show' ? 'auto' : 'none' }}
     />
   );

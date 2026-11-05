@@ -212,15 +212,51 @@ function stepPar(ids: Ids, step: ReturnType<typeof buildTimeline>['steps'][numbe
  * 슬라이드 애니메이션 → p:timing XML.
  * spidOf: 개체 ID → 내보낸 슬라이드의 도형 ID (cNvPr id)
  */
-export function buildTimingXml(anims: Animation[] | undefined, spidOf: (id: string) => number | undefined, slideW: number, slideH: number, isTextShape: (id: string) => boolean = () => true): string | undefined {
-  if (!anims?.length) return undefined;
+export interface MediaPlayback {
+  spid: number;
+  kind: 'audio' | 'video';
+  autoPlay: boolean;
+  hideInShow: boolean;
+  loop: boolean;
+}
+
+/** 자동 재생 미디어: presetClass="mediacall" + playFrom 명령 (슬라이드가 시작되면 재생) */
+function mediaCallPar(ids: Ids, m: MediaPlayback, first: boolean): string {
+  return `<p:par><p:cTn id="${ids.next()}" presetID="1" presetClass="mediacall" presetSubtype="0" fill="hold" nodeType="${first ? 'afterEffect' : 'withEffect'}"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:cmd type="call" cmd="playFrom(0.0)"><p:cBhvr><p:cTn id="${ids.next()}" dur="1" fill="hold"/>${tgt(m.spid)}</p:cBhvr></p:cmd></p:childTnLst></p:cTn></p:par>`;
+}
+
+/** 미디어 노드 (재생 범위·쇼 중 숨기기·반복) */
+function mediaNode(ids: Ids, m: MediaPlayback): string {
+  const tag = m.kind === 'audio' ? 'audio' : 'video';
+  const end = m.kind === 'audio' ? `<p:endCondLst><p:cond evt="onStopAudio" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:endCondLst>` : '';
+  return `<p:${tag}><p:cMediaNode vol="80000"${m.hideInShow ? ' showWhenStopped="0"' : ''}><p:cTn id="${ids.next()}"${m.loop ? ' repeatCount="indefinite"' : ''} fill="hold" display="0"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst>${end}</p:cTn>${tgt(m.spid)}</p:cMediaNode></p:${tag}>`;
+}
+
+export function buildTimingXml(
+  anims: Animation[] | undefined,
+  spidOf: (id: string) => number | undefined,
+  slideW: number,
+  slideH: number,
+  isTextShape: (id: string) => boolean = () => true,
+  media: MediaPlayback[] = [],
+): string | undefined {
+  if (!anims?.length && !media.length) return undefined;
+  anims = anims ?? [];
   const tl = buildTimeline(anims);
   const ids = new Ids();
   const mainId = 2;
   ids.n = 2;
-  const steps = tl.steps
-    .map((st) => stepPar(ids, st, spidOf, slideW, slideH, st.auto ? `<p:cond delay="indefinite"/><p:cond evt="onBegin" delay="0"><p:tn val="${mainId}"/></p:cond>` : '<p:cond delay="indefinite"/>'))
-    .join('');
+  const onBegin = `<p:cond delay="indefinite"/><p:cond evt="onBegin" delay="0"><p:tn val="${mainId}"/></p:cond>`;
+  const auto = media.filter((m) => m.autoPlay);
+  // 자동 재생 미디어는 슬라이드 시작과 함께 (기본 순서의 맨 앞 단계)
+  const mediaStep = auto.length
+    ? `<p:par><p:cTn id="${ids.next()}" fill="hold"><p:stCondLst>${onBegin}</p:stCondLst><p:childTnLst><p:par><p:cTn id="${ids.next()}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>${auto.map((m, i) => mediaCallPar(ids, m, i === 0)).join('')}</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>`
+    : '';
+  const steps =
+    mediaStep +
+    tl.steps
+      .map((st) => stepPar(ids, st, spidOf, slideW, slideH, st.auto ? onBegin : '<p:cond delay="indefinite"/>'))
+      .join('');
   const interactive = [...tl.triggers]
     .map(([trigger, tsteps]) => {
       const tsp = spidOf(trigger);
@@ -232,9 +268,10 @@ export function buildTimingXml(anims: Animation[] | undefined, spidOf: (id: stri
   const main = steps
     ? `<p:seq concurrent="1" nextAc="seek"><p:cTn id="${mainId}" dur="indefinite" nodeType="mainSeq"><p:childTnLst>${steps}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq>`
     : '';
-  if (!main && !interactive) return undefined;
+  const nodes = media.filter((m) => m.autoPlay || m.hideInShow || m.loop).map((m) => mediaNode(ids, m)).join('');
+  if (!main && !interactive && !nodes) return undefined;
   // 빌드 목록은 텍스트를 가질 수 있는 도형(p:sp)만
   const targets = [...new Set(anims.filter((a) => isTextShape(a.targetId)).map((a) => spidOf(a.targetId)).filter((x): x is number => x !== undefined))];
   const bld = targets.length ? `<p:bldLst>${targets.map((s) => `<p:bldP spid="${s}" grpId="0" animBg="1"/>`).join('')}</p:bldLst>` : '';
-  return `<p:timing xmlns:p="${P}"><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst>${main}${interactive}</p:childTnLst></p:cTn></p:par></p:tnLst>${bld}</p:timing>`;
+  return `<p:timing xmlns:p="${P}"><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst>${main}${interactive}${nodes}</p:childTnLst></p:cTn></p:par></p:tnLst>${bld}</p:timing>`;
 }

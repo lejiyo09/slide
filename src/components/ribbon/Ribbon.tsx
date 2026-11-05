@@ -5,10 +5,12 @@ import { useEditor, useSelectedObjects } from '../../core/store/editorStore';
 import { TableDesignTab, TableLayoutTab, ChartDesignTab, MediaTab } from './ObjectTabs';
 import { saveNow } from '../../services/storage/autosave';
 import { HomeTab } from './HomeTab';
-import { DesignTab, InsertTab, RecordTab, ReviewTab, SlideShowTab, ViewTab } from './OtherTabs';
+import { DesignTab, InsertTab, ReviewTab, ViewTab } from './OtherTabs';
+import { RecordTab, SlideShowTab } from './ShowTabs';
 import { AnimationsTab, TransitionsTab } from './AnimTabs';
 import { ContextualTab } from './ContextualTab';
 import { usePwaInstall } from '../../hooks/usePwaInstall';
+import { startShow } from '../../core/commands/showActions';
 
 const TABS = [
   { id: 'home', label: '홈' },
@@ -75,7 +77,7 @@ export function Ribbon({ onCustomSize }: { onCustomSize: () => void }) {
             type="button"
             className="qat-btn"
             title="처음부터 슬라이드 쇼 (F5)"
-            onClick={() => useEditor.getState().set({ slideshow: { startIndex: 0 } })}
+            onClick={() => startShow()}
           >
             <Play size={15} />
           </button>

@@ -5,6 +5,7 @@ import * as C from '../core/commands/commands';
 import { applyFormat } from '../editors/text/formatting';
 import { saveNow } from '../services/storage/autosave';
 import { createTextBox } from '../core/document/factory';
+import { startShow } from '../core/commands/showActions';
 
 const isEditable = (t: EventTarget | null) => {
   const el = t as HTMLElement | null;
@@ -153,7 +154,8 @@ export function useShortcuts() {
       switch (k) {
         case 'F5':
           handled();
-          s.set({ slideshow: { startIndex: e.shiftKey ? Math.max(0, s.doc.slides.findIndex((x) => x.id === s.activeSlideId)) : 0 } });
+          // F5 처음부터, Shift+F5 현재 슬라이드부터, Alt+F5 발표자 보기
+          startShow({ fromCurrent: e.shiftKey, ...(e.altKey ? { presenter: true } : {}) });
           return;
         case 'Escape':
           if (s.insertTool) return s.set({ insertTool: null });

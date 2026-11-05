@@ -32,6 +32,8 @@ export interface SlidePlan {
   objIds: string[];
   /** 모델에서 생성할 애니메이션 */
   animations?: Animation[];
+  /** 자동 재생·쇼 중 숨기기·반복 미디어 (p:timing에 기록) */
+  media?: { id: string; kind: 'audio' | 'video'; autoPlay: boolean; hideInShow: boolean; loop: boolean }[];
   slideSize?: { width: number; height: number };
   /** emitted와 같은 순서: 소속 그룹 경로 (바깥 → 안쪽) */
   groupPaths: { key: string; name: string; sourceId?: number }[][];
@@ -46,8 +48,8 @@ const serialize = (d: Document) => XML_DECL + new XMLSerializer().serializeToStr
 
 const SHAPE_TAGS = new Set(['sp', 'pic', 'graphicFrame', 'grpSp', 'cxnSp', 'contentPart', 'AlternateContent']);
 
-export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], source: OoxmlPackage | null, warn: (m: string) => void): Promise<Uint8Array> {
-  const needs = plans.some((p) => p.markers.size || p.transitionXml || p.timingXml || p.emitted.some((x) => x !== undefined) || p.fills.some(Boolean) || p.groupPaths.some((g) => g.length) || !!p.background || !!p.animations?.length);
+export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], source: OoxmlPackage | null, warn: (m: string) => void, pres?: PresentationPlan): Promise<Uint8Array> {
+  const needs = plans.some((p) => p.markers.size || p.transitionXml || p.timingXml || p.emitted.some((x) => x !== undefined) || p.fills.some(Boolean) || p.groupPaths.some((g) => g.length) || !!p.background || !!p.animations?.length || !!p.media?.length) || !!pres;
   if (!needs) return bytes;
   const out = await JSZip.loadAsync(bytes);
   const ctDoc = parse(await out.file('[Content_Types].xml')!.async('string'));
@@ -116,6 +118,17 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
     const spTree = path(root, 'cSld', 'spTree');
     if (!spTree) continue;
     const shapes = kids(spTree).filter((e) => SHAPE_TAGS.has(e.localName));
+
+    // 0) pptxgenjs는 오디오도 a:videoFile로 기록 → 관계 형식이 audio면 a:audioFile로 (PowerPoint가 오디오로 인식)
+    const audioRels = new Set(Array.from(rdoc.documentElement.children).filter((r) => (r.getAttribute('Type') ?? '').endsWith('/audio')).map((r) => r.getAttribute('Id')));
+    if (audioRels.size) {
+      for (const vf of Array.from(sdoc.getElementsByTagNameNS(NS.a, 'videoFile'))) {
+        if (!audioRels.has(vf.getAttributeNS(NS.r, 'link'))) continue;
+        const af = sdoc.createElementNS(NS.a, 'a:audioFile');
+        for (const at of Array.from(vf.attributes)) af.setAttributeNS(at.namespaceURI, at.name, at.value);
+        vf.parentNode!.replaceChild(af, vf);
+      }
+    }
 
     // 1) 도형 ID 복원
     const cNvPrOf = (e: Element) => e.getElementsByTagNameNS(NS.p, 'cNvPr')[0] ?? null;
@@ -252,7 +265,7 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
     const ids = new Set(Array.from(sdoc.getElementsByTagNameNS(NS.p, 'cNvPr')).map((e) => e.getAttribute('id')));
     let timing = plan.timingXml;
     // 모델 애니메이션 → p:timing (최종 도형 ID로)
-    if (!timing && plan.animations?.length && elementAt) {
+    if (!timing && (plan.animations?.length || plan.media?.length) && elementAt) {
       const spidOf = (id: string) => {
         const gid = groupIds.get(id);
         if (gid !== undefined) return gid;
@@ -264,7 +277,11 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
         const i = plan.objIds.indexOf(id);
         return i >= 0 && elementAt[i]?.localName === 'sp';
       };
-      timing = buildTimingXml(plan.animations, spidOf, plan.slideSize?.width ?? 1280, plan.slideSize?.height ?? 720, isTextShape);
+      const media = (plan.media ?? []).flatMap((m) => {
+        const spid = spidOf(m.id);
+        return spid === undefined ? [] : [{ ...m, spid }];
+      });
+      timing = buildTimingXml(plan.animations, spidOf, plan.slideSize?.width ?? 1280, plan.slideSize?.height ?? 720, isTextShape, media);
     } else if (!timing && plan.animations?.length) warn(`슬라이드 ${plan.index + 1}: 개체 대응을 확인할 수 없어 애니메이션을 저장하지 않았습니다.`);
     if (timing) {
       const refs = [...timing.matchAll(/spid="(\d+)"/g)].map((m) => m[1]);
@@ -288,8 +305,62 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
   // 4) 원본 테마 복원: 보존된 표·차트·SmartArt가 참조하는 테마 색(accent1 등)을 원본과 같게 유지
   if (source && copied.size + plans.reduce((n, p) => n + p.markers.size, 0) > 0) await restoreTheme(out, source, copyPart);
 
+  // 5) 쇼 설정(presProps.xml) / 재구성한 쇼(presentation.xml)
+  if (pres) await writePresentationSettings(out, pres);
+
   out.file('[Content_Types].xml', serialize(ctDoc));
   return out.generateAsync({ type: 'uint8array', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
+}
+
+/** 프레젠테이션 수준 설정: 쇼 설정 + 재구성한 쇼 */
+export interface PresentationPlan {
+  showPrXml: string;
+  /** 재구성한 쇼: 슬라이드 인덱스(내보낸 순서) 목록 */
+  customShows: { name: string; slides: number[] }[];
+}
+
+async function writePresentationSettings(out: JSZip, pres: PresentationPlan) {
+  const presPath = 'ppt/presentation.xml';
+  // 재구성한 쇼: p:custShowLst (sldIdLst의 r:id 참조)
+  if (pres.customShows.length && out.file(presPath)) {
+    const pdoc = parse(await out.file(presPath)!.async('string'));
+    const root = pdoc.documentElement;
+    const rids = Array.from(kids(kid(root, 'sldIdLst'), 'sldId')).map((e) => e.getAttributeNS(NS.r, 'id') ?? '');
+    for (const c of kids(root)) if (c.localName === 'custShowLst') root.removeChild(c);
+    const lst = pdoc.createElementNS(NS.p, 'p:custShowLst');
+    pres.customShows.forEach((cs, i) => {
+      const el = pdoc.createElementNS(NS.p, 'p:custShow');
+      el.setAttribute('name', cs.name);
+      el.setAttribute('id', String(i));
+      const sl = pdoc.createElementNS(NS.p, 'p:sldLst');
+      for (const n of cs.slides) {
+        if (!rids[n]) continue;
+        const s = pdoc.createElementNS(NS.p, 'p:sld');
+        s.setAttributeNS(NS.r, 'r:id', rids[n]);
+        sl.appendChild(s);
+      }
+      el.appendChild(sl);
+      lst.appendChild(el);
+    });
+    // CT_Presentation 순서: ... sldSz, notesSz, smartTags, embeddedFontLst, custShowLst, photoAlbum, custDataLst, kinsoku, defaultTextStyle, ...
+    const after = new Set(['photoAlbum', 'custDataLst', 'kinsoku', 'defaultTextStyle', 'modifyVerifier', 'extLst']);
+    const anchor = kids(root).find((c) => after.has(c.localName)) ?? null;
+    root.insertBefore(lst, anchor);
+    out.file(presPath, serialize(pdoc));
+  }
+  // 쇼 설정: presProps.xml의 p:showPr (기존 확장 요소는 유지)
+  const propsPath = 'ppt/presProps.xml';
+  const f = out.file(propsPath);
+  if (f) {
+    const doc = parse(await f.async('string'));
+    const root = doc.documentElement;
+    for (const c of kids(root)) if (c.localName === 'showPr') root.removeChild(c);
+    const showPr = doc.importNode(parse(pres.showPrXml).documentElement, true);
+    // CT_PresentationProperties 순서: htmlPubPr, webPr, prnPr, showPr, clrMru, extLst
+    const anchor = kids(root).find((c) => c.localName === 'clrMru' || c.localName === 'extLst') ?? null;
+    root.insertBefore(showPr, anchor);
+    out.file(propsPath, serialize(doc));
+  }
 }
 
 /** 첫 단색 채우기를 그라데이션(a:gradFill) 또는 무늬(a:pattFill)로 교체 */

@@ -382,7 +382,7 @@ await page.waitForSelector('.slideshow');
 await page.waitForTimeout(300);
 await page.screenshot({ path: `${OUT}/05-slideshow.png` });
 await page.keyboard.press('ArrowRight');
-check('슬라이드 쇼 다음 슬라이드', (await page.locator('.show-controls span').textContent()).startsWith('2'));
+check('슬라이드 쇼 다음 슬라이드', (await page.locator('.show-counter').textContent()).startsWith('2'));
 await page.keyboard.press('b');
 check('검은 화면 (B)', (await page.locator('.show-blank.black').count()) === 1);
 await page.keyboard.press('b');

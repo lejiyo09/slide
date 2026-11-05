@@ -160,7 +160,7 @@ await page.mouse.click(r.x + r.width / 2, r.y + r.height / 2);
 await page.waitForTimeout(400);
 const rot = await page.evaluate((i) => getComputedStyle(document.querySelector(`.slideshow [data-obj-id="${i}"]`)).transform, ell.id);
 check('트리거 클릭 → 회전 재생', rot !== 'none' && !rot.startsWith('matrix(1, 0, 0, 1'), rot);
-check('트리거 클릭은 슬라이드를 넘기지 않음', (await page.locator('.show-controls span').textContent()).startsWith('2'));
+check('트리거 클릭은 슬라이드를 넘기지 않음', (await page.locator('.show-counter').textContent()).startsWith('2'));
 // 이전 → 첫 슬라이드 (뒤로 가면 전환 없이)
 await page.keyboard.press('Escape');
 await page.waitForTimeout(200);

@@ -1,5 +1,5 @@
 import {
-  Image as ImageIcon, Type, Plus, FileImage, Monitor, Play, PlayCircle, EyeOff, LayoutGrid, Square, Grid3x3, Ruler, Magnet,
+  Image as ImageIcon, Type, Plus, FileImage, Monitor, LayoutGrid, Square, Grid3x3, Ruler, Magnet,
   NotebookPen, ZoomIn, ZoomOut, Maximize, Moon, Sun, Ratio, Palette, PaintBucket, History, Save, Shapes,
   Table2, BarChart3, Smile, Link2, Film, Volume2, LayoutTemplate, Type as TypeIcon, Settings2, PanelsTopLeft,
 } from 'lucide-react';
@@ -339,33 +339,6 @@ function TemplateThumb({ template }: { template: DesignTemplate }) {
 }
 
 /* ───────────── 전환 / 애니메이션 / 녹화 ───────────── */
-
-export function RecordTab() {
-  return <PlannedGroup label="녹화" stage="11단계" items={['현재 슬라이드부터 녹화', '처음부터 녹화', '내레이션', '비디오로 내보내기']} />;
-}
-
-/* ───────────── 슬라이드 쇼 ───────────── */
-
-export function SlideShowTab() {
-  const s = useEditor;
-  const start = (fromCurrent: boolean) => {
-    const st = s.getState();
-    const idx = fromCurrent ? st.doc.slides.findIndex((x) => x.id === st.activeSlideId) : 0;
-    st.set({ slideshow: { startIndex: Math.max(0, idx) } });
-  };
-  return (
-    <>
-      <RibbonGroup label="슬라이드 쇼 시작">
-        <RibbonButton size="large" icon={<Play size={26} />} label="처음부터" title="처음부터 슬라이드 쇼" shortcut="F5" onClick={() => start(false)} />
-        <RibbonButton size="large" icon={<PlayCircle size={26} />} label="현재 슬라이드부터" title="현재 슬라이드부터" shortcut="Shift+F5" onClick={() => start(true)} />
-      </RibbonGroup>
-      <RibbonGroup label="설정">
-        <RibbonButton size="large" icon={<EyeOff size={26} />} label="슬라이드 숨기기" title="선택한 슬라이드를 쇼에서 숨기기" onClick={A.toggleHideSlides} />
-      </RibbonGroup>
-      <PlannedGroup label="발표자 도구" stage="11단계" items={['발표자 보기', '타이머', '레이저 포인터', '펜', '화면 확대']} />
-    </>
-  );
-}
 
 /* ───────────── 검토 ───────────── */
 

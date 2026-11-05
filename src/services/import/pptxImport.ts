@@ -15,8 +15,9 @@ import type {
   TableObject, TableCell, CellBorders, ChartObject, ChartType, MediaObject, MasterSlide, PlaceholderType, SlideTransition, Animation,
 } from '../../types/model';
 import type { Rel } from './ooxml';
-import { contentFingerprint } from '../../core/document/fingerprint';
+import { contentFingerprint, mediaPlaybackSignature } from '../../core/document/fingerprint';
 import { parseTiming, parseTransition } from './animImport';
+import { parseCustomShows, parseShowPr } from '../export/showXml';
 import { applyTableStyle } from '../../editors/table/table';
 import { newId } from '../../utils/id';
 import { MIME_BY_EXT, NS, OoxmlPackage, REL, WEB_IMAGE_EXT, boolAttr, descendants, kid, kids, numAttr, path, rAttr, serializeElement } from './ooxml';
@@ -274,6 +275,7 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
   const sldIds = kids(kid(pres, 'sldIdLst'), 'sldId');
   const slides: Slide[] = [];
   const idToSlide = new Map<string, string>();
+  const ridToSlide = new Map<string, string>();
   let firstTheme: ThemeInfo | null = null;
   let firstMaster: MasterInfo | null = null;
 
@@ -329,12 +331,21 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
         report.preservedTimings++;
         const r = parseTiming(c, objects, width, height);
         if (r.animations.length) animations = r.animations;
+        // 미디어 자동 재생 / 쇼 중 숨기기 / 반복
+        for (const o of objects) {
+          const m = o.type === 'media' && o.sourceId !== undefined ? r.media.get(String(o.sourceId)) : undefined;
+          if (!m || o.type !== 'media') continue;
+          if (m.autoPlay) o.autoPlay = true;
+          if (m.hideInShow) o.hideInShow = true;
+          if (m.loop) o.loop = true;
+        }
         source.animationFingerprint = JSON.stringify(r.animations);
         if (r.approximated) report.approximated.push('일부 애니메이션은 비슷한 효과로 표시됩니다 (내용을 바꾸지 않으면 저장 시 원본 유지).');
         if (r.skipped) report.approximated.push('그룹 안 개체나 텍스트 단락 등을 대상으로 한 애니메이션 일부는 편집 목록에 표시되지 않습니다 (저장 시 원본 유지).');
       }
     }
 
+    source.mediaFingerprint = mediaPlaybackSignature(objects);
     const slide: Slide = {
       id: newId(),
       objects,
@@ -349,6 +360,7 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
     };
     slides.push(slide);
     idToSlide.set(sid.getAttribute('id') ?? '', slide.id);
+    ridToSlide.set(rAttr(sid, 'id') ?? '', slide.id);
     report.objects += countObjects(objects);
   }
   // 첫 마스터의 레이아웃 전체 (사용되지 않은 레이아웃도 새 슬라이드용으로 가져옴, 마스터의 순서대로)
@@ -393,6 +405,12 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
     background: masterBg && masterBg.type !== 'image' ? masterBg : { type: 'solid', color: t.scheme.lt1 ?? '#FFFFFF' },
   };
 
+  // 재구성한 쇼 + 슬라이드 쇼 설정 (presProps.xml)
+  const custom = parseCustomShows(pres, (rid) => ridToSlide.get(rid), newId);
+  const propsRel = [...presRels.values()].find((r) => r.type.endsWith('/presProps'));
+  const propsDoc = propsRel ? await pkg.xml(propsRel.target) : null;
+  const showSettings = parseShowPr(kid(propsDoc?.documentElement ?? null, 'showPr'), custom.idMap, slides.length);
+
   const now = Date.now();
   const doc: Presentation = {
     id: newId(),
@@ -405,6 +423,8 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
     layouts: layoutDefs,
     layoutOrder,
     ...(docMaster ? { master: docMaster } : {}),
+    ...(showSettings ? { showSettings } : {}),
+    ...(custom.shows.length ? { customShows: custom.shows } : {}),
     createdAt: now,
     updatedAt: now,
     version: 1,

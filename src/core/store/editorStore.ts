@@ -34,6 +34,20 @@ export interface Toast {
   tone: 'info' | 'success' | 'warning' | 'error';
 }
 
+/** 슬라이드 쇼 시작 요청 */
+export interface ShowRequest {
+  /** 시작할 슬라이드 (doc.slides 인덱스) */
+  startIndex: number;
+  /** 발표자 보기로 시작 (Alt+F5) */
+  presenter?: boolean;
+  /** 예행 연습(시간 기록) / 녹화(내레이션 + 시간) */
+  mode?: 'rehearse' | 'record';
+  /** 재구성한 쇼 */
+  customShowId?: string;
+  /** 처음부터 (쇼 범위/재구성한 쇼의 첫 슬라이드) */
+  fromStart?: boolean;
+}
+
 export interface EditorState {
   doc: Presentation;
   history: H.HistoryState<Presentation>;
@@ -79,7 +93,7 @@ export interface EditorState {
   insertTool: InsertTool;
   formatPainter: { format: CopiedFormat; sticky: boolean } | null;
   clipboard: Clipboard;
-  slideshow: { startIndex: number } | null;
+  slideshow: ShowRequest | null;
   backstageOpen: boolean;
   saveStatus: 'saved' | 'saving' | 'unsaved' | 'error';
   lastSavedAt: number | null;

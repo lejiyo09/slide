@@ -7,7 +7,9 @@
  */
 import PptxGenJS from 'pptxgenjs';
 import type { Asset, ChartObject, Fill, GroupObject, Paragraph, Presentation, ShapeKind, ShapeObject, SlideObject, Stroke, TableObject, TextBody } from '../../types/model';
-import { isPristine } from '../../core/document/fingerprint';
+import { isPristine, mediaPlaybackSignature } from '../../core/document/fingerprint';
+import { buildShowPrXml, customShowPlan } from './showXml';
+import { showSettingsOf } from '../../engines/show/showModel';
 import { designLayers } from '../../engines/rendering/SlideView';
 import { resolveTokensDeep } from '../../utils/themeColor';
 import { chartPalette } from '../../editors/chart/chart';
@@ -264,12 +266,16 @@ export async function buildPptx(source: Presentation, opts: BuildOptions = {}): 
 
     // 전환/애니메이션: 가져온 뒤 바꾸지 않았으면 원본 XML, 아니면 모델에서 생성
     const keepTransition = !!s.source?.transitionXml && opts.sourceAvailable !== false && JSON.stringify(s.transition) === s.source.transitionFingerprint;
-    const keepTiming = !!s.source?.timingXml && JSON.stringify(s.animations ?? []) === s.source.animationFingerprint;
+    const media = s.objects.flatMap((o) => (o.type === 'media' && (o.autoPlay || o.hideInShow || o.loop) && !o.hidden ? [{ id: o.id, kind: o.kind, autoPlay: !!o.autoPlay, hideInShow: !!o.hideInShow, loop: !!o.loop }] : []));
+    const keepTiming =
+      !!s.source?.timingXml &&
+      JSON.stringify(s.animations ?? []) === s.source.animationFingerprint &&
+      (s.source.mediaFingerprint === undefined || mediaPlaybackSignature(s.objects) === s.source.mediaFingerprint);
     const plan: SlidePlan = {
       index: slideIndex, emitted: [], objIds: [], fills: [], groupPaths: [], markers: new Map(),
       transitionXml: keepTransition ? s.source!.transitionXml : buildTransitionXml(s.transition),
       timingXml: keepTiming ? s.source!.timingXml : undefined,
-      ...(!keepTiming && s.animations?.length ? { animations: s.animations, slideSize: doc.size } : {}),
+      ...(!keepTiming && (s.animations?.length || media.length) ? { animations: s.animations ?? [], media, slideSize: doc.size } : {}),
       ...(bg.type === 'gradient' || bg.type === 'pattern' ? { background: bg } : {}),
     };
     if (!keepTiming && s.source?.timingXml && s.animations?.length) warn('애니메이션을 바꾼 슬라이드는 SlideLab 효과로 새로 저장되었습니다.');
@@ -484,7 +490,8 @@ export async function exportPptxBytes(
   const raw = (await pptx.write({ outputType: 'uint8array', compression: true })) as Uint8Array;
   const extra: string[] = [];
   const source = opts.sourcePackage ? await OoxmlPackage.load(opts.sourcePackage) : null;
-  const bytes = await postProcessPptx(raw, plans, source, (m) => extra.push(m));
+  const pres = { showPrXml: buildShowPrXml(showSettingsOf(doc), doc.customShows), customShows: customShowPlan(doc) };
+  const bytes = await postProcessPptx(raw, plans, source, (m) => extra.push(m), pres);
   return { bytes, warnings: [...new Set([...warnings, ...extra])] };
 }
 
