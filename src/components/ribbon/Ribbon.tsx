@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { MasterTab } from './MasterTab';
 import { Undo2, Redo2, Save, Play, Cloud, CloudOff, Loader2, Check, MonitorDown } from 'lucide-react';
 import { useEditor, useSelectedObjects } from '../../core/store/editorStore';
 import { TableDesignTab, TableLayoutTab, ChartDesignTab, MediaTab } from './ObjectTabs';
@@ -20,7 +21,7 @@ const TABS = [
   { id: 'view', label: '보기' },
 ] as const;
 
-type TabId = (typeof TABS)[number]['id'] | 'format' | 'tableDesign' | 'tableLayout' | 'chartDesign' | 'media';
+type TabId = (typeof TABS)[number]['id'] | 'format' | 'tableDesign' | 'tableLayout' | 'chartDesign' | 'media' | 'master';
 
 export function Ribbon({ onCustomSize }: { onCustomSize: () => void }) {
   const [tab, setTab] = useState<TabId>('home');
@@ -40,8 +41,14 @@ export function Ribbon({ onCustomSize }: { onCustomSize: () => void }) {
     return [{ id: 'format', label: selected.every((o) => o.type === 'image') ? '그림 서식' : '도형 서식' }];
   })();
   const { canInstall, install } = usePwaInstall();
+  const masterView = useEditor((s) => s.masterView);
+  // 마스터 보기에 들어가면 '슬라이드 마스터' 탭으로 전환
+  useEffect(() => {
+    setTab(masterView ? 'master' : 'home');
+  }, [masterView]);
   const isContextual = (t: TabId) => ['format', 'tableDesign', 'tableLayout', 'chartDesign', 'media'].includes(t);
-  const activeTab: TabId = isContextual(tab) && !contextualTabs.some((c) => c.id === tab) ? 'home' : tab;
+  let activeTab: TabId = isContextual(tab) && !contextualTabs.some((c) => c.id === tab) ? 'home' : tab;
+  if (activeTab === 'master' && !masterView) activeTab = 'home';
   const table = selected.length === 1 && selected[0].type === 'table' ? selected[0] : null;
 
   return (
@@ -96,7 +103,19 @@ export function Ribbon({ onCustomSize }: { onCustomSize: () => void }) {
         <button type="button" className="tab tab-file" role="tab" onClick={() => useEditor.getState().set({ backstageOpen: true })}>
           파일
         </button>
-        {TABS.map((t) => (
+        {masterView && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'master'}
+            className={`tab tab-master ${activeTab === 'master' ? 'is-active' : ''}`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => (setTab('master'), setCollapsed(false))}
+          >
+            슬라이드 마스터
+          </button>
+        )}
+        {TABS.filter((t) => !masterView || !['transitions', 'animations', 'slideshow', 'record'].includes(t.id)).map((t) => (
           <button
             key={t.id}
             type="button"
@@ -126,6 +145,7 @@ export function Ribbon({ onCustomSize }: { onCustomSize: () => void }) {
       </nav>
       {!collapsed && (
         <div className="ribbon" role="tabpanel">
+          {activeTab === 'master' && <MasterTab />}
           {activeTab === 'home' && <HomeTab />}
           {activeTab === 'insert' && <InsertTab />}
           {activeTab === 'design' && <DesignTab onCustomSize={onCustomSize} />}

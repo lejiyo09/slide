@@ -23,9 +23,10 @@ export const normRange = (r: CellRange): CellRange => ({
 
 const noBorders = (): CellBorders => ({ top: null, right: null, bottom: null, left: null });
 
-export function createCell(theme?: Theme, fontSize = 18): TableCell {
+export function createCell(_theme?: Theme, fontSize = 18): TableCell {
+  void _theme;
   return {
-    text: textBody([paragraph('', { fontSize, color: theme?.colors.dark1 ?? '#000000', fontFamily: theme?.fonts.body })], {
+    text: textBody([paragraph('', { fontSize, color: '@dark1', fontFamily: '@body' })], {
       vAlign: 'top',
       padding: { top: 4.8, right: 9.6, bottom: 4.8, left: 9.6 },
     }),
@@ -326,11 +327,6 @@ export function scaleTable(t: TableObject, width: number, height: number) {
 
 /* ───────────── 스타일 프리셋 ───────────── */
 
-function mix(hex: Color, toward: Color, amount: number): Color {
-  const a = hex.replace('#', ''), b = toward.replace('#', '');
-  const ch = (i: number) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - amount) + parseInt(b.slice(i, i + 2), 16) * amount).toString(16).padStart(2, '0');
-  return `#${ch(0)}${ch(2)}${ch(4)}`.toUpperCase();
-}
 
 export const TABLE_PRESETS: { id: TableStylePreset; name: string }[] = [
   { id: 'medium2', name: '보통 스타일 2' },
@@ -341,11 +337,13 @@ export const TABLE_PRESETS: { id: TableStylePreset; name: string }[] = [
 ];
 
 /** 테마 강조색 기반 표 스타일을 셀 서식으로 구워 넣음 (PowerPoint 기본 스타일 근사) */
-export function applyTableStyle(t: TableObject, theme: Theme) {
+export function applyTableStyle(t: TableObject, _theme?: Theme) {
+  void _theme;
   const st = t.style ?? { preset: 'medium2', accent: 1, firstRow: true, bandRows: true, firstCol: false, lastRow: false };
-  const accent = (theme.colors as unknown as Record<string, string>)[`accent${st.accent}`] ?? theme.colors.accent1;
-  const white = '#FFFFFF';
-  const text = theme.colors.dark1;
+  // 테마 토큰으로 기록 → 테마/색 조합을 바꾸면 표 색도 함께 바뀜
+  const A = `@accent${Math.min(6, Math.max(1, st.accent))}`;
+  const white = '@light1';
+  const text = '@dark1';
   const last = t.rows.length - 1;
   t.rows.forEach((row, r) =>
     row.cells.forEach((cell, c) => {
@@ -361,21 +359,21 @@ export function applyTableStyle(t: TableObject, theme: Theme) {
       const line = (col: Color, w = 1): Stroke => ({ color: col, width: w, dash: 'solid' });
       switch (st.preset) {
         case 'medium2':
-          fill = { type: 'solid', color: header || footer ? accent : band ? mix(accent, white, 0.6) : mix(accent, white, 0.8) };
+          fill = { type: 'solid', color: header || footer ? A : band ? `${A}^0.6` : `${A}^0.8` };
           if (header || footer) (color = white), (bold = true);
           borders = { top: line(white), bottom: line(white), left: line(white), right: line(white) };
           break;
         case 'light1':
           if (header) bold = true;
-          fill = band && !header ? { type: 'solid', color: mix(accent, white, 0.8) } : { type: 'none' };
-          borders = { top: r === 0 ? line(accent) : null, bottom: header || r === last ? line(accent) : null, left: null, right: null };
+          fill = band && !header ? { type: 'solid', color: `${A}^0.8` } : { type: 'none' };
+          borders = { top: r === 0 ? line(A) : null, bottom: header || r === last ? line(A) : null, left: null, right: null };
           break;
         case 'grid':
           if (header) bold = true;
           borders = { top: line(text, 0.75), bottom: line(text, 0.75), left: line(text, 0.75), right: line(text, 0.75) };
           break;
         case 'dark1':
-          fill = { type: 'solid', color: header ? '#000000' : band ? mix(accent, '#000000', 0.25) : accent };
+          fill = { type: 'solid', color: header ? '@dark1' : band ? `${A}~0.75` : A };
           color = white;
           if (header) bold = true;
           borders = { top: line(white), bottom: line(white), left: line(white), right: line(white) };

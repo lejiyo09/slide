@@ -10,6 +10,8 @@ import { useCurrentTextStyle } from '../../hooks/useCurrentTextStyle';
 import { FONT_FAMILIES } from '../../editors/text/fonts';
 import { SHAPE_NAMES } from '../../core/document/factory';
 import { fileToAsset, pickFiles } from '../../services/storage/files';
+import { PATTERNS } from '../../engines/rendering/patterns';
+import { fillToCss } from '../../engines/rendering/ObjectView';
 
 const pxToCm = (px: number) => round((px / 96) * 2.54, 2);
 const cmToPx = (cm: number) => (cm / 2.54) * 96;
@@ -35,7 +37,8 @@ const live = {
 
 export function PropertiesPanel({ onClose }: { onClose: () => void }) {
   const objs = useSelectedObjects();
-  const title = objs.length === 0 ? '슬라이드 서식' : objs.length === 1 ? `${objs[0].type === 'shape' ? SHAPE_NAMES[objs[0].shape] : TYPE_NAMES[objs[0].type]} 서식` : `개체 ${objs.length}개 서식`;
+  const masterView = useEditor((s) => s.masterView);
+  const title = objs.length === 0 ? (masterView ? '마스터/레이아웃 배경 서식' : '슬라이드 서식') : objs.length === 1 ? `${objs[0].type === 'shape' ? SHAPE_NAMES[objs[0].shape] : TYPE_NAMES[objs[0].type]} 서식` : `개체 ${objs.length}개 서식`;
   return (
     <aside className="properties" aria-label="서식 창">
       <div className="pp-head">
@@ -192,15 +195,18 @@ function ObjectProps({ objs }: { objs: SlideObject[] }) {
 }
 
 function FillEditor({ fill, onChange, allowImage, onImage }: { fill: Fill; onChange: (f: Fill) => void; allowImage?: boolean; onImage?: () => void }) {
+  const theme = useEditor((s) => s.doc.theme);
   const options: { value: Fill['type']; label: string; title: string }[] = [
     { value: 'none', label: '없음', title: '채우기 없음' },
     { value: 'solid', label: '단색', title: '단색 채우기' },
     { value: 'gradient', label: '그라데이션', title: '그라데이션 채우기' },
+    { value: 'pattern', label: '무늬', title: '무늬 채우기' },
   ];
   if (allowImage) options.push({ value: 'image', label: '그림', title: '그림 채우기' });
   const setType = (t: Fill['type']) => {
     if (t === fill.type) return;
-    const base = fill.type === 'solid' ? fill.color : fill.type === 'gradient' ? fill.stops[0].color : '#4472C4';
+    const base = fill.type === 'solid' ? fill.color : fill.type === 'gradient' ? fill.stops[0].color : fill.type === 'pattern' ? fill.fg : '@accent1';
+    if (t === 'pattern') onChange({ type: 'pattern', preset: 'ltUpDiag', fg: base, bg: '@light1' });
     if (t === 'none') onChange({ type: 'none' });
     if (t === 'solid') onChange({ type: 'solid', color: base });
     if (t === 'gradient') onChange({ type: 'gradient', angle: 90, stops: [{ offset: 0, color: base }, { offset: 1, color: '#FFFFFF' }] });
@@ -242,6 +248,28 @@ function FillEditor({ fill, onChange, allowImage, onImage }: { fill: Fill; onCha
           </Row>
           <Row label="각도">
             <NumberField label="" unit="°" value={fill.angle} onChange={(v) => onChange({ ...fill, angle: ((v % 360) + 360) % 360 })} />
+          </Row>
+        </>
+      )}
+      {fill.type === 'pattern' && (
+        <>
+          <div className="pattern-pick">
+            {PATTERNS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                title={p.name}
+                className={`pattern-swatch ${fill.preset === p.id ? 'is-active' : ''}`}
+                style={fillToCss({ ...fill, preset: p.id }, {}, theme)}
+                onClick={() => onChange({ ...fill, preset: p.id })}
+              />
+            ))}
+          </div>
+          <Row label="전경색">
+            <ColorField title="무늬 전경색" value={fill.fg} onChange={(c) => c && onChange({ ...fill, fg: c })} />
+          </Row>
+          <Row label="배경색">
+            <ColorField title="무늬 배경색" value={fill.bg} onChange={(c) => c && onChange({ ...fill, bg: c })} />
           </Row>
         </>
       )}

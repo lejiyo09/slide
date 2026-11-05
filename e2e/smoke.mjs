@@ -117,7 +117,7 @@ await page.waitForTimeout(100);
 slide = await activeSlide();
 const t0 = slide.objects[0].text.paragraphs[0].runs;
 check('텍스트 입력이 모델에 반영', t0.map((r) => r.text).join('') === 'SlideLab 첫 작동 버전', JSON.stringify(t0.map((r) => r.text)));
-check('편집 중 Ctrl+B 굵게 토글 (제목 기본 굵게 → 해제)', t0.every((r) => r.bold === false));
+check('편집 중 Ctrl+B 굵게 (마스터 제목 스타일은 보통 → 굵게)', t0.every((r) => r.bold === true));
 check('편집 중 Ctrl+I 기울임', t0.every((r) => r.italic === true));
 check('편집 중 Ctrl+E 가운데 맞춤', slide.objects[0].text.paragraphs[0].align === 'center');
 

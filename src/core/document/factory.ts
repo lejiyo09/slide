@@ -15,25 +15,19 @@ import type {
   TextObject,
   TextRunStyle,
   Theme,
+  MasterSlide,
 } from '../../types/model';
 import { newId } from '../../utils/id';
 import { DEFAULT_THEME } from '../../themes/themes';
+import { BUILTIN_LAYOUTS, createBuiltinLayout, createBuiltinLayouts, createMaster, slideFromLayout, type BuiltinLayout } from './masters';
 
 export const SLIDE_SIZES: Record<'16:9' | '4:3', SlideSize> = {
   '16:9': { width: 1280, height: 720, preset: '16:9' },
   '4:3': { width: 960, height: 720, preset: '4:3' },
 };
 
-export type SlideLayout = 'title' | 'titleContent' | 'sectionHeader' | 'twoContent' | 'titleOnly' | 'blank';
-
-export const LAYOUTS: { id: SlideLayout; name: string }[] = [
-  { id: 'title', name: '제목 슬라이드' },
-  { id: 'titleContent', name: '제목 및 내용' },
-  { id: 'sectionHeader', name: '구역 머리글' },
-  { id: 'twoContent', name: '콘텐츠 2개' },
-  { id: 'titleOnly', name: '제목만' },
-  { id: 'blank', name: '빈 화면' },
-];
+export type SlideLayout = BuiltinLayout;
+export const LAYOUTS = BUILTIN_LAYOUTS;
 
 export function paragraph(text: string, style: TextRunStyle = {}, extra: Partial<Paragraph> = {}): Paragraph {
   return { runs: [{ text, ...style }], align: 'left', lineSpacing: 1, bullet: 'none', level: 0, ...extra };
@@ -107,7 +101,8 @@ export const SHAPE_NAMES: Record<ShapeKind, string> = {
   custom: '자유형',
 };
 
-export function createShape(kind: ShapeKind, x: number, y: number, width = 200, height = 140, theme: Theme = DEFAULT_THEME): ShapeObject {
+export function createShape(kind: ShapeKind, x: number, y: number, width = 200, height = 140, _theme: Theme = DEFAULT_THEME): ShapeObject {
+  void _theme;
   return {
     id: newId(),
     type: 'shape',
@@ -118,20 +113,16 @@ export function createShape(kind: ShapeKind, x: number, y: number, width = 200, 
     width,
     height,
     rotation: 0,
-    fill: { type: 'solid', color: theme.colors.accent1 },
-    stroke: { color: shade(theme.colors.accent1), width: 1, dash: 'solid' },
-    text: textBody([paragraph('', { fontSize: 18, color: '#FFFFFF' }, { align: 'center' })], { vAlign: 'middle' }),
+    // 테마 토큰: 테마/색 조합을 바꾸면 함께 바뀜
+    fill: { type: 'solid', color: '@accent1' },
+    stroke: { color: '@accent1~0.75', width: 1, dash: 'solid' },
+    text: textBody([paragraph('', { fontSize: 18, color: '@light1', fontFamily: '@body' }, { align: 'center' })], { vAlign: 'middle' }),
   };
 }
 
-/** 약간 어둡게 (윤곽선 기본 색) */
-function shade(hex: string) {
-  const h = hex.replace('#', '');
-  const ch = (i: number) => Math.round(parseInt(h.slice(i, i + 2), 16) * 0.75).toString(16).padStart(2, '0');
-  return `#${ch(0)}${ch(2)}${ch(4)}`.toUpperCase();
-}
 
-export function createLine(x: number, y: number, width: number, height: number, headEnd: ArrowHead = 'none', theme: Theme = DEFAULT_THEME): LineObject {
+export function createLine(x: number, y: number, width: number, height: number, headEnd: ArrowHead = 'none', _theme: Theme = DEFAULT_THEME): LineObject {
+  void _theme;
   return {
     id: newId(),
     type: 'line',
@@ -141,7 +132,7 @@ export function createLine(x: number, y: number, width: number, height: number, 
     width,
     height,
     rotation: 0,
-    stroke: { color: theme.colors.accent1, width: 2, dash: 'solid' },
+    stroke: { color: '@accent1', width: 2, dash: 'solid' },
     headStart: 'none',
     headEnd,
   };
@@ -192,66 +183,26 @@ export function createGroup(children: SlideObject[]): GroupObject {
   };
 }
 
-function placeholderText(_text: string, size: number, theme: Theme, bold = false) {
-  return { fontSize: size, color: theme.colors.dark1, fontFamily: theme.fonts.heading, bold };
-}
-
-export function createSlide(layout: SlideLayout, size: SlideSize, theme: Theme = DEFAULT_THEME): Slide {
-  const W = size.width;
-  const H = size.height;
-  const m = W * 0.07;
-  const objects: SlideObject[] = [];
-  const body = { fontSize: 24, color: theme.colors.dark1, fontFamily: theme.fonts.body };
-
-  switch (layout) {
-    case 'title':
-      objects.push(
-        createTextBox({
-          x: m, y: H * 0.28, width: W - 2 * m, height: H * 0.24, text: '',
-          style: placeholderText('', 54, theme, true), para: { align: 'center' }, name: '제목', vAlign: 'bottom', placeholder: '제목을 입력하십시오',
-        }),
-        createTextBox({
-          x: m, y: H * 0.55, width: W - 2 * m, height: H * 0.14, text: '',
-          style: { ...body, color: theme.colors.dark2 }, para: { align: 'center' }, name: '부제목', placeholder: '부제목을 입력하십시오',
-        }),
-      );
-      break;
-    case 'titleContent':
-      objects.push(
-        createTextBox({ x: m, y: H * 0.06, width: W - 2 * m, height: H * 0.16, style: placeholderText('', 40, theme, true), name: '제목', vAlign: 'middle', placeholder: '제목을 입력하십시오' }),
-        createTextBox({ x: m, y: H * 0.26, width: W - 2 * m, height: H * 0.64, style: body, para: { bullet: 'bullet' }, name: '내용', placeholder: '텍스트를 입력하십시오' }),
-      );
-      break;
-    case 'sectionHeader':
-      objects.push(
-        createTextBox({ x: m, y: H * 0.3, width: W - 2 * m, height: H * 0.24, style: placeholderText('', 48, theme, true), name: '구역 제목', vAlign: 'bottom', placeholder: '구역 제목을 입력하십시오' }),
-        createTextBox({ x: m, y: H * 0.56, width: W - 2 * m, height: H * 0.12, style: { ...body, color: theme.colors.dark2 }, name: '설명', placeholder: '텍스트를 입력하십시오' }),
-      );
-      break;
-    case 'twoContent':
-      objects.push(
-        createTextBox({ x: m, y: H * 0.06, width: W - 2 * m, height: H * 0.16, style: placeholderText('', 40, theme, true), name: '제목', vAlign: 'middle', placeholder: '제목을 입력하십시오' }),
-        createTextBox({ x: m, y: H * 0.26, width: (W - 2 * m) / 2 - 12, height: H * 0.64, style: body, para: { bullet: 'bullet' }, name: '내용 1', placeholder: '텍스트를 입력하십시오' }),
-        createTextBox({ x: W / 2 + 12, y: H * 0.26, width: (W - 2 * m) / 2 - 12, height: H * 0.64, style: body, para: { bullet: 'bullet' }, name: '내용 2', placeholder: '텍스트를 입력하십시오' }),
-      );
-      break;
-    case 'titleOnly':
-      objects.push(createTextBox({ x: m, y: H * 0.06, width: W - 2 * m, height: H * 0.16, style: placeholderText('', 40, theme, true), name: '제목', vAlign: 'middle', placeholder: '제목을 입력하십시오' }));
-      break;
-    case 'blank':
-      break;
-  }
-  return { id: newId(), objects, background: null, notes: '', layout };
+/** 기본 제공 레이아웃으로 슬라이드 생성 (문서에 레이아웃이 있으면 그것을 사용) */
+export function createSlide(layout: SlideLayout | string, size: SlideSize, _theme: Theme = DEFAULT_THEME, layoutDef?: MasterSlide): Slide {
+  void _theme;
+  if (layoutDef) return slideFromLayout(layoutDef);
+  const builtin = BUILTIN_LAYOUTS.find((l) => l.id === layout)?.id ?? 'blank';
+  return slideFromLayout(createBuiltinLayout(builtin, size));
 }
 
 export function createPresentation(title = '제목 없는 프레젠테이션', theme: Theme = DEFAULT_THEME): Presentation {
   const size = { ...SLIDE_SIZES['16:9'] };
   const now = Date.now();
+  const { layouts, order } = createBuiltinLayouts(size);
   return {
     id: newId(),
     title,
     size,
-    slides: [createSlide('title', size, theme)],
+    master: createMaster(size),
+    layouts,
+    layoutOrder: order,
+    slides: [slideFromLayout(layouts.title)],
     sections: [],
     assets: {},
     theme,

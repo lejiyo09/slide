@@ -8,6 +8,8 @@ import { getActiveSlide, useEditor } from '../../core/store/editorStore';
 import * as C from '../../core/commands/commands';
 import { getEditorSession, restoreSelection, selectedParagraphs } from './editorSession';
 import { ptToPx } from '../../utils/units';
+import { isColorToken, resolveColor } from '../../utils/themeColor';
+import { cssColorToHex } from '../../utils/color';
 import { FONT_SIZES, cssFontStack } from './fonts';
 import { BULLET_INDENT_PX, INDENT_PX, LINE_HEIGHT_FACTOR } from './richText';
 
@@ -190,11 +192,24 @@ function applyInEditor(action: FormatAction): boolean {
       break;
     }
     case 'color':
-      document.execCommand('foreColor', false, action.value);
+    case 'highlight': {
+      const raw = action.value;
+      const theme = useEditor.getState().doc.theme;
+      const hex = raw ? resolveColor(raw, theme) : null;
+      if (action.type === 'color') document.execCommand('foreColor', false, hex!);
+      else document.execCommand('hiliteColor', false, hex ?? 'transparent');
+      // 테마 색이면 방금 칠한 요소에 토큰 표식 (테마가 바뀌면 함께 바뀌도록)
+      if (raw && isColorToken(raw)) {
+        const want = cssColorToHex(hex);
+        const attr = action.type === 'color' ? 'tc' : 'th';
+        const sel = document.getSelection();
+        sess.root.querySelectorAll<HTMLElement>('span, font, a').forEach((el) => {
+          const v = cssColorToHex(action.type === 'color' ? el.style.color || el.getAttribute('color') : el.style.backgroundColor);
+          if (v === want && (!sel || !sel.rangeCount || sel.getRangeAt(0).intersectsNode(el))) el.dataset[attr] = raw;
+        });
+      }
       break;
-    case 'highlight':
-      document.execCommand('hiliteColor', false, action.value ?? 'transparent');
-      break;
+    }
     case 'clear':
       document.execCommand('removeFormat');
       break;

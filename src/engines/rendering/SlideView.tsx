@@ -1,10 +1,10 @@
 import { memo, type ReactNode } from 'react';
-import type { Presentation, Slide } from '../../types/model';
+import type { Fill, MasterSlide, Presentation, Slide, SlideObject } from '../../types/model';
 import { ObjectView, fillToCss, type EditableObject, type RenderMode } from './ObjectView';
 
 interface SlideViewProps {
   slide: Slide;
-  doc: Pick<Presentation, 'size' | 'theme' | 'assets' | 'layouts'>;
+  doc: Pick<Presentation, 'size' | 'theme' | 'assets' | 'layouts' | 'master'>;
   editingTextId?: string | null;
   editingCell?: [number, number] | null;
   renderEditor?: (obj: EditableObject, cell?: [number, number]) => ReactNode;
@@ -15,15 +15,13 @@ interface SlideViewProps {
 
 /** 슬라이드 원본 크기(px)로 렌더링. 확대/축소는 바깥에서 transform으로 처리 */
 export const SlideView = memo(function SlideView({ slide, doc, editingTextId, editingCell, renderEditor, interactive, mode, cellSelection }: SlideViewProps) {
-  const layout = doc.layouts?.[slide.layout];
-  const bg = slide.background?.fill ?? layout?.background ?? doc.theme.background;
-  const showLayout = layout && slide.showMasterShapes !== false;
+  const { bg, layers } = designLayers(slide, doc);
   return (
     <div className="sl-slide" style={{ position: 'absolute', left: 0, top: 0, width: doc.size.width, height: doc.size.height, overflow: 'hidden', background: '#fff' }}>
-      <div style={{ position: 'absolute', inset: 0, ...fillToCss(bg, doc.assets) }} />
-      {showLayout && (
+      <div style={{ position: 'absolute', inset: 0, ...fillToCss(bg, doc.assets, doc.theme) }} />
+      {layers.length > 0 && (
         <div className="sl-layout-layer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-          {layout.objects.map((o) => (
+          {layers.map((o) => (
             <ObjectView key={o.id} obj={o} assets={doc.assets} theme={doc.theme} mode={mode ?? 'thumb'} />
           ))}
         </div>
@@ -56,4 +54,22 @@ export function ScaledSlide({ slide, doc, width, className }: { slide: Slide; do
       </div>
     </div>
   );
+}
+
+const isDesign = (o: SlideObject) => !(o.type === 'text' && o.ph);
+
+/**
+ * 슬라이드(또는 레이아웃) 뒤에 그릴 배경과 디자인 개체.
+ * 슬라이드: 마스터 디자인 → 레이아웃 디자인 / 레이아웃: 마스터 디자인 / 마스터: 없음
+ */
+export function designLayers(slide: Slide, doc: Pick<Presentation, 'theme' | 'layouts' | 'master'>): { bg: Fill; layers: SlideObject[] } {
+  const kind = 'kind' in slide ? (slide as MasterSlide).kind : 'slide';
+  const layout = kind === 'slide' ? doc.layouts?.[slide.layout] : kind === 'layout' ? slide : undefined;
+  const master = doc.master;
+  const bg = slide.background?.fill ?? (kind === 'slide' ? layout?.background?.fill : undefined) ?? (kind !== 'master' ? master?.background?.fill : undefined) ?? doc.theme.background;
+  const layers: SlideObject[] = [];
+  const showMaster = kind !== 'master' && slide.showMasterShapes !== false && (kind === 'layout' || layout?.showMasterShapes !== false);
+  if (showMaster && master) layers.push(...master.objects.filter(isDesign));
+  if (kind === 'slide' && layout && slide.showMasterShapes !== false) layers.push(...layout.objects.filter(isDesign));
+  return { bg, layers };
 }

@@ -4,6 +4,7 @@ import { useEditor } from '../core/store/editorStore';
 import { Ribbon } from '../components/ribbon/Ribbon';
 import { Backstage } from '../components/ribbon/Backstage';
 import { SlidePanel, SorterView } from '../components/sidebar/SlidePanel';
+import { MasterPanel } from '../components/sidebar/MasterPanel';
 import { EditorCanvas } from '../components/canvas/EditorCanvas';
 import { PropertiesPanel } from '../components/properties/PropertiesPanel';
 import { NotesPane, StatusBar } from '../components/statusbar/StatusBar';
@@ -35,6 +36,7 @@ export function App() {
   const viewMode = useEditor((s) => s.viewMode);
   const showNotes = useEditor((s) => s.showNotes);
   const showProps = useEditor((s) => s.showProperties);
+  const masterView = useEditor((s) => s.masterView);
   useShortcuts();
 
   useEffect(() => {
@@ -86,10 +88,10 @@ export function App() {
       <div className="workspace">
         {viewMode === 'normal' ? (
           <>
-            <SlidePanel />
-            <main className="center" onPointerDown={() => useEditor.getState().set({ focusArea: 'canvas' })}>
+            {masterView ? <MasterPanel /> : <SlidePanel />}
+            <main className={`center ${masterView ? 'is-master-view' : ''}`} onPointerDown={() => useEditor.getState().set({ focusArea: 'canvas' })}>
               <EditorCanvas />
-              {showNotes && <NotesPane />}
+              {showNotes && !masterView && <NotesPane />}
             </main>
             {showProps ? (
               <PropertiesPanel onClose={() => setProps(false)} />

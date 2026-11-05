@@ -2210,3 +2210,203 @@ button.bs-export-item:hover:not(:disabled) {
 .slideshow [data-link] {
   cursor: pointer;
 }
+
+/* 9단계: 디자인 / 마스터 */
+.tab-master {
+  color: var(--accent);
+  font-weight: 700;
+  border-bottom: 3px solid var(--accent);
+}
+.master-panel .thumb {
+  flex-wrap: wrap;
+}
+.master-panel .thumb-layout {
+  padding-left: 22px;
+}
+.thumb-caption {
+  width: 100%;
+  padding-left: 26px;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thumb-caption em {
+  font-style: normal;
+  opacity: 0.8;
+}
+.center.is-master-view .canvas-viewport {
+  box-shadow: inset 0 0 0 3px var(--accent-soft);
+}
+.sb-master {
+  color: var(--accent);
+  font-weight: 600;
+}
+.master-check {
+  align-self: center;
+  margin-left: 6px;
+}
+.theme-swatch-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.ts-delete {
+  position: absolute;
+  right: -4px;
+  top: -4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+  display: none;
+}
+.theme-swatch-wrap:hover .ts-delete {
+  display: block;
+}
+.template-menu {
+  padding: 4px;
+  width: 420px;
+}
+.tpl-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 4px;
+}
+.tpl-item {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 4px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+}
+.tpl-item:hover {
+  border-color: var(--border);
+  background: var(--bg-hover);
+}
+.tpl-thumb,
+.lg-thumb {
+  border: 1px solid var(--border);
+}
+.tpl-user {
+  display: flex;
+  align-items: center;
+}
+.scheme-menu {
+  min-width: 260px;
+}
+.scheme-item {
+  gap: 10px;
+}
+.scheme-swatches {
+  display: inline-flex;
+  border: 1px solid var(--border);
+}
+.scheme-swatches span {
+  width: 14px;
+  height: 14px;
+}
+.font-scheme .fs-sample {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 4px;
+}
+.font-scheme .fs-sample span:first-child {
+  font-size: 15px;
+}
+.pattern-grid {
+  grid-template-columns: repeat(4, 44px);
+}
+.pattern-grid .grad-item {
+  height: 32px;
+}
+.pattern-pick {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+.pattern-swatch {
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.pattern-swatch.is-active {
+  outline: 2px solid var(--accent);
+}
+.theme-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.td-preview {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.td-bars {
+  display: flex;
+  gap: 3px;
+}
+.td-bars span {
+  flex: 1;
+  height: 8px;
+  border-radius: 2px;
+}
+.td-colors {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 12px;
+}
+.td-color {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.td-color input {
+  width: 34px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+}
+.td-fonts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.td-fonts .field {
+  margin: 0;
+}
+.cp-row-base {
+  margin-bottom: 6px;
+}
+.cp-row-variant {
+  margin-bottom: 0;
+  gap: 3px 3px;
+}
+.cp-row-variant .swatch {
+  height: 15px;
+  border-radius: 0;
+}
+.bs-user-tpl {
+  width: 200px;
+  height: 112px;
+  display: grid;
+  place-items: center;
+  background: var(--bg-hover);
+  font-weight: 600;
+}

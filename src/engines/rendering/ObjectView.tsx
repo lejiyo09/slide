@@ -7,14 +7,32 @@ import { customPath, shapePath, shapeTextInset } from './shapeGeometry';
 import { hexToRgba } from '../../utils/color';
 import { ptToPx } from '../../utils/units';
 import { computeNumbers, cssObjectToReact, paragraphCss, runCss } from '../../editors/text/richText';
+import { resolveTokensDeep } from '../../utils/themeColor';
+import { patternDataUrl } from './patterns';
 
 export type Assets = Record<string, Asset>;
 
 /* ───────────── 채우기 → CSS / SVG ───────────── */
 
-export function fillToCss(fill: Fill | undefined | null, assets: Assets): CSSProperties {
+/** 토큰(@accent1 등)을 테마 색으로 바꾼 개체 (테마별 캐시) */
+const resolvedCache = new WeakMap<object, WeakMap<Theme, unknown>>();
+export function resolveForRender<T extends object>(o: T, theme: Theme | undefined): T {
+  if (!theme) return o;
+  let byTheme = resolvedCache.get(o);
+  if (!byTheme) resolvedCache.set(o, (byTheme = new WeakMap()));
+  let r = byTheme.get(theme) as T | undefined;
+  if (!r) byTheme.set(theme, (r = resolveTokensDeep(o, theme)));
+  return r;
+}
+
+export function fillToCss(fill: Fill | undefined | null, assets: Assets, theme?: Theme): CSSProperties {
   if (!fill || fill.type === 'none') return {};
+  if (theme) fill = resolveForRender(fill, theme);
   switch (fill.type) {
+    case 'pattern': {
+      const { url, size } = patternDataUrl(fill.preset, fill.fg, fill.bg);
+      return { backgroundImage: `url("${url}")`, backgroundSize: `${size}px ${size}px` };
+    }
     case 'solid':
       return { backgroundColor: hexToRgba(fill.color, fill.opacity ?? 1) };
     case 'gradient':
@@ -36,6 +54,14 @@ function SvgFill({ id, fill, assets }: { id: string; fill: Fill; assets: Assets 
           <stop key={i} offset={s.offset} stopColor={s.color} />
         ))}
       </linearGradient>
+    );
+  }
+  if (fill.type === 'pattern') {
+    const { url, size } = patternDataUrl(fill.preset, fill.fg, fill.bg);
+    return (
+      <pattern id={id} patternUnits="userSpaceOnUse" width={size} height={size}>
+        <image href={url} width={size} height={size} />
+      </pattern>
     );
   }
   if (fill.type === 'image') {
@@ -164,8 +190,11 @@ interface ObjectViewProps {
   cellSelection?: { r1: number; c1: number; r2: number; c2: number } | null;
 }
 
-export const ObjectView = memo(function ObjectView({ obj, assets, theme, editingTextId, editingCell, renderEditor, interactive, mode, cellSelection }: ObjectViewProps) {
-  if (obj.hidden) return null;
+export const ObjectView = memo(function ObjectView({ obj: raw, assets, theme, editingTextId, editingCell, renderEditor: renderEditorProp, interactive, mode, cellSelection }: ObjectViewProps) {
+  if (raw.hidden) return null;
+  // 편집기는 토큰이 살아 있는 원본을, 화면 표시는 테마 색으로 해석한 개체를 사용
+  const obj = resolveForRender(raw, theme);
+  const renderEditor = renderEditorProp ? (o: EditableObject, cell?: [number, number]) => renderEditorProp((o.id === raw.id ? raw : o) as EditableObject, cell) : undefined;
   const transform = obj.rotation ? `rotate(${obj.rotation}deg)` : undefined;
   const style: CSSProperties = {
     position: 'absolute',

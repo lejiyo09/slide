@@ -1,4 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { TEMPLATES, type DesignTemplate } from '../../themes/templates';
+import { applyDesignSnapshot, applyTemplate } from '../../core/commands/masterActions';
+import { useDesignLibrary } from '../../hooks/useDesignLibrary';
+import type { Presentation } from '../../types/model';
 import { ArrowLeft, FilePlus2, FolderOpen, Download, History, Info, Trash2, FileJson, Presentation as PptIcon, MonitorDown } from 'lucide-react';
 import { useEditor } from '../../core/store/editorStore';
 import { createPresentation } from '../../core/document/factory';
@@ -56,9 +60,35 @@ async function switchTo(load: () => Promise<void> | void) {
 }
 
 function NewPage({ close }: { close: () => void }) {
+  const lib = useDesignLibrary();
+  const start = (build: (d: Presentation) => void) =>
+    switchTo(() => {
+      const doc = createPresentation('제목 없는 프레젠테이션');
+      useEditor.getState().loadDocument(doc);
+      build(doc);
+      useEditor.setState({ saveStatus: 'unsaved', history: { past: [], future: [] } });
+      void saveNow();
+      close();
+    });
   return (
     <section>
       <h1>새로 만들기</h1>
+      <h2>디자인 템플릿</h2>
+      <div className="bs-grid">
+        {TEMPLATES.map((t) => (
+          <button key={t.id} type="button" className="bs-card" data-template={t.id} onClick={() => start(() => applyTemplate(t))}>
+            <TemplatePreview template={t} />
+            <span>{t.name}</span>
+          </button>
+        ))}
+        {lib.templates.map((t) => (
+          <button key={t.id} type="button" className="bs-card" onClick={() => start(() => applyDesignSnapshot(t.design, t.name))}>
+            <div className="bs-thumb bs-user-tpl">{t.name}</div>
+            <span>내 템플릿: {t.name}</span>
+          </button>
+        ))}
+      </div>
+      <h2>테마</h2>
       <div className="bs-grid">
         {THEMES.map((t) => {
           const doc = createPresentation('제목 없는 프레젠테이션', t);
@@ -84,6 +114,25 @@ function NewPage({ close }: { close: () => void }) {
       </div>
     </section>
   );
+}
+
+function TemplatePreview({ template }: { template: DesignTemplate }) {
+  const doc = useMemo(() => {
+    const d = createPresentation(template.name, template.theme);
+    const design = template.build(d.size);
+    d.master!.objects = [...design.master, ...d.master!.objects];
+    d.master!.background = design.masterBackground ? { fill: design.masterBackground } : null;
+    const tl = design.layouts?.title;
+    if (tl) {
+      d.layouts!.title.objects = [...(tl.objects ?? []), ...d.layouts!.title.objects];
+      d.layouts!.title.background = tl.background ? { fill: tl.background } : null;
+      d.layouts!.title.showMasterShapes = tl.hideMaster ? false : undefined;
+    }
+    const t = d.slides[0].objects[0];
+    if (t?.type === 'text') t.text.paragraphs[0].runs[0].text = template.name;
+    return d;
+  }, [template]);
+  return <ScaledSlide slide={doc.slides[0]} doc={doc} width={200} className="bs-thumb" />;
 }
 
 function OpenPage({ close }: { close: () => void }) {

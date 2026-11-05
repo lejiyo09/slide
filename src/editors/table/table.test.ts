@@ -14,7 +14,7 @@ describe('표 엔진', () => {
     expect(t.columns).toHaveLength(4);
     expect(t.rows).toHaveLength(3);
     expect(t.width).toBe(600);
-    expect(t.rows[0].cells[0].fill).toEqual({ type: 'solid', color: DEFAULT_THEME.colors.accent1 });
+    expect(t.rows[0].cells[0].fill).toEqual({ type: 'solid', color: '@accent1' }); // 테마 토큰
     expect(t.rows[0].cells[0].text.paragraphs[0].runs[0].bold).toBe(true);
   });
 

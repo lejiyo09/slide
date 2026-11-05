@@ -1,7 +1,12 @@
-import type { Presentation, Slide, SlideObject } from '../../types/model';
+import type { MasterSlide, Presentation, Slide, SlideObject } from '../../types/model';
 
-export const findSlide = (doc: Presentation, id: string | null): Slide | undefined =>
-  id ? doc.slides.find((s) => s.id === id) : undefined;
+/** 슬라이드 또는 마스터/레이아웃 (같은 구조라 편집 명령을 공유) */
+export const findSlide = (doc: Presentation, id: string | null): Slide | undefined => {
+  if (!id) return undefined;
+  return doc.slides.find((s) => s.id === id) ?? (doc.master?.id === id ? doc.master : undefined) ?? doc.layouts?.[id];
+};
+
+export const isMasterSlide = (s: Slide | undefined): s is MasterSlide => !!s && 'kind' in s;
 
 export const slideIndex = (doc: Presentation, id: string) => doc.slides.findIndex((s) => s.id === id);
 

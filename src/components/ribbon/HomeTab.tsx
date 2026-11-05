@@ -11,10 +11,9 @@ import * as C from '../../core/commands/commands';
 import { applyFormat } from '../../editors/text/formatting';
 import { useCurrentTextStyle } from '../../hooks/useCurrentTextStyle';
 import { FONT_FAMILIES, FONT_SIZES } from '../../editors/text/fonts';
-import { LAYOUTS } from '../../core/document/factory';
 import { ShapeGalleryPanel } from './ShapeGallery';
 import { ArrangeMenu } from './ArrangeMenu';
-import { LayoutThumb } from './LayoutThumb';
+import { LayoutGallery } from './LayoutGallery';
 import type { Stroke } from '../../types/model';
 import { useState } from 'react';
 
@@ -66,16 +65,8 @@ export function HomeTab() {
       <RibbonGroup label="슬라이드">
         <SplitButton size="large" icon={<Plus size={26} />} label="새 슬라이드" title="새 슬라이드" shortcut="Ctrl+M" onClick={() => A.newSlide()}>
           {(close) => (
-            <div className="layout-gallery">
-              <div className="sg-title">레이아웃</div>
-              <div className="lg-grid">
-                {LAYOUTS.map((l) => (
-                  <button key={l.id} type="button" className="lg-item" onClick={() => (A.newSlide(l.id), close())}>
-                    <LayoutThumb layout={l.id} />
-                    <span>{l.name}</span>
-                  </button>
-                ))}
-              </div>
+            <div className="layout-gallery-wrap">
+              <LayoutGallery close={close} />
               <MenuSeparator />
               <MenuItem icon={<CopyPlus size={15} />} label="선택한 슬라이드 복제" onClick={() => (A.duplicateSelectedSlides(), close())} />
             </div>

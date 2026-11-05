@@ -10,6 +10,8 @@ import { produce, freeze } from 'immer';
 import type { Presentation, ShapeKind, Slide, SlideObject } from '../../types/model';
 import { createPresentation } from '../document/factory';
 import { findSlide } from '../document/query';
+import { withPropagation } from '../document/masters';
+import { migrate } from '../document/migrate';
 import * as H from '../history/history';
 import type { CopiedFormat } from '../commands/commands';
 
@@ -49,6 +51,8 @@ export interface EditorState {
   cellSelection: { id: string; r1: number; c1: number; r2: number; c2: number } | null;
   /** 이미지 자르기 모드인 객체 */
   cropId: string | null;
+  /** 슬라이드 마스터 보기 */
+  masterView: boolean;
   /** 데이터 편집 창이 열린 차트 */
   chartEditorId: string | null;
   /** 키보드 단축키 대상 영역 */
@@ -125,6 +129,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
   editingCell: null,
   cellSelection: null,
   cropId: null,
+  masterView: false,
   chartEditorId: null,
   focusArea: 'canvas',
 
@@ -150,11 +155,12 @@ export const useEditor = create<EditorState>()((set, get) => ({
 
   commit: (label, recipe) => {
     const { doc, history, gestureBase } = get();
-    const next = produce(doc, (d) => {
+    let next = produce(doc, (d) => {
       recipe(d);
       d.updatedAt = Date.now();
     });
     if (next === doc) return;
+    next = withPropagation(doc, next, produce);
     // 제스처 진행 중이면 기록은 제스처 종료 때 한 번만
     set({
       doc: next,
@@ -170,8 +176,10 @@ export const useEditor = create<EditorState>()((set, get) => ({
   },
   updateGesture: (recipe) => {
     const { doc } = get();
-    const next = produce(doc, recipe);
-    if (next !== doc) set({ doc: next, saveStatus: 'unsaved' });
+    let next = produce(doc, recipe);
+    if (next === doc) return;
+    next = withPropagation(doc, next, produce);
+    set({ doc: next, saveStatus: 'unsaved' });
   },
   endGesture: () => {
     const { gestureBase, gestureLabel, doc, history } = get();
@@ -206,7 +214,8 @@ export const useEditor = create<EditorState>()((set, get) => ({
   },
 
   loadDocument: (doc) => {
-    const frozen = freeze(doc, true);
+    // 이전 버전 문서/가져온 문서: 마스터·레이아웃 보장
+    const frozen = freeze(produce(doc, (d) => void migrate(d as Presentation)), true);
     set({
       doc: frozen,
       history: H.emptyHistory(),

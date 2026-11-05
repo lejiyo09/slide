@@ -8,6 +8,8 @@
 import PptxGenJS from 'pptxgenjs';
 import type { Asset, ChartObject, Fill, GroupObject, Paragraph, Presentation, ShapeKind, ShapeObject, SlideObject, Stroke, TableObject, TextBody } from '../../types/model';
 import { isPristine } from '../../core/document/fingerprint';
+import { designLayers } from '../../engines/rendering/SlideView';
+import { resolveTokensDeep } from '../../utils/themeColor';
 import { chartPalette } from '../../editors/chart/chart';
 import { KEEP_PREFIX, postProcessPptx, type SlidePlan } from './preserve';
 import { OoxmlPackage } from '../import/ooxml';
@@ -173,6 +175,9 @@ function fillOpts(fill: Fill, objOpacity: number, warn: (m: string) => void): Pp
     case 'gradient':
       // 후처리(preserve.ts)에서 a:gradFill로 교체된다
       return { color: toPptxHex(fill.stops[0]?.color ?? '#FFFFFF') };
+    case 'pattern':
+      // 후처리에서 a:pattFill로 교체된다
+      return { color: toPptxHex(fill.fg) };
     case 'image':
       warn('도형의 그림 채우기는 아직 PPTX로 내보내지 않습니다.');
       return undefined;
@@ -219,7 +224,9 @@ function flatten(objs: SlideObject[]): { obj: SlideObject; groups: GroupTag[] }[
   return out;
 }
 
-export async function buildPptx(doc: Presentation, opts: BuildOptions = {}): Promise<{ pptx: PptxGenJS; warnings: string[]; plans: SlidePlan[] }> {
+export async function buildPptx(source: Presentation, opts: BuildOptions = {}): Promise<{ pptx: PptxGenJS; warnings: string[]; plans: SlidePlan[] }> {
+  // 테마 토큰(@accent1, @heading 등)을 실제 값으로 (PowerPoint 쪽 테마는 내보낸 개체에 고정 값으로 기록)
+  const doc = resolveTokensDeep(source, source.theme);
   const warnings = new Set<string>();
   const warn = (m: string) => warnings.add(m);
   const pptx = new PptxGenJS();
@@ -243,28 +250,24 @@ export async function buildPptx(doc: Presentation, opts: BuildOptions = {}): Pro
     const slide = pptx.addSlide(currentSection ? { sectionTitle: currentSection } : undefined);
     if (s.hidden) slide.hidden = true;
 
-    // 배경
-    const bg = s.background?.fill ?? doc.theme.background;
+    // 배경 (슬라이드 → 레이아웃 → 마스터 → 테마)
+    const { bg, layers: designObjs } = designLayers(s, doc);
     if (bg.type === 'solid') slide.background = { color: toPptxHex(bg.color), transparency: bg.opacity !== undefined && bg.opacity < 1 ? Math.round((1 - bg.opacity) * 100) : undefined };
     else if (bg.type === 'image') {
       const a = doc.assets[bg.assetId];
       if (a) slide.background = { data: a.dataUrl };
-    } else if (bg.type === 'gradient') {
-      const img = opts.rasterizeGradient?.(bg, doc.size.width, doc.size.height);
-      if (img) {
-        slide.background = { data: img };
-        warn('그라데이션 배경은 이미지로 변환되어 저장되었습니다.');
-      } else {
-        slide.background = { color: toPptxHex(bg.stops[0]?.color ?? '#FFFFFF') };
-        warn('그라데이션 배경은 단색으로 변환되었습니다.');
-      }
+    } else if (bg.type === 'gradient' || bg.type === 'pattern') {
+      // 자리 표시 단색 → 후처리에서 a:gradFill / a:pattFill로 교체 (PowerPoint에서 편집 가능한 진짜 배경)
+      slide.background = { color: toPptxHex(bg.type === 'gradient' ? bg.stops[0]?.color ?? '#FFFFFF' : bg.bg) };
     }
 
-    const plan: SlidePlan = { index: slideIndex, emitted: [], fills: [], groupPaths: [], markers: new Map(), transitionXml: s.source?.transitionXml, timingXml: s.source?.timingXml };
+    const plan: SlidePlan = {
+      index: slideIndex, emitted: [], fills: [], groupPaths: [], markers: new Map(), transitionXml: s.source?.transitionXml, timingXml: s.source?.timingXml,
+      ...(bg.type === 'gradient' || bg.type === 'pattern' ? { background: bg } : {}),
+    };
     plans.push(plan);
-    const layout = doc.layouts?.[s.layout];
-    const layoutObjs = layout && s.showMasterShapes !== false ? layout.objects.map((o) => ({ ...o, sourceId: undefined }) as SlideObject) : [];
-    if (layoutObjs.length) warn('마스터/레이아웃 디자인 요소는 각 슬라이드에 포함되어 저장됩니다 (슬라이드 마스터 편집은 9단계).');
+    const layoutObjs = designObjs.map((o) => ({ ...o, sourceId: undefined }) as SlideObject);
+    if (layoutObjs.length) warn('마스터/레이아웃 디자인 요소는 각 슬라이드에 포함되어 저장됩니다 (PowerPoint에서 보이는 모양은 같고, 마스터 구조는 SlideLab 안에서만 유지).');
 
     for (const { obj: o, groups } of flatten([...layoutObjs, ...s.objects])) {
       if (o.hidden) continue;
@@ -283,7 +286,7 @@ export async function buildPptx(doc: Presentation, opts: BuildOptions = {}): Pro
       const emit = () => {
         plan.emitted.push(o.sourceId);
         plan.groupPaths.push(groups);
-        plan.fills.push((o.type === 'shape' || o.type === 'text') && o.fill.type === 'gradient' ? o.fill : undefined);
+        plan.fills.push((o.type === 'shape' || o.type === 'text') && (o.fill.type === 'gradient' || o.fill.type === 'pattern') ? o.fill : undefined);
       };
       // 가져온 표·차트·미디어: 내용이 그대로면 원본 XML 복원 (위치/크기만 반영)
       if (o.type !== 'unsupported' && o.preserved && opts.sourceAvailable && isPristine(o)) {

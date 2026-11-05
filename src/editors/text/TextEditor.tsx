@@ -27,14 +27,14 @@ export function TextEditor({ obj, slideId, selectAll, cell }: { obj: EditableObj
     const store = useEditor.getState();
     store.beginGesture(cell ? '셀 편집' : '텍스트 편집');
     const initial = bodyOf(obj, cell);
-    root.innerHTML = paragraphsToHtml(initial.paragraphs);
+    root.innerHTML = paragraphsToHtml(initial.paragraphs, store.doc.theme);
     const first = initial.paragraphs[0]?.runs[0] ?? {};
     const fallback = { ...first, text: undefined } as Record<string, unknown>;
     delete fallback.text;
 
     const sync = () => {
       renumberDom(root);
-      const paragraphs = htmlToParagraphs(root, fallback);
+      const paragraphs = htmlToParagraphs(root, fallback, useEditor.getState().doc.theme);
       const id = objRef.current.id;
       useEditor.getState().updateGesture((d) =>
         updateObjects(d, slideId, [id], (o) => {

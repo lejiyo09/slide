@@ -11,13 +11,18 @@ export function StatusBar() {
   const viewMode = useEditor((s) => s.viewMode);
   const showNotes = useEditor((s) => s.showNotes);
   const selCount = useEditor((s) => s.selectedIds.length);
+  const masterView = useEditor((s) => s.masterView);
   const set = useEditor((s) => s.set);
   const cm = (px: number) => ((px / 96) * 2.54).toFixed(2);
   return (
     <footer className="statusbar">
-      <span className="sb-item">
-        슬라이드 {idx + 1}/{count}
-      </span>
+      {masterView ? (
+        <span className="sb-item sb-master">슬라이드 마스터 보기</span>
+      ) : (
+        <span className="sb-item">
+          슬라이드 {idx + 1}/{count}
+        </span>
+      )}
       <span className="sb-item muted" title="슬라이드 크기">
         {size.preset === 'custom' ? '사용자 지정' : size.preset} · {cm(size.width)} × {cm(size.height)} cm
       </span>

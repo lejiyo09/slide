@@ -81,7 +81,7 @@ describe('PPTX 가져오기 (python-pptx로 만든 실제 파일)', () => {
     expect(table.rows[1].cells.map((c) => c.text.paragraphs[0].runs.map((r) => r.text).join(''))).toEqual(['R1C0', 'R1C1', 'R1C2']);
     // 기본 표 스타일(보통 스타일 2 - 강조 1) 근사: 머리글 행은 강조색, 굵은 흰 글자
     expect(table.rows[0].cells[0].fill.type).toBe('solid');
-    expect(table.rows[0].cells[0].text.paragraphs[0].runs[0]).toMatchObject({ bold: true, color: '#FFFFFF' });
+    expect(table.rows[0].cells[0].text.paragraphs[0].runs[0]).toMatchObject({ bold: true, color: '@light1' });
     expect(table.preserved?.xml).toContain('a:tbl');
     expect(chart).toMatchObject({ chartType: 'column', categories: ['1분기', '2분기', '3분기'] });
     expect(chart.series[0]).toMatchObject({ name: '매출', values: [10, 25, 18] });
@@ -148,5 +148,24 @@ describe('차트 종류별 가져오기 (python-pptx)', () => {
     expect(sc.type === 'chart' && sc.series[0].values).toEqual([2.5, 3.1, 1.2, 4.4]);
     expect(report.converted.chart).toBe(7);
     expect(report.unsupported.chart).toBe(1);
+  });
+});
+
+describe('마스터/레이아웃 가져오기 (9단계)', () => {
+  it('첫 마스터 → doc.master, 레이아웃 전체(마스터 순서), 개체 틀 연결', async () => {
+    const { doc } = await importPptx(fixture());
+    expect(doc.master?.kind).toBe('master');
+    const masterPhs = doc.master!.objects.filter((o) => o.type === 'text' && o.ph).map((o) => (o as { ph: { type: string } }).ph.type);
+    expect(masterPhs).toEqual(expect.arrayContaining(['title', 'body']));
+    // python-pptx 기본 템플릿은 레이아웃 11개
+    expect(doc.layoutOrder).toHaveLength(11);
+    expect(doc.layouts![doc.layoutOrder![0]].kind).toBe('layout');
+    const title = doc.slides[0].objects[0];
+    expect(title.type === 'text' && title.ph?.type).toBe('ctrTitle');
+    const body = doc.slides[1].objects[1];
+    expect(body.type === 'text' && body.ph).toMatchObject({ type: 'body', idx: 1 });
+    // 레이아웃 개체 틀도 ph로 연결되어 마스터 편집이 전파될 수 있음
+    const lay = doc.layouts![doc.slides[1].layout];
+    expect(lay.objects.some((o) => o.type === 'text' && o.ph?.type === 'title')).toBe(true);
   });
 });

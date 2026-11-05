@@ -12,7 +12,7 @@
 import type {
   BulletType, CustomGeometry, Fill, GroupObject, HAlign, ImageObject, LayoutDef, LineObject, Paragraph, PathCommand, Presentation,
   Section, ShapeKind, ShapeObject, Slide, SlideObject, Stroke, TextBody, TextObject, TextRun, Theme, UnsupportedKind, UnsupportedObject, VAlign,
-  TableObject, TableCell, CellBorders, ChartObject, ChartType, MediaObject,
+  TableObject, TableCell, CellBorders, ChartObject, ChartType, MediaObject, MasterSlide, PlaceholderType,
 } from '../../types/model';
 import type { Rel } from './ooxml';
 import { contentFingerprint } from '../../core/document/fingerprint';
@@ -177,6 +177,27 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
   const masters = new Map<string, MasterInfo>();
   const layouts = new Map<string, PartInfo>();
   const layoutDefs: Record<string, LayoutDef> = {};
+  const layoutOrder: string[] = [];
+  let docMaster: MasterSlide | null = null;
+  let docMasterPart: string | null = null;
+  /** 첫 마스터를 doc.master로 (디자인 개체 + 개체 틀). 이 마스터면 true */
+  const ensureMasterSlide = async (m: MasterInfo, ctx: ShapeCtx): Promise<boolean> => {
+    if (!docMasterPart) {
+      docMasterPart = m.part;
+      const root = m.doc.documentElement;
+      const bgFill = await parseBackground(path(root, 'cSld', 'bg'), ctx);
+      docMaster = {
+        id: 'master',
+        kind: 'master',
+        name: path(root, 'cSld')?.getAttribute('name') || '슬라이드 마스터',
+        objects: await parseSpTree(path(root, 'cSld', 'spTree'), ctx, false),
+        background: bgFill ? { fill: bgFill } : null,
+        notes: '',
+        layout: '',
+      };
+    }
+    return docMasterPart === m.part;
+  };
   const assets: Presentation['assets'] = {};
   const assetByPath = new Map<string, string>();
 
@@ -215,23 +236,35 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
       const doc = (await pkg.xml(layoutPath))!;
       layout = { part: layoutPath, doc, placeholders: collectPlaceholders(doc.documentElement), lstStyles: new Map() };
       layouts.set(layoutPath, layout);
-      // 레이아웃 디자인 개체 (마스터 + 레이아웃의 개체 틀이 아닌 개체)
+      // 레이아웃: 디자인 개체 + 개체 틀(ph). 마스터 디자인은 doc.master에서 상속
       const lroot = doc.documentElement;
-      const ctxBase = (part: string): ShapeCtx => ({
-        pkg, part, color: { scheme: master.theme.scheme, clrMap: master.clrMap }, theme: master.theme, master, layout: null, isSlide: false,
+      const ctxBase = (part: string, layoutInfo: PartInfo | null): ShapeCtx => ({
+        pkg, part, color: { scheme: master.theme.scheme, clrMap: master.clrMap }, theme: master.theme, master, layout: layoutInfo, isSlide: false,
         defaultTextStyle, assets, assetByPath, report, blobs, tableStyles,
       });
+      const primary = await ensureMasterSlide(master, ctxBase(master.part, null));
       const objects: SlideObject[] = [];
-      if (lroot.getAttribute('showMasterSp') !== '0') objects.push(...(await parseSpTree(path(master.doc.documentElement, 'cSld', 'spTree'), ctxBase(master.part), true)));
-      objects.push(...(await parseSpTree(path(lroot, 'cSld', 'spTree'), ctxBase(layoutPath), true)));
-      const lbg = await parseBackground(path(lroot, 'cSld', 'bg'), ctxBase(layoutPath));
-      const mbg = await parseBackground(path(master.doc.documentElement, 'cSld', 'bg'), ctxBase(master.part));
+      let showMasterShapes = lroot.getAttribute('showMasterSp') !== '0';
+      // 두 번째 이후 마스터에 속한 레이아웃: 그 마스터의 디자인을 레이아웃에 합침
+      if (!primary && showMasterShapes) {
+        objects.push(...(await parseSpTree(path(master.doc.documentElement, 'cSld', 'spTree'), ctxBase(master.part, null), true)));
+        showMasterShapes = false;
+      }
+      objects.push(...(await parseSpTree(path(lroot, 'cSld', 'spTree'), ctxBase(layoutPath, layout), false)));
+      const lbg = await parseBackground(path(lroot, 'cSld', 'bg'), ctxBase(layoutPath, null));
+      const mbg = primary ? null : await parseBackground(path(master.doc.documentElement, 'cSld', 'bg'), ctxBase(master.part, null));
+      const bgFill = lbg ?? mbg;
       layoutDefs[layoutPath] = {
         id: layoutPath,
+        kind: 'layout',
         name: path(lroot, 'cSld')?.getAttribute('name') || layoutPath.split('/').pop()!,
         objects,
-        background: lbg ?? mbg ?? undefined,
+        background: bgFill ? { fill: bgFill } : null,
+        notes: '',
+        layout: '',
+        ...(showMasterShapes ? {} : { showMasterShapes: false }),
       };
+      layoutOrder.push(layoutPath);
     }
     return { layout, master };
   };
@@ -306,6 +339,18 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
     idToSlide.set(sid.getAttribute('id') ?? '', slide.id);
     report.objects += countObjects(objects);
   }
+  // 첫 마스터의 레이아웃 전체 (사용되지 않은 레이아웃도 새 슬라이드용으로 가져옴, 마스터의 순서대로)
+  if (docMasterPart) {
+    const mrels = await pkg.rels(docMasterPart);
+    const mroot = (await pkg.xml(docMasterPart))!.documentElement;
+    for (const lid of kids(kid(mroot, 'sldLayoutIdLst'), 'sldLayoutId')) {
+      const r = mrels.get(rAttr(lid, 'id') ?? '');
+      if (r && !layoutDefs[r.target]) await loadLayout(r.target);
+    }
+    // 마스터 순서로 정렬
+    const order = kids(kid(mroot, 'sldLayoutIdLst'), 'sldLayoutId').map((lid) => mrels.get(rAttr(lid, 'id') ?? '')?.target).filter((x): x is string => !!x);
+    layoutOrder.sort((a, b) => (order.indexOf(a) + 1 || 999) - (order.indexOf(b) + 1 || 999));
+  }
   report.slides = slides.length;
   if (!slides.length) throw new Error('슬라이드가 없는 프레젠테이션입니다.');
 
@@ -346,6 +391,8 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
     assets,
     theme,
     layouts: layoutDefs,
+    layoutOrder,
+    ...(docMaster ? { master: docMaster } : {}),
     createdAt: now,
     updatedAt: now,
     version: 1,
@@ -970,6 +1017,7 @@ async function parseSp(sp: Element, ctx: ShapeCtx, skipPlaceholders: boolean, tf
       fill,
       stroke,
       ...(ph && PH_PROMPTS[phType!] ? { placeholder: PH_PROMPTS[phType!] } : {}),
+      ...(ph ? { ph: { type: (['title', 'ctrTitle', 'subTitle', 'body', 'dt', 'ftr', 'sldNum'].includes(phType!) ? phType : 'body') as PlaceholderType, ...(phIdx !== undefined ? { idx: Number(phIdx) } : {}) } } : {}),
     };
     return obj;
   }

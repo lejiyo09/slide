@@ -7,14 +7,17 @@ import * as C from './commands';
 import { cloneObject, cloneSlide, createImage, createLine, createShape, createTextBox, type SlideLayout } from '../document/factory';
 import type { Asset, Presentation, ShapeKind, SlideObject } from '../../types/model';
 import { fileToAsset, pickFiles } from '../../services/storage/files';
+import * as M from './masterActions';
+import { allMasterSlides } from '../document/masters';
 import { deepClone } from '../../utils/clone';
 
 const st = () => useEditor.getState();
 
 /* ───── 슬라이드 ───── */
 
-export function newSlide(layout: SlideLayout = 'titleContent') {
+export function newSlide(layout?: SlideLayout | string) {
   const s = st();
+  if (s.masterView) return M.insertLayout();
   const after = s.selectedSlideIds.length ? s.doc.slides.filter((x) => s.selectedSlideIds.includes(x.id)).pop()!.id : s.activeSlideId;
   let id = '';
   s.commit('새 슬라이드', (d) => void (id = C.addSlide(d, after, layout)));
@@ -23,6 +26,7 @@ export function newSlide(layout: SlideLayout = 'titleContent') {
 
 export function duplicateSelectedSlides() {
   const s = st();
+  if (s.masterView) return M.duplicateLayout();
   let ids: string[] = [];
   s.commit('슬라이드 복제', (d) => void (ids = C.duplicateSlides(d, s.selectedSlideIds)));
   if (ids.length) {
@@ -32,6 +36,7 @@ export function duplicateSelectedSlides() {
 
 export function deleteSelectedSlides() {
   const s = st();
+  if (s.masterView) return M.deleteLayout();
   let next = '';
   s.commit('슬라이드 삭제', (d) => void (next = C.deleteSlides(d, s.selectedSlideIds)));
   useEditor.setState({ activeSlideId: next, selectedSlideIds: [next], selectedIds: [] });
@@ -39,6 +44,7 @@ export function deleteSelectedSlides() {
 
 export function moveSelectedSlides(delta: -1 | 1) {
   const s = st();
+  if (s.masterView) return;
   s.commit('슬라이드 이동', (d) => C.moveSlidesBy(d, s.selectedSlideIds, delta));
 }
 
@@ -51,6 +57,12 @@ export function toggleHideSlides() {
 
 export function goToSlide(delta: number) {
   const s = st();
+  if (s.masterView) {
+    const ids = allMasterSlides(s.doc).map((m) => m.id);
+    const n = ids[Math.max(0, Math.min(ids.length - 1, ids.indexOf(s.activeSlideId) + delta))];
+    if (n) s.setActiveSlide(n);
+    return;
+  }
   const i = s.doc.slides.findIndex((x) => x.id === s.activeSlideId);
   const n = s.doc.slides[Math.max(0, Math.min(s.doc.slides.length - 1, i + delta))];
   if (n) s.setActiveSlide(n.id);
@@ -66,14 +78,13 @@ function insertObjects(objs: SlideObject[], label: string) {
 }
 
 export function insertTextBoxAt(x: number, y: number, width?: number, editNow = true) {
-  const s = st();
   const tb = createTextBox({
     x,
     y,
     width: width ?? 300,
     height: 40,
     text: '',
-    style: { fontFamily: s.doc.theme.fonts.body, fontSize: 18, color: s.doc.theme.colors.dark1 },
+    style: { fontFamily: '@body', fontSize: 18, color: '@dark1' },
   });
   tb.text.autoFit = 'resize';
   tb.text.wrap = width !== undefined;

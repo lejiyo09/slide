@@ -251,7 +251,7 @@ export function useShortcuts() {
           width: Math.min(800, s.doc.size.width - 160),
           height: 40,
           text: text.replace(/\r\n/g, '\n'),
-          style: { fontFamily: s.doc.theme.fonts.body, fontSize: 18, color: s.doc.theme.colors.dark1 },
+          style: { fontFamily: '@body', fontSize: 18, color: '@dark1' },
         });
         tb.text.autoFit = 'resize';
         tb.height = Math.max(40, text.split('\n').length * 32);

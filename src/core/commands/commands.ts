@@ -15,6 +15,7 @@ import type {
   TextBody,
   TextRunStyle,
   Theme,
+  MasterSlide,
 } from '../../types/model';
 import { cloneObject, cloneSlide, createGroup, createSlide, type SlideLayout } from '../document/factory';
 import { findSlide, hasText } from '../document/query';
@@ -25,12 +26,14 @@ type Doc = Presentation;
 
 /* ───────────── 슬라이드 ───────────── */
 
-export function addSlide(doc: Doc, afterId: string | null, layout: SlideLayout = 'titleContent'): string {
-  const slide = createSlide(layout, doc.size, doc.theme);
+export function addSlide(doc: Doc, afterId: string | null, layout?: SlideLayout | string): string {
   const idx = afterId ? doc.slides.findIndex((s) => s.id === afterId) : doc.slides.length - 1;
-  // 가져온 PPTX: 기준 슬라이드의 마스터/레이아웃 디자인을 이어받음
   const ref = doc.slides[idx];
-  if (ref && doc.layouts?.[ref.layout]) slide.layout = ref.layout;
+  // 레이아웃 지정이 없으면 PowerPoint처럼: 제목 슬라이드 다음은 '제목 및 내용', 그 외는 현재 레이아웃
+  let id = layout ?? (ref && ref.layout !== 'title' && doc.layouts?.[ref.layout] ? ref.layout : 'titleContent');
+  if (!doc.layouts?.[id] && layout === undefined && ref && doc.layouts?.[ref.layout]) id = ref.layout;
+  const def = doc.layouts?.[id] ? deepClone(doc.layouts[id]) : undefined;
+  const slide = createSlide(id, doc.size, doc.theme, def as MasterSlide | undefined);
   doc.slides.splice(idx + 1, 0, slide);
   return slide.id;
 }
@@ -55,7 +58,7 @@ export function deleteSlides(doc: Doc, ids: string[]): string {
   const firstIdx = doc.slides.findIndex((s) => ids.includes(s.id));
   const remaining = doc.slides.filter((s) => !ids.includes(s.id));
   if (remaining.length === 0) {
-    const fresh = createSlide('blank', doc.size, doc.theme);
+    const fresh = createSlide('blank', doc.size, doc.theme, doc.layouts?.blank ? (deepClone(doc.layouts.blank) as MasterSlide) : undefined);
     doc.slides = [fresh];
     doc.sections = [];
     return fresh.id;
@@ -153,6 +156,11 @@ export function setSlideSize(doc: Doc, size: SlideSize, scaleContent = true) {
 export function setBackground(doc: Doc, slideIds: string[] | 'all', fill: Fill | null) {
   for (const s of doc.slides) {
     if (slideIds === 'all' || slideIds.includes(s.id)) s.background = fill ? { fill } : null;
+  }
+  // 마스터/레이아웃 (마스터 보기)
+  if (slideIds !== 'all') {
+    if (doc.master && slideIds.includes(doc.master.id)) doc.master.background = fill ? { fill } : null;
+    for (const id of slideIds) if (doc.layouts?.[id]) doc.layouts[id].background = fill ? { fill } : null;
   }
 }
 

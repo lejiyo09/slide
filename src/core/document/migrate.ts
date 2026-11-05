@@ -1,4 +1,5 @@
 import type { Presentation } from '../../types/model';
+import { ensureMasters } from './masters';
 
 /** 저장된 문서의 스키마 버전 호환 처리 (향후 버전 변경 시 확장) */
 export function migrate(doc: Presentation): Presentation {
@@ -8,5 +9,6 @@ export function migrate(doc: Presentation): Presentation {
     if (s.notes === undefined) s.notes = '';
     if (!s.layout) s.layout = 'blank';
   }
+  ensureMasters(doc);
   return doc;
 }

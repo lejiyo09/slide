@@ -20,7 +20,11 @@ export type Fill =
   | { type: 'none' }
   | { type: 'solid'; color: Color; opacity?: number } // opacity 0..1
   | { type: 'gradient'; angle: number; stops: GradientStop[] }
-  | { type: 'image'; assetId: ID; opacity?: number };
+  | { type: 'image'; assetId: ID; opacity?: number }
+  /** 무늬 채우기 (PPTX a:pattFill의 프리셋 이름) */
+  | { type: 'pattern'; preset: PatternPreset; fg: Color; bg: Color };
+
+export type PatternPreset = 'pct20' | 'pct50' | 'ltHorz' | 'ltVert' | 'ltUpDiag' | 'ltDnDiag' | 'smGrid' | 'smCheck' | 'diagCross' | 'dotGrid' | 'wave' | 'horzBrick';
 
 export type DashStyle = 'solid' | 'dash' | 'dot' | 'dashDot';
 
@@ -135,9 +139,13 @@ interface BaseObject {
   link?: string;
 }
 
+export type PlaceholderType = 'title' | 'ctrTitle' | 'subTitle' | 'body' | 'dt' | 'ftr' | 'sldNum';
+
 export interface TextObject extends BaseObject {
   type: 'text';
   text: TextBody;
+  /** 마스터/레이아웃 개체 틀과의 연결 (서식·위치 상속) */
+  ph?: { type: PlaceholderType; idx?: number };
   /** 레이아웃 개체 틀의 안내 문구 (비어 있을 때 편집 화면에만 표시, 발표/내보내기에는 미포함) */
   placeholder?: string;
   fill: Fill;
@@ -309,14 +317,17 @@ export interface Slide {
   };
 }
 
-/** 가져온 PPTX의 레이아웃(마스터 + 레이아웃 디자인 요소). 9단계 슬라이드 마스터의 기반 */
-export interface LayoutDef {
-  id: string;
+/**
+ * 슬라이드 마스터 / 레이아웃. 슬라이드와 같은 구조라 같은 편집 캔버스·명령으로 편집한다.
+ * - objects: 디자인 개체(모든 슬라이드 뒤에 표시) + 개체 틀(ph가 있는 TextObject, 새 슬라이드의 원형)
+ * - 마스터/레이아웃을 고치면 연결된 슬라이드 중 '바꾸지 않은 속성'에 전파된다 (core/document/masters.ts)
+ */
+export interface MasterSlide extends Slide {
+  kind: 'master' | 'layout';
   name: string;
-  /** 슬라이드 뒤에 그려지는 디자인 개체 (개체 틀 제외) */
-  objects: SlideObject[];
-  background?: Fill;
 }
+
+export type LayoutDef = MasterSlide;
 
 export interface Section {
   id: ID;
@@ -371,7 +382,10 @@ export interface Presentation {
   sections: Section[];
   assets: Record<ID, Asset>;
   theme: Theme;
+  master?: MasterSlide;
   layouts?: Record<string, LayoutDef>;
+  /** 레이아웃 표시 순서 */
+  layoutOrder?: string[];
   /** PPTX에서 가져온 경우 원본 패키지 정보 (패키지 바이트는 IndexedDB packages 저장소에 보관) */
   source?: {
     packageId: string;

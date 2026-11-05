@@ -6,7 +6,8 @@
  *     <span style="...">텍스트</span>
  *   </div>
  */
-import type { HAlign, Paragraph, TextRun, TextRunStyle, BulletType } from '../../types/model';
+import type { HAlign, Paragraph, TextRun, TextRunStyle, BulletType, Theme } from '../../types/model';
+import { resolveColor, resolveFont, resolveTokensDeep } from '../../utils/themeColor';
 import { cssColorToHex } from '../../utils/color';
 import { ptToPx, pxToPt, round } from '../../utils/units';
 import { cssFontStack } from './fonts';
@@ -68,20 +69,32 @@ const styleAttr = (css: Record<string, string>) =>
 
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-export function paragraphsToHtml(paragraphs: Paragraph[]): string {
+/** 런의 테마 토큰 표식 (편집 후에도 토큰을 유지하기 위해) */
+const tokenAttrs = (r: TextRunStyle) =>
+  [r.color && r.color[0] === '@' ? `data-tc="${r.color}"` : '', r.fontFamily && r.fontFamily[0] === '@' ? `data-tf="${r.fontFamily}"` : '', r.highlight && r.highlight[0] === '@' ? `data-th="${r.highlight}"` : '']
+    .filter(Boolean)
+    .join(' ');
+
+/**
+ * 편집기 초기 HTML. theme가 있으면 토큰(@accent1, @heading)을 실제 값으로 그리고 data-* 로 토큰을 기억한다.
+ */
+export function paragraphsToHtml(rawParagraphs: Paragraph[], theme?: Theme): string {
+  const paragraphs = theme ? resolveTokensDeep(rawParagraphs, theme) : rawParagraphs;
   const nums = computeNumbers(paragraphs);
   return paragraphs
     .map((p, i) => {
       const runs = p.runs.filter((r) => r.text.length > 0);
       const inner = runs.length
         ? runs
-            .map((r) =>
-              r.link
-                ? `<a href="${escapeHtml(r.link).replace(/"/g, '&quot;')}" data-link="1" style="${styleAttr(runCss(r))}">${escapeHtml(r.text)}</a>`
-                : `<span style="${styleAttr(runCss(r))}">${escapeHtml(r.text)}</span>`,
-            )
+            .map((r) => {
+              const raw = rawParagraphs[i].runs.filter((x) => x.text.length > 0)[runs.indexOf(r)] ?? r;
+              const tk = tokenAttrs(raw);
+              return r.link
+                ? `<a href="${escapeHtml(r.link).replace(/"/g, '&quot;')}" data-link="1" ${tk} style="${styleAttr(runCss(r))}">${escapeHtml(r.text)}</a>`
+                : `<span ${tk} style="${styleAttr(runCss(r))}">${escapeHtml(r.text)}</span>`;
+            })
             .join('')
-        : `<span style="${styleAttr(runCss(p.runs[0] ?? {}))}"><br></span>`;
+        : `<span ${tokenAttrs(rawParagraphs[i].runs[0] ?? {})} style="${styleAttr(runCss(p.runs[0] ?? {}))}"><br></span>`;
       const attrs = [
         'class="sl-p"',
         `data-bullet="${p.bullet ?? 'none'}"`,
@@ -142,8 +155,19 @@ function styleOfTextNode(node: Node, paraEl: Element): TextRunStyle {
     color: cssColorToHex(cs.color) ?? '#000000',
   };
   if (deco.highlight) style.highlight = deco.highlight;
+  // 테마 토큰 복원: 표식이 있고 실제 값이 여전히 같으면 토큰 유지
+  if (tokenTheme) {
+    const tc = el.closest('[data-tc]') as HTMLElement | null;
+    if (tc && paraEl.contains(tc) && resolveColor(tc.dataset.tc, tokenTheme).toUpperCase() === style.color) style.color = tc.dataset.tc;
+    const tf = el.closest('[data-tf]') as HTMLElement | null;
+    if (tf && paraEl.contains(tf) && resolveFont(tf.dataset.tf, tokenTheme) === style.fontFamily) style.fontFamily = tf.dataset.tf;
+    const th = el.closest('[data-th]') as HTMLElement | null;
+    if (th && paraEl.contains(th) && style.highlight && resolveColor(th.dataset.th, tokenTheme).toUpperCase() === style.highlight) style.highlight = th.dataset.th;
+  }
   return style;
 }
+
+let tokenTheme: Theme | undefined;
 
 const sameStyle = (a: TextRunStyle, b: TextRunStyle) =>
   a.fontFamily === b.fontFamily &&
@@ -205,7 +229,8 @@ function paragraphFromNodes(nodes: Node[], el: HTMLElement, fallback: TextRunSty
 }
 
 /** contentEditable 루트에서 문단 목록 추출 */
-export function htmlToParagraphs(root: HTMLElement, fallback: TextRunStyle = {}): Paragraph[] {
+export function htmlToParagraphs(root: HTMLElement, fallback: TextRunStyle = {}, theme?: Theme): Paragraph[] {
+  tokenTheme = theme;
   const result: Paragraph[] = [];
   let inline: Node[] = [];
   const BLOCKS = ['DIV', 'P', 'LI', 'UL', 'OL', 'H1', 'H2', 'H3'];

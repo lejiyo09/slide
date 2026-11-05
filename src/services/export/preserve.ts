@@ -24,7 +24,9 @@ export interface SlidePlan {
   /** pptxgenjs에 추가한 순서대로 각 개체의 원본 도형 ID */
   emitted: (number | undefined)[];
   /** emitted와 같은 순서: pptxgenjs가 지원하지 않는 그라데이션 채우기 */
-  fills: (Extract<Fill, { type: 'gradient' }> | undefined)[];
+  fills: (Extract<Fill, { type: 'gradient' | 'pattern' }> | undefined)[];
+  /** 그라데이션/무늬 슬라이드 배경 (pptxgenjs 미지원 → 후처리) */
+  background?: Extract<Fill, { type: 'gradient' | 'pattern' }>;
   /** emitted와 같은 순서: 소속 그룹 경로 (바깥 → 안쪽) */
   groupPaths: { key: string; name: string; sourceId?: number }[][];
   markers: Map<string, PreservedXml>;
@@ -39,7 +41,7 @@ const serialize = (d: Document) => XML_DECL + new XMLSerializer().serializeToStr
 const SHAPE_TAGS = new Set(['sp', 'pic', 'graphicFrame', 'grpSp', 'cxnSp', 'contentPart', 'AlternateContent']);
 
 export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], source: OoxmlPackage | null, warn: (m: string) => void): Promise<Uint8Array> {
-  const needs = plans.some((p) => p.markers.size || p.transitionXml || p.timingXml || p.emitted.some((x) => x !== undefined) || p.fills.some(Boolean) || p.groupPaths.some((g) => g.length));
+  const needs = plans.some((p) => p.markers.size || p.transitionXml || p.timingXml || p.emitted.some((x) => x !== undefined) || p.fills.some(Boolean) || p.groupPaths.some((g) => g.length) || !!p.background);
   if (!needs) return bytes;
   const out = await JSZip.loadAsync(bytes);
   const ctDoc = parse(await out.file('[Content_Types].xml')!.async('string'));
@@ -125,7 +127,7 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
         const id = assigned[i] ?? next++;
         cNvPrOf(e)?.setAttribute('id', String(id));
         const g = plan.fills[i];
-        if (g) applyGradient(e, g);
+        if (g) replaceSolid(kid(e, 'spPr'), g);
       });
     } else if (plan.fills.some(Boolean)) {
       warn('일부 그라데이션 채우기를 단색으로 저장했습니다.');
@@ -233,6 +235,12 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
       out.file(dataPath, xml.replace(`relId="${m[1]}"`, `relId="${id}"`));
     }
 
+    // 2-2) 그라데이션/무늬 배경
+    if (plan.background) {
+      const bgPr = path(root, 'cSld', 'bg', 'bgPr');
+      if (bgPr) replaceSolid(bgPr, plan.background);
+    }
+
     // 3) 전환/애니메이션
     const ids = new Set(Array.from(sdoc.getElementsByTagNameNS(NS.p, 'cNvPr')).map((e) => e.getAttribute('id')));
     let timing = plan.timingXml;
@@ -262,22 +270,35 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
   return out.generateAsync({ type: 'uint8array', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
 }
 
-/** 도형의 첫 단색 채우기를 그라데이션(a:gradFill)으로 교체 */
-function applyGradient(shape: Element, g: Extract<Fill, { type: 'gradient' }>) {
-  const spPr = kid(shape, 'spPr');
-  const solid = kid(spPr, 'solidFill');
-  if (!spPr || !solid) return;
-  const doc = shape.ownerDocument;
+/** 첫 단색 채우기를 그라데이션(a:gradFill) 또는 무늬(a:pattFill)로 교체 */
+function replaceSolid(parent: Element | null, g: Extract<Fill, { type: 'gradient' | 'pattern' }>) {
+  const solid = kid(parent, 'solidFill');
+  if (!parent || !solid) return;
+  const doc = parent.ownerDocument;
   const A = NS.a;
+  const clr = (hex: string) => {
+    const c = doc.createElementNS(A, 'a:srgbClr');
+    c.setAttribute('val', hex.replace('#', '').toUpperCase());
+    return c;
+  };
+  if (g.type === 'pattern') {
+    const pf = doc.createElementNS(A, 'a:pattFill');
+    pf.setAttribute('prst', g.preset);
+    const fg = doc.createElementNS(A, 'a:fgClr');
+    fg.appendChild(clr(g.fg));
+    const bg = doc.createElementNS(A, 'a:bgClr');
+    bg.appendChild(clr(g.bg));
+    pf.append(fg, bg);
+    parent.replaceChild(pf, solid);
+    return;
+  }
   const grad = doc.createElementNS(A, 'a:gradFill');
   grad.setAttribute('rotWithShape', '1');
   const lst = doc.createElementNS(A, 'a:gsLst');
   for (const st of g.stops) {
     const gs = doc.createElementNS(A, 'a:gs');
     gs.setAttribute('pos', String(Math.round(st.offset * 100000)));
-    const c = doc.createElementNS(A, 'a:srgbClr');
-    c.setAttribute('val', st.color.replace('#', '').toUpperCase());
-    gs.appendChild(c);
+    gs.appendChild(clr(st.color));
     lst.appendChild(gs);
   }
   grad.appendChild(lst);
@@ -285,7 +306,7 @@ function applyGradient(shape: Element, g: Extract<Fill, { type: 'gradient' }>) {
   lin.setAttribute('ang', String(Math.round((((g.angle % 360) + 360) % 360) * 60000)));
   lin.setAttribute('scaled', '0');
   grad.appendChild(lin);
-  spPr.replaceChild(grad, solid);
+  parent.replaceChild(grad, solid);
 }
 
 /**

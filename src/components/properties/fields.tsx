@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Popover, usePopover } from '../common/Popover';
 import { ColorPanel } from '../common/ColorPicker';
+import { useEditor } from '../../core/store/editorStore';
+import { describeColor, isColorToken, resolveColor } from '../../utils/themeColor';
 
 export function NumberField({
   label,
@@ -85,11 +87,13 @@ export function Row({ label, children }: { label: string; children: ReactNode })
 
 export function ColorField({ value, onChange, allowNone, title }: { value: string | null; onChange: (c: string | null) => void; allowNone?: boolean; title: string }) {
   const p = usePopover();
+  const theme = useEditor((s) => s.doc.theme);
+  const shown = value ? resolveColor(value, theme) : null;
   return (
     <>
       <button ref={p.anchorRef} type="button" className="color-field" title={title} aria-label={title} onClick={p.toggle}>
-        <span className="cf-swatch" style={{ background: value ?? 'transparent' }} data-none={!value || undefined} />
-        <span className="cf-text">{value ?? '없음'}</span>
+        <span className="cf-swatch" style={{ background: shown ?? 'transparent' }} data-none={!value || undefined} />
+        <span className="cf-text">{value ? (isColorToken(value) ? describeColor(value) : value) : '없음'}</span>
         <ChevronDown size={12} />
       </button>
       <Popover open={p.open} anchor={p.anchorRef.current} onClose={p.close} placement="bottom-end">
