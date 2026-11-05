@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Undo2, Redo2, Save, Play, Cloud, CloudOff, Loader2, Check, MonitorDown } from 'lucide-react';
-import { useEditor } from '../../core/store/editorStore';
+import { useEditor, useSelectedObjects } from '../../core/store/editorStore';
+import { TableDesignTab, TableLayoutTab, ChartDesignTab, MediaTab } from './ObjectTabs';
 import { saveNow } from '../../services/storage/autosave';
 import { HomeTab } from './HomeTab';
 import { AnimationsTab, DesignTab, InsertTab, RecordTab, ReviewTab, SlideShowTab, TransitionsTab, ViewTab } from './OtherTabs';
@@ -19,7 +20,7 @@ const TABS = [
   { id: 'view', label: '보기' },
 ] as const;
 
-type TabId = (typeof TABS)[number]['id'] | 'format';
+type TabId = (typeof TABS)[number]['id'] | 'format' | 'tableDesign' | 'tableLayout' | 'chartDesign' | 'media';
 
 export function Ribbon({ onCustomSize }: { onCustomSize: () => void }) {
   const [tab, setTab] = useState<TabId>('home');
@@ -30,14 +31,18 @@ export function Ribbon({ onCustomSize }: { onCustomSize: () => void }) {
   const undoLabel = useEditor((s) => s.history.past[s.history.past.length - 1]?.label);
   const redoLabel = useEditor((s) => s.history.future[0]?.label);
   const saveStatus = useEditor((s) => s.saveStatus);
-  const contextual = useEditor((s) => {
-    const slide = s.doc.slides.find((x) => x.id === s.activeSlideId);
-    const objs = slide?.objects.filter((o) => s.selectedIds.includes(o.id)) ?? [];
-    if (!objs.length) return null;
-    return objs.every((o) => o.type === 'image') ? '그림 서식' : '도형 서식';
-  });
+  const selected = useSelectedObjects();
+  const contextualTabs: { id: TabId; label: string }[] = (() => {
+    if (!selected.length) return [];
+    if (selected.length === 1 && selected[0].type === 'table') return [{ id: 'tableDesign', label: '표 디자인' }, { id: 'tableLayout', label: '레이아웃' }];
+    if (selected.length === 1 && selected[0].type === 'chart') return [{ id: 'chartDesign', label: '차트 디자인' }, { id: 'format', label: '서식' }];
+    if (selected.length === 1 && selected[0].type === 'media') return [{ id: 'media', label: '재생' }, { id: 'format', label: '서식' }];
+    return [{ id: 'format', label: selected.every((o) => o.type === 'image') ? '그림 서식' : '도형 서식' }];
+  })();
   const { canInstall, install } = usePwaInstall();
-  const activeTab = tab === 'format' && !contextual ? 'home' : tab;
+  const isContextual = (t: TabId) => ['format', 'tableDesign', 'tableLayout', 'chartDesign', 'media'].includes(t);
+  const activeTab: TabId = isContextual(tab) && !contextualTabs.some((c) => c.id === tab) ? 'home' : tab;
+  const table = selected.length === 1 && selected[0].type === 'table' ? selected[0] : null;
 
   return (
     <header className="ribbon-wrap">
@@ -105,18 +110,19 @@ export function Ribbon({ onCustomSize }: { onCustomSize: () => void }) {
             {t.label}
           </button>
         ))}
-        {contextual && (
+        {contextualTabs.map((c) => (
           <button
+            key={c.id}
             type="button"
             role="tab"
-            aria-selected={activeTab === 'format'}
-            className={`tab tab-contextual ${activeTab === 'format' ? 'is-active' : ''}`}
+            aria-selected={activeTab === c.id}
+            className={`tab tab-contextual ${activeTab === c.id ? 'is-active' : ''}`}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => (setTab('format'), setCollapsed(false))}
+            onClick={() => (setTab(c.id), setCollapsed(false))}
           >
-            {contextual}
+            {c.label}
           </button>
-        )}
+        ))}
       </nav>
       {!collapsed && (
         <div className="ribbon" role="tabpanel">
@@ -130,6 +136,10 @@ export function Ribbon({ onCustomSize }: { onCustomSize: () => void }) {
           {activeTab === 'review' && <ReviewTab />}
           {activeTab === 'view' && <ViewTab />}
           {activeTab === 'format' && <ContextualTab />}
+          {activeTab === 'tableDesign' && table && <TableDesignTab table={table} />}
+          {activeTab === 'tableLayout' && table && <TableLayoutTab table={table} />}
+          {activeTab === 'chartDesign' && <ChartDesignTab />}
+          {activeTab === 'media' && <MediaTab />}
         </div>
       )}
     </header>

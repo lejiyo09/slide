@@ -14,7 +14,7 @@ import { fileToAsset, pickFiles } from '../../services/storage/files';
 const pxToCm = (px: number) => round((px / 96) * 2.54, 2);
 const cmToPx = (cm: number) => (cm / 2.54) * 96;
 
-const TYPE_NAMES: Record<SlideObject['type'], string> = { text: '텍스트 상자', shape: '도형', line: '선', image: '그림', group: '그룹', unsupported: '보존된 개체' };
+const TYPE_NAMES: Record<SlideObject['type'], string> = { text: '텍스트 상자', shape: '도형', line: '선', image: '그림', group: '그룹', table: '표', chart: '차트', media: '미디어', unsupported: '보존된 개체' };
 
 /** 선택된 개체에 적용 (하나의 실행 취소 단계) */
 function edit(label: string, fn: (o: SlideObject) => void) {
@@ -94,7 +94,7 @@ function ObjectProps({ objs }: { objs: SlideObject[] }) {
   const o = objs[0];
   const single = objs.length === 1;
   const hasFill = objs.every((x) => x.type === 'shape' || x.type === 'text');
-  const hasText = objs.some((x) => x.type === 'shape' || x.type === 'text');
+  const hasText = objs.some((x) => x.type === 'shape' || x.type === 'text' || x.type === 'table');
   return (
     <>
       {hasFill && (o.type === 'shape' || o.type === 'text') && (
@@ -109,12 +109,50 @@ function ObjectProps({ objs }: { objs: SlideObject[] }) {
           </p>
         </Section>
       )}
-      {o.type !== 'group' && o.type !== 'unsupported' && (
+      {!['group', 'unsupported', 'table', 'chart', 'media'].includes(o.type) && (
         <Section title="선">
           <StrokeEditor obj={o} />
         </Section>
       )}
       {hasText && <TextSection obj={o} />}
+      {single && o.type === 'table' && (
+        <Section title="표">
+          <p className="pp-hint">
+            {o.rows.length}행 × {o.columns.length}열. 셀을 클릭하면 편집, Shift+클릭 또는 드래그로 셀 범위를 선택합니다. 행/열/병합/테두리는 [표 디자인]·[레이아웃] 탭에서 바꿀 수 있습니다.
+          </p>
+        </Section>
+      )}
+      {single && o.type === 'chart' && (
+        <Section title="차트">
+          <button type="button" className="btn" onClick={() => useEditor.getState().set({ chartEditorId: o.id })}>
+            데이터 편집…
+          </button>
+          <Row label="글자 크기">
+            <NumberField label="" unit="pt" min={6} max={40} value={o.fontSize} onChange={(v) => edit('차트 글자 크기', (x) => void (x.type === 'chart' && (x.fontSize = v)))} />
+          </Row>
+          {o.series.map((sr, i) => (
+            <Row key={i} label={sr.name || `계열 ${i + 1}`}>
+              <ColorField
+                title="계열 색"
+                value={sr.color ?? null}
+                allowNone
+                onChange={(c) =>
+                  edit('계열 색', (x) => {
+                    if (x.type !== 'chart' || !x.series[i]) return;
+                    if (c) x.series[i].color = c;
+                    else delete x.series[i].color;
+                  })
+                }
+              />
+            </Row>
+          ))}
+        </Section>
+      )}
+      {single && o.type === 'media' && (
+        <Section title={o.kind === 'video' ? '비디오' : '오디오'}>
+          <p className="pp-hint">슬라이드 쇼에서 재생됩니다. 자동 실행·반복은 [재생] 탭에서 설정합니다.</p>
+        </Section>
+      )}
       {single && o.type === 'image' && <ImageSection obj={o} />}
       <Section title="크기 및 위치">
         <div className="pp-grid2">

@@ -30,10 +30,12 @@ interface SlideLabDB extends DBSchema {
   settings: { key: string; value: unknown };
   /** 가져온 원본 PPTX 패키지 (보존 개체 복원용) */
   packages: { key: string; value: Blob };
+  /** 동영상/오디오 등 큰 바이너리 자산 */
+  blobs: { key: string; value: Blob };
 }
 
 const DB_NAME = 'slidelab';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const MAX_VERSIONS = 20;
 
 let dbPromise: Promise<IDBPDatabase<SlideLabDB>> | null = null;
@@ -51,6 +53,7 @@ export function getDB() {
           db.createObjectStore('settings');
         }
         if (oldVersion < 2) db.createObjectStore('packages');
+        if (oldVersion < 3) db.createObjectStore('blobs');
       },
     });
   }
@@ -120,4 +123,12 @@ export async function savePackage(id: string, data: Blob) {
 
 export async function getPackage(id: string): Promise<Blob | undefined> {
   return (await getDB()).get('packages', id);
+}
+
+export async function saveBlob(key: string, data: Blob) {
+  await (await getDB()).put('blobs', data, key);
+}
+
+export async function getBlob(key: string): Promise<Blob | undefined> {
+  return (await getDB()).get('blobs', key);
 }

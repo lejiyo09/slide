@@ -14,11 +14,23 @@ import { PwaPrompt } from '../components/common/PwaPrompt';
 import { useShortcuts } from '../hooks/useShortcuts';
 import { bootstrap } from './bootstrap';
 import { ImportReportDialog } from '../components/dialogs/ImportReportDialog';
+import { ChartDataEditor } from '../components/dialogs/ChartDataEditor';
+import { LinkDialog } from '../components/ribbon/InsertExtras';
+import { lockSelection } from '../editors/text/editorSession';
 import { isOpenableFile, openPresentationFile, registerLaunchQueue } from '../services/import/importFile';
 
 export function App() {
   const [ready, setReady] = useState(false);
   const [sizeDialog, setSizeDialog] = useState(false);
+  const [linkDialog, setLinkDialog] = useState(false);
+  useEffect(() => {
+    const f = () => {
+      lockSelection();
+      setLinkDialog(true);
+    };
+    window.addEventListener('slidelab:link', f);
+    return () => window.removeEventListener('slidelab:link', f);
+  }, []);
   const darkMode = useEditor((s) => s.darkMode);
   const viewMode = useEditor((s) => s.viewMode);
   const showNotes = useEditor((s) => s.showNotes);
@@ -96,6 +108,8 @@ export function App() {
       <SlideShow />
       {sizeDialog && <SlideSizeDialog onClose={() => setSizeDialog(false)} />}
       <ImportReportDialog />
+      <ChartDataEditor />
+      {linkDialog && <LinkDialog onClose={() => setLinkDialog(false)} />}
       <Toasts />
       <PwaPrompt />
     </div>

@@ -127,3 +127,28 @@ prs.part._element.append(etree.fromstring(ext_xml))
 
 prs.save(OUT / 'sample.pptx')
 print('written', OUT / 'sample.pptx')
+
+# ── charts.pptx: 차트 종류별 (8단계) ──
+from pptx.chart.data import XyChartData, BubbleChartData
+from pptx.enum.chart import XL_LEGEND_POSITION
+cp = Presentation()
+cp.slide_width, cp.slide_height = Inches(13.333), Inches(7.5)
+kinds = [
+    (XL_CHART_TYPE.COLUMN_CLUSTERED, '세로 막대'), (XL_CHART_TYPE.BAR_STACKED, '가로 누적 막대'), (XL_CHART_TYPE.LINE_MARKERS, '꺾은선'),
+    (XL_CHART_TYPE.PIE, '원형'), (XL_CHART_TYPE.DOUGHNUT, '도넛'), (XL_CHART_TYPE.AREA, '영역'), (XL_CHART_TYPE.RADAR, '방사형(보존)'),
+]
+for kind, title in kinds:
+    s = cp.slides.add_slide(cp.slide_layouts[5])
+    s.shapes.title.text = title
+    d = CategoryChartData(); d.categories = ['가', '나', '다', '라']
+    d.add_series('A', (3, 5, 2, 6))
+    if kind not in (XL_CHART_TYPE.PIE, XL_CHART_TYPE.DOUGHNUT):
+        d.add_series('B', (4, 1, 5, 2))
+    ch = s.shapes.add_chart(kind, Inches(1), Inches(1.5), Inches(8), Inches(5), d).chart
+    ch.has_legend = True; ch.legend.position = XL_LEGEND_POSITION.BOTTOM; ch.legend.include_in_layout = False
+s = cp.slides.add_slide(cp.slide_layouts[5]); s.shapes.title.text = '분산형'
+xy = XyChartData(); ser = xy.add_series('측정')
+for x, y in [(1, 2.5), (2, 3.1), (3.5, 1.2), (5, 4.4)]: ser.add_data_point(x, y)
+s.shapes.add_chart(XL_CHART_TYPE.XY_SCATTER, Inches(1), Inches(1.5), Inches(8), Inches(5), xy)
+cp.save(OUT / 'charts.pptx')
+print('written', OUT / 'charts.pptx')

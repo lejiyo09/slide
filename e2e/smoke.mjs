@@ -340,7 +340,7 @@ await page.waitForTimeout(200);
 await page.screenshot({ path: `${OUT}/08-imported-slide4.png` });
 // 보존된 표 이동
 slide = await activeSlide();
-const keptTable = slide.objects.find((o) => o.type === 'unsupported' && o.kind === 'table');
+const keptTable = slide.objects.find((o) => o.type === 'table');
 p = await toScreen(keptTable.x + 20, keptTable.y + 10);
 await page.mouse.move(p.x, p.y);
 await page.mouse.down();
@@ -348,7 +348,7 @@ await page.mouse.move(p.x + 60, p.y + 200, { steps: 6 });
 await page.mouse.up();
 slide = await activeSlide();
 const movedTable = slide.objects.find((o) => o.id === keptTable.id);
-check('보존된 표 이동 가능', movedTable.y > keptTable.y + 50);
+check('가져온 표 이동 가능', movedTable.y > keptTable.y + 50);
 // 도형 텍스트 편집 (가져온 도형)
 await page.locator('.slide-panel .thumb').nth(2).click();
 slide = await activeSlide();

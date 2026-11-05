@@ -8,7 +8,13 @@
  *  4. 슬라이드 전환/애니메이션(timing) XML 재삽입 (대상이 사라진 애니메이션은 제외하고 경고)
  */
 import JSZip from 'jszip';
-import type { Fill, UnsupportedObject } from '../../types/model';
+import type { Fill } from '../../types/model';
+
+export interface PreservedXml {
+  xml: string;
+  part: string;
+  label: string;
+}
 import { NS, OoxmlPackage, kid, kids, path, relativePath, relsPathFor } from '../import/ooxml';
 
 export const KEEP_PREFIX = '__SLIDELAB_KEEP__';
@@ -21,7 +27,7 @@ export interface SlidePlan {
   fills: (Extract<Fill, { type: 'gradient' }> | undefined)[];
   /** emitted와 같은 순서: 소속 그룹 경로 (바깥 → 안쪽) */
   groupPaths: { key: string; name: string; sourceId?: number }[][];
-  markers: Map<string, UnsupportedObject>;
+  markers: Map<string, PreservedXml>;
   transitionXml?: string;
   timingXml?: string;
 }
@@ -143,7 +149,7 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
         spTree.removeChild(marker);
         continue;
       }
-      const frag = parse(obj.sourceXml).documentElement;
+      const frag = parse(obj.xml).documentElement;
       const node = sdoc.importNode(frag, true) as Element;
       // 현재 위치/크기/회전 반영
       const mx = path(marker, 'spPr', 'xfrm');
@@ -161,11 +167,11 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
       const allNv = Array.from(node.getElementsByTagNameNS(NS.p, 'cNvPr'));
       allNv.forEach((n, i) => n.setAttribute('id', i === 0 ? c?.getAttribute('id') ?? String(freshId++) : String(freshId++)));
       // 관계 재매핑
-      const srcRels = await source.rels(obj.sourcePart);
+      const srcRels = await source.rels(obj.part);
       for (const el of [node, ...Array.from(node.getElementsByTagName('*'))]) {
         for (const attr of Array.from(el.attributes)) {
           if (attr.namespaceURI !== NS.r) continue;
-          const key = `${obj.sourcePart}#${attr.value}`;
+          const key = `${obj.part}#${attr.value}`;
           let newRid = relMemo.get(key);
           if (!newRid) {
             const rel = srcRels.get(attr.value);
@@ -188,7 +194,7 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
               }
               relEl.setAttribute('Target', relativePath(slidePath, newTarget));
               // SmartArt: 데이터 파트가 슬라이드 관계 ID(dsp:dataModelExt relId)로 그리기 캐시를 참조
-              if (rel.type.endsWith('/diagramData')) await fixDiagramDrawingRef(newTarget, obj.sourcePart);
+              if (rel.type.endsWith('/diagramData')) await fixDiagramDrawingRef(newTarget, obj.part);
             }
             rdoc.documentElement.appendChild(relEl);
             relMemo.set(key, newRid);

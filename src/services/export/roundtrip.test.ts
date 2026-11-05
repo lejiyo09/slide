@@ -48,9 +48,9 @@ describe('PPTX 왕복 (가져오기 → 내보내기 → 다시 가져오기)', 
     // 다시 가져오기
     const again = await importPptx(bytes, 'roundtrip.pptx');
     expect(again.doc.slides).toHaveLength(5);
-    expect(again.report.unsupported).toMatchObject({ table: 1, chart: 1 });
-    const t = again.doc.slides[3].objects.find((o) => o.type === 'unsupported' && o.kind === 'table');
-    expect(t?.type === 'unsupported' && t.preview?.rows[2].cells[2]).toBe('R2C2');
+    expect(again.report.converted).toMatchObject({ table: 1, chart: 1 });
+    const t = again.doc.slides[3].objects.find((o) => o.type === 'table');
+    expect(t?.type === 'table' && t.rows[2].cells[2].text.paragraphs[0].runs[0].text).toBe('R2C2');
     expect(again.doc.slides[4].hidden).toBe(true);
     expect(again.doc.slides[0].notes).toBe('첫 슬라이드 노트');
     expect(again.doc.sections.map((s) => s.name)).toEqual(['도입', '본문']);
@@ -65,7 +65,7 @@ describe('PPTX 왕복 (가져오기 → 내보내기 → 다시 가져오기)', 
     const { doc } = await importPptx(SRC, 'sample.pptx');
     const edited = produce(doc, (d) => {
       const s = d.slides[3];
-      const t = s.objects.find((o) => o.type === 'unsupported' && o.kind === 'table')!;
+      const t = s.objects.find((o) => o.type === 'table')!;
       t.x = 100;
       t.y = 500;
       s.objects = s.objects.filter((o) => o.name !== 'Animated');
@@ -81,11 +81,42 @@ describe('PPTX 왕복 (가져오기 → 내보내기 → 다시 가져오기)', 
     expect(warnings.some((w) => w.includes('애니메이션'))).toBe(true);
   });
 
-  it('원본 패키지가 없으면 보존 개체를 저장하지 못한다고 알림', async () => {
+  it('원본 패키지가 없으면 표·차트를 SlideLab 모델에서 새로 생성', async () => {
     const { doc } = await importPptx(SRC, 'sample.pptx');
-    const { bytes, warnings } = await exportPptxBytes(doc, {});
-    const s4 = await (await JSZip.loadAsync(bytes)).file('ppt/slides/slide4.xml')!.async('string');
+    const { bytes } = await exportPptxBytes(doc, {});
+    const zip = await JSZip.loadAsync(bytes);
+    const s4 = await zip.file('ppt/slides/slide4.xml')!.async('string');
     expect(s4).not.toContain('__SLIDELAB_KEEP__');
-    expect(warnings.some((w) => w.includes('원본 PPTX 패키지'))).toBe(true);
+    expect(s4).toContain('<a:tbl>');
+    expect(s4).toContain('R2C2');
+    expect(s4).toMatch(/<c:chart [^>]*r:id=/);
+  });
+
+  it('내용을 바꾼 표·차트는 새로 생성 (병합 셀 포함), 바꾸지 않은 개체는 원본 복원', async () => {
+    const { doc } = await importPptx(SRC, 'sample.pptx');
+    const edited = produce(doc, (d) => {
+      const s = d.slides[3];
+      const t = s.objects.find((o) => o.type === 'table')!;
+      if (t.type === 'table') {
+        t.rows[1].cells[1].text.paragraphs[0].runs[0].text = '수정한 셀';
+        t.rows[2].cells[0].colSpan = 2;
+        t.rows[2].cells[1].merged = true;
+      }
+      const c = s.objects.find((o) => o.type === 'chart')!;
+      if (c.type === 'chart') c.series[0].values = [1, 2, 3];
+    });
+    const { bytes, warnings } = await exportPptxBytes(edited, { sourcePackage: SRC });
+    const zip = await JSZip.loadAsync(bytes);
+    const s4 = await zip.file('ppt/slides/slide4.xml')!.async('string');
+    expect(s4).toContain('수정한 셀');
+    expect(s4).toContain('gridSpan="2"');
+    expect(s4).toContain('hMerge="1"');
+    expect(warnings.some((w) => w.includes('새로 저장'))).toBe(true);
+    const again = await importPptx(bytes, 'x.pptx');
+    const c2 = again.doc.slides[3].objects.find((o) => o.type === 'chart');
+    expect(c2?.type === 'chart' && c2.series[0].values).toEqual([1, 2, 3]);
+    const t2 = again.doc.slides[3].objects.find((o) => o.type === 'table');
+    expect(t2?.type === 'table' && t2.rows[2].cells[0].colSpan).toBe(2);
+    expect(t2?.type === 'table' && t2.rows[2].cells[1].merged).toBe(true);
   });
 });

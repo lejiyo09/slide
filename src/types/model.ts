@@ -46,6 +46,8 @@ export interface TextRunStyle {
 
 export interface TextRun extends TextRunStyle {
   text: string;
+  /** 하이퍼링크 URL */
+  link?: string;
 }
 
 export type HAlign = 'left' | 'center' | 'right' | 'justify';
@@ -124,6 +126,13 @@ interface BaseObject {
   hidden?: boolean;
   /** PPTX에서 가져온 개체의 원본 cNvPr id (애니메이션 대상 참조 유지용) */
   sourceId?: number;
+  /**
+   * 가져온 표·차트·미디어의 원본 XML. 내용 지문(fingerprint)이 그대로면 저장 시 원본을 복원하고,
+   * 사용자가 내용을 바꿨으면 모델에서 새로 생성한다.
+   */
+  preserved?: { xml: string; part: string; fingerprint: string };
+  /** 개체 클릭 시 이동할 링크 (슬라이드 쇼) */
+  link?: string;
 }
 
 export interface TextObject extends BaseObject {
@@ -178,6 +187,80 @@ export interface GroupObject extends BaseObject {
   children: SlideObject[];
 }
 
+/* ───────────── 표 ───────────── */
+
+export interface CellBorders {
+  top: Stroke | null;
+  right: Stroke | null;
+  bottom: Stroke | null;
+  left: Stroke | null;
+}
+
+export interface TableCell {
+  text: TextBody;
+  fill: Fill;
+  borders: CellBorders;
+  colSpan?: number;
+  rowSpan?: number;
+  /** 다른 셀의 병합 영역에 덮인 셀 */
+  merged?: boolean;
+}
+
+export interface TableRow {
+  height: number; // px (최소 높이)
+  cells: TableCell[];
+}
+
+export type TableStylePreset = 'medium2' | 'light1' | 'grid' | 'plain' | 'dark1';
+
+export interface TableObject extends BaseObject {
+  type: 'table';
+  columns: number[]; // 열 너비 px
+  rows: TableRow[];
+  style?: { preset: TableStylePreset; accent: number; firstRow: boolean; bandRows: boolean; firstCol: boolean; lastRow: boolean };
+}
+
+/* ───────────── 차트 ───────────── */
+
+export type ChartType = 'column' | 'bar' | 'line' | 'pie' | 'doughnut' | 'area' | 'scatter';
+
+export interface ChartSeries {
+  name: string;
+  values: number[];
+  color?: Color;
+  /** 분산형: X 값 */
+  xValues?: number[];
+}
+
+export interface ChartObject extends BaseObject {
+  type: 'chart';
+  chartType: ChartType;
+  categories: string[];
+  series: ChartSeries[];
+  title?: string;
+  showTitle: boolean;
+  showLegend: boolean;
+  legendPos: 'r' | 'b' | 't' | 'l';
+  showDataLabels: boolean;
+  stacked: boolean;
+  /** 테마 강조색 대신 사용할 색 목록 */
+  colors?: Color[];
+  fontSize: number; // pt
+}
+
+/* ───────────── 미디어 ───────────── */
+
+export interface MediaObject extends BaseObject {
+  type: 'media';
+  kind: 'video' | 'audio';
+  /** 미디어 원본 (Asset.blobKey로 IndexedDB에 저장) */
+  assetId: ID;
+  /** 표지 이미지 자산 */
+  posterId?: ID;
+  autoPlay?: boolean;
+  loop?: boolean;
+}
+
 export type UnsupportedKind = 'table' | 'chart' | 'smartart' | 'media' | 'ole' | 'image' | 'other';
 
 /** 표 미리보기 (읽기 전용 렌더링용) */
@@ -202,7 +285,7 @@ export interface UnsupportedObject extends BaseObject {
   preview?: TablePreview;
 }
 
-export type SlideObject = TextObject | ShapeObject | LineObject | ImageObject | GroupObject | UnsupportedObject;
+export type SlideObject = TextObject | ShapeObject | LineObject | ImageObject | GroupObject | TableObject | ChartObject | MediaObject | UnsupportedObject;
 export type ObjectType = SlideObject['type'];
 
 export interface SlideBackground {
@@ -245,9 +328,12 @@ export interface Section {
 export interface Asset {
   id: ID;
   mime: string;
-  /** data: URL (IndexedDB에 문서와 함께 저장) */
+  /** data: URL (이미지 등 작은 자산; 문서와 함께 저장) */
   dataUrl: string;
   name?: string;
+  /** 큰 바이너리(동영상/오디오)는 IndexedDB blobs 저장소에 따로 보관 */
+  blobKey?: string;
+  size?: number;
 }
 
 export interface ThemeColors {

@@ -25,7 +25,8 @@ export type FormatAction =
   | { type: 'bullet'; value: BulletType }
   | { type: 'indent'; delta: 1 | -1 }
   | { type: 'direction'; value: TextDirection }
-  | { type: 'vAlign'; value: VAlign };
+  | { type: 'vAlign'; value: VAlign }
+  | { type: 'link'; url: string | null };
 
 const isEditing = () => {
   const s = useEditor.getState();
@@ -51,64 +52,61 @@ function applyToSelection(action: FormatAction) {
   const ids = s.editingTextId ? [s.editingTextId] : s.selectedIds;
   if (!ids.length) return;
   const label = '텍스트 서식';
+  // 표: 셀 선택 영역이 있으면 그 셀들에만
+  const range = s.cellSelection && ids.length === 1 && s.cellSelection.id === ids[0] ? s.cellSelection : null;
   s.commit(label, (d) =>
     C.updateObjects(d, slide.id, ids, (o) => {
       switch (action.type) {
         case 'toggle':
-          C.toggleRunFlag(o, action.key);
+          C.toggleRunFlag(o, action.key, range);
           break;
         case 'fontFamily':
-          C.applyRunStyle(o, { fontFamily: action.value });
+          C.applyRunStyle(o, { fontFamily: action.value }, range);
           break;
         case 'fontSize':
-          C.applyRunStyle(o, { fontSize: action.value });
+          C.applyRunStyle(o, { fontSize: action.value }, range);
           break;
         case 'growFont':
         case 'shrinkFont': {
           const dir = action.type === 'growFont' ? 1 : -1;
-          const each = (x: typeof o) => {
-            if (x.type === 'group') return x.children.forEach(each);
-            if (x.type !== 'text' && x.type !== 'shape') return;
-            for (const p of x.text.paragraphs) for (const r of p.runs) r.fontSize = nextSize(r.fontSize ?? 18, dir);
-          };
-          each(o);
+          for (const b of C.textBodies(o, range)) for (const p of b.paragraphs) for (const r of p.runs) r.fontSize = nextSize(r.fontSize ?? 18, dir);
           break;
         }
         case 'color':
-          C.applyRunStyle(o, { color: action.value });
+          C.applyRunStyle(o, { color: action.value }, range);
           break;
         case 'highlight':
-          C.applyRunStyle(o, { highlight: action.value ?? undefined });
+          C.applyRunStyle(o, { highlight: action.value ?? undefined }, range);
           break;
         case 'clear':
-          C.applyRunStyle(o, { bold: false, italic: false, underline: false, strike: false, highlight: undefined });
+          C.applyRunStyle(o, { bold: false, italic: false, underline: false, strike: false, highlight: undefined }, range);
           break;
         case 'align':
-          C.applyParagraphStyle(o, { align: action.value });
+          C.applyParagraphStyle(o, { align: action.value }, range);
           break;
         case 'lineSpacing':
-          C.applyParagraphStyle(o, { lineSpacing: action.value });
+          C.applyParagraphStyle(o, { lineSpacing: action.value }, range);
           break;
         case 'bullet': {
-          const runs = o.type === 'text' || o.type === 'shape' ? o.text.paragraphs : [];
-          const allSame = runs.length > 0 && runs.every((p) => p.bullet === action.value);
-          C.applyParagraphStyle(o, { bullet: allSame ? 'none' : action.value });
+          const paras = C.textBodies(o, range).flatMap((b) => b.paragraphs);
+          const allSame = paras.length > 0 && paras.every((p) => p.bullet === action.value);
+          C.applyParagraphStyle(o, { bullet: allSame ? 'none' : action.value }, range);
           break;
         }
         case 'indent': {
-          const each = (x: typeof o) => {
-            if (x.type === 'group') return x.children.forEach(each);
-            if (x.type !== 'text' && x.type !== 'shape') return;
-            for (const p of x.text.paragraphs) p.level = Math.max(0, Math.min(8, (p.level ?? 0) + action.delta));
-          };
-          each(o);
+          for (const b of C.textBodies(o, range)) for (const p of b.paragraphs) p.level = Math.max(0, Math.min(8, (p.level ?? 0) + action.delta));
           break;
         }
         case 'direction':
-          C.applyTextBody(o, { direction: action.value });
+          C.applyTextBody(o, { direction: action.value }, range);
           break;
         case 'vAlign':
-          C.applyTextBody(o, { vAlign: action.value });
+          C.applyTextBody(o, { vAlign: action.value }, range);
+          break;
+        case 'link':
+          // 개체 선택 상태: 개체 자체에 링크 (슬라이드 쇼에서 클릭 시 열림)
+          if (action.url) o.link = action.url;
+          else delete o.link;
           break;
       }
     }),
@@ -199,6 +197,19 @@ function applyInEditor(action: FormatAction): boolean {
       break;
     case 'clear':
       document.execCommand('removeFormat');
+      break;
+    case 'link':
+      if (action.url) {
+        document.execCommand('createLink', false, action.url);
+        // 하이퍼링크 기본 모양: 밑줄 + 링크 색
+        sess.root.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((a) => {
+          if (a.getAttribute('href') === action.url && !a.dataset.link) {
+            a.dataset.link = '1';
+            a.style.color = '#0563C1';
+            a.style.textDecoration = 'underline';
+          }
+        });
+      } else document.execCommand('unlink');
       break;
   }
   sess.sync();

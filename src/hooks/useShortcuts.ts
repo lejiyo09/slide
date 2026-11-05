@@ -98,6 +98,10 @@ export function useShortcuts() {
             handled();
             if (slidesFocus) return s.setSelectedSlides(s.doc.slides.map((x) => x.id));
             return A.selectAll();
+          case 'k':
+            handled();
+            window.dispatchEvent(new CustomEvent('slidelab:link'));
+            return;
           case 'g':
             handled();
             return e.shiftKey ? A.ungroup() : A.group();

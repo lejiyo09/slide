@@ -12,7 +12,11 @@
 import type {
   BulletType, CustomGeometry, Fill, GroupObject, HAlign, ImageObject, LayoutDef, LineObject, Paragraph, PathCommand, Presentation,
   Section, ShapeKind, ShapeObject, Slide, SlideObject, Stroke, TextBody, TextObject, TextRun, Theme, UnsupportedKind, UnsupportedObject, VAlign,
+  TableObject, TableCell, CellBorders, ChartObject, ChartType, MediaObject,
 } from '../../types/model';
+import type { Rel } from './ooxml';
+import { contentFingerprint } from '../../core/document/fingerprint';
+import { applyTableStyle } from '../../editors/table/table';
 import { newId } from '../../utils/id';
 import { MIME_BY_EXT, NS, OoxmlPackage, REL, WEB_IMAGE_EXT, boolAttr, descendants, kid, kids, numAttr, path, rAttr, serializeElement } from './ooxml';
 import { highlightColor, parseFill, parseLine, resolveColor, type ColorCtx, type FillResult } from './drawingml';
@@ -26,6 +30,8 @@ import type { ImportReport } from './report';
 export interface ImportResult {
   doc: Presentation;
   report: ImportReport;
+  /** 동영상/오디오 바이너리 (호출자가 IndexedDB blobs에 저장) */
+  blobs: { key: string; data: Uint8Array; mime: string }[];
 }
 
 /* ───────────── 텍스트 스타일 캐스케이드 ───────────── */
@@ -130,13 +136,18 @@ interface ShapeCtx {
   assets: Presentation['assets'];
   assetByPath: Map<string, string>;
   report: ImportReport;
+  /** 현재 파트의 관계 (동기 해석용, parseSpTree에서 채움) */
+  relMap?: Map<string, Rel>;
+  blobs?: ImportResult['blobs'];
+  tableStyles?: Map<string, Element>;
 }
 
 /* ───────────── 진입점 ───────────── */
 
 export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName = 'presentation.pptx'): Promise<ImportResult> {
   const pkg = await OoxmlPackage.load(data);
-  const report: ImportReport = { fileName, slides: 0, objects: 0, unsupported: {}, preservedTransitions: 0, preservedTimings: 0, approximated: [], warnings: [] };
+  const report: ImportReport = { fileName, slides: 0, objects: 0, unsupported: {}, converted: {}, preservedTransitions: 0, preservedTimings: 0, approximated: [], warnings: [] };
+  const blobs: ImportResult['blobs'] = [];
 
   const rootRel = (await pkg.rels('')).size ? await pkg.relByType('', REL.officeDocument) : undefined;
   const presPath = rootRel?.target ?? 'ppt/presentation.xml';
@@ -156,6 +167,11 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
   void ratio;
 
   const presRels = await pkg.rels(presPath);
+  // 표 스타일 정의 (ppt/tableStyles.xml)
+  const tableStyles = new Map<string, Element>();
+  const tsRel = [...presRels.values()].find((r) => r.type.endsWith('/tableStyles'));
+  const tsDoc = tsRel ? await pkg.xml(tsRel.target) : null;
+  if (tsDoc) for (const st of kids(tsDoc.documentElement, 'tblStyle')) tableStyles.set(st.getAttribute('styleId') ?? '', st);
   const defaultTextStyle = parseLstStyle(kid(pres, 'defaultTextStyle'), null);
 
   const masters = new Map<string, MasterInfo>();
@@ -203,7 +219,7 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
       const lroot = doc.documentElement;
       const ctxBase = (part: string): ShapeCtx => ({
         pkg, part, color: { scheme: master.theme.scheme, clrMap: master.clrMap }, theme: master.theme, master, layout: null, isSlide: false,
-        defaultTextStyle, assets, assetByPath, report,
+        defaultTextStyle, assets, assetByPath, report, blobs, tableStyles,
       });
       const objects: SlideObject[] = [];
       if (lroot.getAttribute('showMasterSp') !== '0') objects.push(...(await parseSpTree(path(master.doc.documentElement, 'cSld', 'spTree'), ctxBase(master.part), true)));
@@ -243,7 +259,7 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
     const root = sdoc.documentElement;
     const ctx: ShapeCtx = {
       pkg, part: slidePath, color: { scheme: master.theme.scheme, clrMap: master.clrMap }, theme: master.theme, master, layout, isSlide: true,
-      defaultTextStyle, assets, assetByPath, report,
+      defaultTextStyle, assets, assetByPath, report, blobs, tableStyles,
     };
     // 슬라이드별 색 매핑 재정의
     const ovr = path(root, 'clrMapOvr', 'overrideClrMapping');
@@ -306,7 +322,7 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
   const t = firstTheme!;
   const masterBg = await parseBackground(path(firstMaster!.doc.documentElement, 'cSld', 'bg'), {
     pkg, part: firstMaster!.part, color: { scheme: t.scheme, clrMap: firstMaster!.clrMap }, theme: t, master: firstMaster!, layout: null, isSlide: false,
-    defaultTextStyle, assets, assetByPath, report,
+    defaultTextStyle, assets, assetByPath, report, blobs, tableStyles,
   });
   const theme: Theme = {
     id: `imported-${newId()}`,
@@ -336,7 +352,7 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
   };
   report.approximated = [...new Set(report.approximated)];
   report.warnings = [...new Set(report.warnings)];
-  return { doc, report };
+  return { doc, report, blobs };
 }
 
 function countObjects(objs: SlideObject[]): number {
@@ -611,6 +627,10 @@ function buildTextBody(txBody: Element | null, chain: TextStyleChain, ctx: Shape
       if (rp.u) run.underline = true;
       if (rp.strike) run.strike = true;
       if (rp.highlight) run.highlight = rp.highlight;
+      const hl = kid(rPr, 'hlinkClick');
+      const rid = hl ? rAttr(hl, 'id') : undefined;
+      const rel = rid ? ctx.relMap?.get(rid) : undefined;
+      if (rel?.external && /^(https?:|mailto:)/i.test(rel.target)) run.link = rel.target;
       return run;
     };
     for (const c of kids(p)) {
@@ -789,6 +809,7 @@ function parseCustGeom(cg: Element, w: number, h: number, ctx: ShapeCtx): Custom
 /* ───────────── 도형 트리 ───────────── */
 
 async function parseSpTree(tree: Element | null, ctx: ShapeCtx, skipPlaceholders: boolean, tf: Xform = TOP, groupFill?: Fill): Promise<SlideObject[]> {
+  ctx.relMap ??= await ctx.pkg.rels(ctx.part);
   const out: SlideObject[] = [];
   for (const el of kids(tree)) {
     try {
@@ -834,12 +855,16 @@ async function parseElement(el: Element, ctx: ShapeCtx, skipPlaceholders: boolea
   }
 }
 
-function baseProps(el: Element, nvName: string) {
+function baseProps(el: Element, nvName: string, ctx?: ShapeCtx) {
   const cNvPr = path(el, nvName, 'cNvPr');
+  const hl = kid(cNvPr, 'hlinkClick');
+  const rid = hl ? rAttr(hl, 'id') : undefined;
+  const rel = rid ? ctx?.relMap?.get(rid) : undefined;
   return {
     name: cNvPr?.getAttribute('name') || '',
     sourceId: numAttr(cNvPr, 'id'),
     hidden: boolAttr(cNvPr, 'hidden') || undefined,
+    link: rel?.external && /^(https?:|mailto:)/i.test(rel.target) ? rel.target : undefined,
   };
 }
 
@@ -858,7 +883,7 @@ async function parseSp(sp: Element, ctx: ShapeCtx, skipPlaceholders: boolean, tf
   const phIdx = ph?.getAttribute('idx') ?? undefined;
   // 슬라이드의 날짜/바닥글/번호 개체 틀은 텍스트가 있을 때만
   const spPr = kid(sp, 'spPr');
-  const base = baseProps(sp, 'nvSpPr');
+  const base = baseProps(sp, 'nvSpPr', ctx);
 
   // 개체 틀 상속: 레이아웃 → 마스터
   const layoutPh = ph && ctx.layout ? findPlaceholder(ctx.layout.placeholders, phType!, phIdx) : undefined;
@@ -932,6 +957,7 @@ async function parseSp(sp: Element, ctx: ShapeCtx, skipPlaceholders: boolean, tf
     ...(geo.flipV ? { flipV: true } : {}),
     ...(base.sourceId !== undefined ? { sourceId: base.sourceId } : {}),
     ...(base.hidden ? { hidden: true } : {}),
+    ...(base.link ? { link: base.link } : {}),
   };
 
   const isTextBox = boolAttr(path(sp, 'nvSpPr', 'cNvSpPr'), 'txBox') || !!ph;
@@ -1013,10 +1039,10 @@ async function parsePic(pic: Element, ctx: ShapeCtx, tf: Xform): Promise<SlideOb
   const spPr = kid(pic, 'spPr');
   const geo = readXfrm(kid(spPr, 'xfrm'), tf);
   if (!geo) return null;
-  const base = baseProps(pic, 'nvPicPr');
+  const base = baseProps(pic, 'nvPicPr', ctx);
   const nvPr = path(pic, 'nvPicPr', 'nvPr');
   if (kid(nvPr, 'videoFile') || kid(nvPr, 'audioFile') || descendants(nvPr ?? pic, 'media').length) {
-    return unsupported(pic, 'media', base.name || '미디어', ctx, tf, null);
+    return (await parseMedia(pic, nvPr!, geo, base, ctx, tf)) ?? unsupported(pic, 'media', base.name || '미디어', ctx, tf, null);
   }
   const blipFill = kid(pic, 'blipFill');
   const blip = kid(blipFill, 'blip');
@@ -1046,6 +1072,7 @@ async function parsePic(pic: Element, ctx: ShapeCtx, tf: Xform): Promise<SlideOb
     ...(base.sourceId !== undefined ? { sourceId: base.sourceId } : {}),
     ...(base.hidden ? { hidden: true } : {}),
     ...(amt !== undefined ? { opacity: amt / 100000 } : {}),
+    ...(base.link ? { link: base.link } : {}),
     crop: { left: c('l'), top: c('t'), right: c('r'), bottom: c('b') },
     stroke: ln.stroke ?? null,
     // 원본 비율: 자르기 전 표시 크기로 추정 (픽셀 크기는 렌더링에 필요하지 않음)
@@ -1097,7 +1124,18 @@ async function parseGraphicFrame(gf: Element, ctx: ShapeCtx, tf: Xform): Promise
   const uri = path(gf, 'graphic', 'graphicData')?.getAttribute('uri') ?? '';
   const match = GRAPHIC_KINDS.find(([u]) => uri.endsWith(u));
   const kind = match?.[1] ?? 'other';
-  const base = baseProps(gf, 'nvGraphicFramePr');
+  const base = baseProps(gf, 'nvGraphicFramePr', ctx);
+  try {
+    if (kind === 'table') {
+      const t = parseTable(gf, ctx, tf, base);
+      if (t) return t;
+    } else if (kind === 'chart' && uri.endsWith('/drawingml/2006/chart')) {
+      const c = await parseChart(gf, ctx, tf, base);
+      if (c) return c;
+    }
+  } catch (e) {
+    ctx.report.warnings.push(`${match?.[2] ?? '개체'}를 편집 가능한 형식으로 바꾸지 못해 원본으로 보존했습니다: ${(e as Error).message}`);
+  }
   let preview: UnsupportedObject['preview'] = undefined;
   if (kind === 'table') {
     const tbl = descendants(gf, 'tbl')[0];
@@ -1112,6 +1150,321 @@ async function parseGraphicFrame(gf: Element, ctx: ShapeCtx, tf: Xform): Promise
     }
   }
   return unsupported(gf, kind, `${match?.[2] ?? '개체'}${base.name ? ` · ${base.name}` : ''}`, ctx, tf, preview ?? null);
+}
+
+/* ───────────── 표 ───────────── */
+
+type Geo = NonNullable<ReturnType<typeof readXfrm>>;
+
+function preservedOf(el: Element, ctx: ShapeCtx) {
+  return { xml: serializeElement(el), part: ctx.part };
+}
+
+/** 개체 생성 후 내용 지문을 기록 (저장 시 원본 복원 판단) */
+function seal<T extends SlideObject>(o: T, xml: { xml: string; part: string }): T {
+  o.preserved = { ...xml, fingerprint: '' };
+  o.preserved.fingerprint = contentFingerprint(o);
+  return o;
+}
+
+function frameGeo(gf: Element, tf: Xform): Geo | null {
+  return readXfrm(kid(gf, 'xfrm'), tf);
+}
+
+const TABLE_STYLE_PARTS = ['wholeTbl', 'band1H', 'band2H', 'band1V', 'band2V', 'lastCol', 'firstCol', 'lastRow', 'firstRow'] as const;
+
+function lineOf(ln: Element | null, ctx: ShapeCtx): Stroke | null | undefined {
+  if (!ln) return undefined;
+  const r = parseLine(ln, ctx.color);
+  return r.stroke === undefined ? undefined : r.stroke;
+}
+
+function parseTable(gf: Element, ctx: ShapeCtx, tf: Xform, base: ReturnType<typeof baseProps>): TableObject | null {
+  const tbl = descendants(gf, 'tbl')[0];
+  const geo = frameGeo(gf, tf);
+  if (!tbl || !geo) return null;
+  const sx = tf.sx, sy = tf.sy;
+  const tblPr = kid(tbl, 'tblPr');
+  const flag = (n: string) => boolAttr(tblPr, n) ?? false;
+  const flags = { firstRow: flag('firstRow'), lastRow: flag('lastRow'), firstCol: flag('firstCol'), lastCol: flag('lastCol'), bandRow: flag('bandRow'), bandCol: flag('bandCol') };
+  const styleId = kid(tblPr, 'tableStyleId')?.textContent?.trim() ?? '';
+  const styleEl = styleId ? ctx.tableStyles?.get(styleId) : undefined;
+  const columns = kids(kid(tbl, 'tblGrid'), 'gridCol').map((g) => (numAttr(g, 'w') ?? 0) * sx);
+  const trs = kids(tbl, 'tr');
+  const levels = mergeLevels(ctx.defaultTextStyle, emptyLevels());
+
+  const rows = trs.map((tr) => ({
+    height: (numAttr(tr, 'h') ?? 0) * sy,
+    cells: kids(tr, 'tc').map((tc): TableCell & { _explicit: { fill: boolean; b: Partial<Record<keyof CellBorders, boolean>> } } => {
+      const tcPr = kid(tc, 'tcPr');
+      const body = buildTextBody(kid(tc, 'txBody'), { levels, body: {} }, ctx);
+      body.padding = {
+        left: (numAttr(tcPr, 'marL') ?? 91440) / EMU_PER_PX,
+        right: (numAttr(tcPr, 'marR') ?? 91440) / EMU_PER_PX,
+        top: (numAttr(tcPr, 'marT') ?? 45720) / EMU_PER_PX,
+        bottom: (numAttr(tcPr, 'marB') ?? 45720) / EMU_PER_PX,
+      };
+      const anchor = tcPr?.getAttribute('anchor');
+      body.vAlign = anchor === 'ctr' ? 'middle' : anchor === 'b' ? 'bottom' : 'top';
+      const fillRes = parseFill(tcPr, ctx.color);
+      const fill: Fill = fillRes && fillRes.type !== 'blip' ? fillRes : { type: 'none' };
+      const bl = { left: lineOf(kid(tcPr, 'lnL'), ctx), right: lineOf(kid(tcPr, 'lnR'), ctx), top: lineOf(kid(tcPr, 'lnT'), ctx), bottom: lineOf(kid(tcPr, 'lnB'), ctx) };
+      const gridSpan = numAttr(tc, 'gridSpan');
+      const rowSpan = numAttr(tc, 'rowSpan');
+      return {
+        text: body,
+        fill,
+        borders: { left: bl.left ?? null, right: bl.right ?? null, top: bl.top ?? null, bottom: bl.bottom ?? null },
+        ...(gridSpan && gridSpan > 1 ? { colSpan: gridSpan } : {}),
+        ...(rowSpan && rowSpan > 1 ? { rowSpan } : {}),
+        ...(boolAttr(tc, 'hMerge') || boolAttr(tc, 'vMerge') ? { merged: true } : {}),
+        _explicit: { fill: !!fillRes, b: { left: bl.left !== undefined, right: bl.right !== undefined, top: bl.top !== undefined, bottom: bl.bottom !== undefined } },
+      };
+    }),
+  }));
+  const nRows = rows.length, nCols = columns.length;
+  const t: TableObject = {
+    id: newId(),
+    type: 'table',
+    name: base.name || '표',
+    x: geo.x,
+    y: geo.y,
+    width: columns.reduce((a, b) => a + b, 0),
+    height: rows.reduce((a, r) => a + r.height, 0),
+    rotation: 0,
+    ...(base.sourceId !== undefined ? { sourceId: base.sourceId } : {}),
+    columns,
+    rows: rows as TableObject['rows'],
+  };
+
+  // 표 스타일 적용 (명시적 셀 서식이 우선)
+  if (styleEl) {
+    rows.forEach((row, r) =>
+      row.cells.forEach((cell, c) => {
+        const parts: Element[] = [];
+        const dataRow = r - (flags.firstRow ? 1 : 0);
+        const dataCol = c - (flags.firstCol ? 1 : 0);
+        for (const name of TABLE_STYLE_PARTS) {
+          const ok =
+            name === 'wholeTbl' ||
+            (name === 'band1H' && flags.bandRow && dataRow >= 0 && dataRow % 2 === 0) ||
+            (name === 'band2H' && flags.bandRow && dataRow >= 0 && dataRow % 2 === 1) ||
+            (name === 'band1V' && flags.bandCol && dataCol >= 0 && dataCol % 2 === 0) ||
+            (name === 'band2V' && flags.bandCol && dataCol >= 0 && dataCol % 2 === 1) ||
+            (name === 'lastCol' && flags.lastCol && c === nCols - 1) ||
+            (name === 'firstCol' && flags.firstCol && c === 0) ||
+            (name === 'lastRow' && flags.lastRow && r === nRows - 1) ||
+            (name === 'firstRow' && flags.firstRow && r === 0);
+          const el = ok ? kid(styleEl, name) : null;
+          if (el) parts.push(el);
+        }
+        for (const part of parts) {
+          const tcStyle = kid(part, 'tcStyle');
+          if (!cell._explicit.fill) {
+            const fr = kid(tcStyle, 'fill');
+            const fref = kid(tcStyle, 'fillRef');
+            const f = fr ? parseFill(fr, ctx.color) : fref ? { type: 'solid' as const, color: resolveColor(fref, ctx.color)?.hex ?? '#FFFFFF' } : null;
+            if (f && f.type !== 'blip') cell.fill = f;
+          }
+          const bdr = kid(tcStyle, 'tcBdr');
+          const side = (n: string) => {
+            const el = kid(bdr, n);
+            if (!el) return undefined;
+            const ln = kid(el, 'ln');
+            return ln ? lineOf(ln, ctx) ?? null : el.firstElementChild ? null : undefined;
+          };
+          const apply = (k: keyof CellBorders, v: Stroke | null | undefined) => {
+            if (v !== undefined && !cell._explicit.b[k]) cell.borders[k] = v;
+          };
+          apply('left', c === 0 ? side('left') : side('insideV') ?? side('left'));
+          apply('right', c === nCols - 1 ? side('right') : side('insideV') ?? side('right'));
+          apply('top', r === 0 ? side('top') : side('insideH') ?? side('top'));
+          apply('bottom', r === nRows - 1 ? side('bottom') : side('insideH') ?? side('bottom'));
+          const tx = kid(part, 'tcTxStyle');
+          if (tx) {
+            const bold = tx.getAttribute('b');
+            const col = resolveColor(tx, ctx.color);
+            for (const p of cell.text.paragraphs)
+              for (const run of p.runs) {
+                if (bold === 'on') run.bold = true;
+                if (col) run.color = col.hex;
+              }
+          }
+        }
+      }),
+    );
+  } else if (styleId) {
+    // 정의가 파일에 없는 기본 제공 스타일: 보통 스타일 2 근사 (PowerPoint 기본 표 스타일)
+    t.style = { preset: 'medium2', accent: 1, firstRow: flags.firstRow, bandRows: flags.bandRow, firstCol: flags.firstCol, lastRow: flags.lastRow };
+    const snapshot = rows.map((row) => row.cells.map((cell) => ({ fill: cell._explicit.fill ? cell.fill : null, b: { ...cell.borders }, eb: cell._explicit.b })));
+    applyTableStyle(t, ctxTheme(ctx));
+    rows.forEach((row, r) =>
+      row.cells.forEach((cell, c) => {
+        const snap = snapshot[r][c];
+        if (snap.fill) cell.fill = snap.fill;
+        (Object.keys(snap.eb) as (keyof CellBorders)[]).forEach((k) => snap.eb[k] && (cell.borders[k] = snap.b[k]));
+      }),
+    );
+    if (styleId !== '{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}') ctx.report.approximated.push('정의가 파일에 없는 기본 제공 표 스타일은 "보통 스타일 2"로 근사 표시됩니다 (저장 시 원래 스타일 유지).');
+  }
+  rows.forEach((row) => row.cells.forEach((cell) => delete (cell as Partial<typeof cell>)._explicit));
+  ctx.report.converted.table = (ctx.report.converted.table ?? 0) + 1;
+  return seal(t, preservedOf(gf, ctx));
+}
+
+/** 표 스타일 근사에 쓰는 테마 (가져오기 중 테마 객체) */
+function ctxTheme(ctx: ShapeCtx): Theme {
+  const sc = ctx.theme.scheme;
+  return {
+    id: 'tmp',
+    name: '',
+    colors: {
+      dark1: sc.dk1 ?? '#000000', light1: sc.lt1 ?? '#FFFFFF', dark2: sc.dk2 ?? '#44546A', light2: sc.lt2 ?? '#E7E6E6',
+      accent1: sc.accent1 ?? '#4472C4', accent2: sc.accent2 ?? '#ED7D31', accent3: sc.accent3 ?? '#A5A5A5', accent4: sc.accent4 ?? '#FFC000', accent5: sc.accent5 ?? '#5B9BD5', accent6: sc.accent6 ?? '#70AD47',
+    },
+    fonts: { heading: ctx.theme.majorLatin, body: ctx.theme.minorLatin },
+    background: { type: 'none' },
+  };
+}
+
+/* ───────────── 차트 ───────────── */
+
+const CHART_TAGS: Record<string, ChartType | null> = {
+  barChart: 'column',
+  lineChart: 'line',
+  pieChart: 'pie',
+  doughnutChart: 'doughnut',
+  areaChart: 'area',
+  scatterChart: 'scatter',
+};
+
+function cacheValues(ref: Element | null): string[] {
+  if (!ref) return [];
+  const cache = descendants(ref, 'strCache')[0] ?? descendants(ref, 'numCache')[0] ?? kid(ref, 'strLit') ?? kid(ref, 'numLit');
+  if (!cache) return [];
+  const n = numAttr(kid(cache, 'ptCount'), 'val') ?? 0;
+  const out: string[] = Array(n).fill('');
+  for (const pt of kids(cache, 'pt')) {
+    const i = numAttr(pt, 'idx') ?? 0;
+    out[i] = kid(pt, 'v')?.textContent ?? '';
+  }
+  return out;
+}
+
+async function parseChart(gf: Element, ctx: ShapeCtx, tf: Xform, base: ReturnType<typeof baseProps>): Promise<ChartObject | null> {
+  const geo = frameGeo(gf, tf);
+  const chartRef = descendants(gf, 'chart')[0];
+  const rid = chartRef ? rAttr(chartRef, 'id') : undefined;
+  const rel = rid ? ctx.relMap?.get(rid) : undefined;
+  if (!geo || !rel || rel.external) return null;
+  const cdoc = await ctx.pkg.xml(rel.target);
+  if (!cdoc) return null;
+  const chartEl = kid(cdoc.documentElement, 'chart');
+  const plot = kid(chartEl, 'plotArea');
+  const typeEls = kids(plot).filter((e) => e.localName.endsWith('Chart'));
+  if (typeEls.length !== 1 || !(typeEls[0].localName in CHART_TAGS)) return null; // 복합/3D/방사형 등 → 원본 보존
+  const te = typeEls[0];
+  let chartType = CHART_TAGS[te.localName]!;
+  if (chartType === 'column' && kid(te, 'barDir')?.getAttribute('val') === 'bar') chartType = 'bar';
+  const grouping = kid(te, 'grouping')?.getAttribute('val') ?? 'clustered';
+  if (grouping === 'percentStacked') ctx.report.approximated.push('100% 누적 차트는 일반 누적으로 표시됩니다 (저장 시 원래 설정 유지).');
+  const sers = kids(te, 'ser');
+  if (!sers.length) return null;
+  const num = (v: string) => (v === '' ? 0 : Number(v));
+  const categories = chartType === 'scatter' ? [] : cacheValues(kid(sers[0], 'cat'));
+  const series = sers.map((ser, i) => {
+    const name = cacheValues(kid(ser, 'tx')).join('') || kid(kid(ser, 'tx'), 'v')?.textContent || `계열 ${i + 1}`;
+    const color = resolveColor(path(ser, 'spPr', 'solidFill'), ctx.color)?.hex ?? resolveColor(path(ser, 'spPr', 'ln', 'solidFill'), ctx.color)?.hex;
+    if (chartType === 'scatter') {
+      return { name, values: cacheValues(kid(ser, 'yVal')).map(num), xValues: cacheValues(kid(ser, 'xVal')).map(num), ...(color ? { color } : {}) };
+    }
+    return { name, values: cacheValues(kid(ser, 'val')).map(num), ...(color && chartType !== 'pie' && chartType !== 'doughnut' ? { color } : {}) };
+  });
+  // 원형: 데이터 요소별 색
+  let colors: string[] | undefined;
+  if (chartType === 'pie' || chartType === 'doughnut') {
+    const dpts = kids(sers[0], 'dPt');
+    if (dpts.length) {
+      colors = [];
+      for (const d of dpts) {
+        const idx = numAttr(kid(d, 'idx'), 'val') ?? 0;
+        const col = resolveColor(path(d, 'spPr', 'solidFill'), ctx.color)?.hex;
+        if (col) colors[idx] = col;
+      }
+    }
+  }
+  const titleEl = kid(chartEl, 'title');
+  const title = titleEl ? descendants(titleEl, 't').map((t) => t.textContent ?? '').join('') : '';
+  const autoDeleted = kid(chartEl, 'autoTitleDeleted')?.getAttribute('val') === '1';
+  const legend = kid(chartEl, 'legend');
+  const sz = numAttr(descendants(cdoc.documentElement, 'defRPr')[0] ?? null, 'sz');
+  const c: ChartObject = {
+    id: newId(),
+    type: 'chart',
+    name: base.name || '차트',
+    x: geo.x,
+    y: geo.y,
+    width: Math.max(1, geo.width),
+    height: Math.max(1, geo.height),
+    rotation: 0,
+    ...(base.sourceId !== undefined ? { sourceId: base.sourceId } : {}),
+    chartType,
+    categories,
+    series,
+    title: title || (series.length === 1 && !autoDeleted && titleEl ? series[0].name : title),
+    showTitle: !!titleEl || (!autoDeleted && series.length === 1 && (chartType === 'pie' || chartType === 'doughnut')),
+    showLegend: !!legend,
+    legendPos: (kid(legend, 'legendPos')?.getAttribute('val') as ChartObject['legendPos']) ?? 'r',
+    showDataLabels: descendants(te, 'showVal').some((e) => e.getAttribute('val') === '1'),
+    stacked: grouping === 'stacked' || grouping === 'percentStacked',
+    ...(colors?.length ? { colors } : {}),
+    fontSize: sz ? sz / 100 : 10,
+  };
+  if (c.showTitle && !c.title) c.title = series[0]?.name ?? '';
+  ctx.report.converted.chart = (ctx.report.converted.chart ?? 0) + 1;
+  return seal(c, preservedOf(gf, ctx));
+}
+
+/* ───────────── 미디어 ───────────── */
+
+async function parseMedia(pic: Element, nvPr: Element, geo: Geo, base: ReturnType<typeof baseProps>, ctx: ShapeCtx, tf: Xform): Promise<MediaObject | null> {
+  void tf;
+  const kind: MediaObject['kind'] = kid(nvPr, 'audioFile') ? 'audio' : 'video';
+  // p14:media r:embed (내장) 우선, 없으면 videoFile/audioFile r:link
+  const mediaEl = descendants(nvPr, 'media')[0];
+  const rid = (mediaEl && rAttr(mediaEl, 'embed')) || rAttr(kid(nvPr, kind === 'audio' ? 'audioFile' : 'videoFile'), 'link');
+  const rel = rid ? ctx.relMap?.get(rid) : undefined;
+  if (!rel || rel.external) {
+    ctx.report.warnings.push('외부 링크로 연결된 미디어는 원본 그대로 보존했습니다.');
+    return null;
+  }
+  const data = await ctx.pkg.bytes(rel.target);
+  if (!data) return null;
+  const ext = rel.target.split('.').pop()!.toLowerCase();
+  const mime = { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', wmv: 'video/x-ms-wmv', avi: 'video/x-msvideo', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', wma: 'audio/x-ms-wma', ogg: 'audio/ogg' }[ext] ?? (kind === 'audio' ? 'audio/mpeg' : 'video/mp4');
+  if (['wmv', 'avi', 'wma'].includes(ext)) ctx.report.approximated.push(`${ext.toUpperCase()} 미디어는 브라우저에서 재생되지 않을 수 있습니다 (저장 시 원본 유지).`);
+  const blobKey = newId();
+  const assetId = newId();
+  ctx.blobs?.push({ key: blobKey, data, mime });
+  ctx.assets[assetId] = { id: assetId, mime, dataUrl: '', blobKey, name: rel.target.split('/').pop(), size: data.length };
+  const posterRid = rAttr(path(pic, 'blipFill', 'blip'), 'embed');
+  const posterId = posterRid ? await assetFromRel(posterRid, ctx) : null;
+  const m: MediaObject = {
+    id: newId(),
+    type: 'media',
+    name: base.name || (kind === 'audio' ? '오디오' : '비디오'),
+    kind,
+    assetId,
+    ...(posterId ? { posterId } : {}),
+    x: geo.x,
+    y: geo.y,
+    width: Math.max(1, geo.width),
+    height: Math.max(1, geo.height),
+    rotation: geo.rotation,
+    ...(base.sourceId !== undefined ? { sourceId: base.sourceId } : {}),
+  };
+  ctx.report.converted.media = (ctx.report.converted.media ?? 0) + 1;
+  return seal(m, preservedOf(pic, ctx));
 }
 
 function unsupported(el: Element, kind: UnsupportedKind, label: string, ctx: ShapeCtx, tf: Xform, preview: UnsupportedObject['preview'] | null): UnsupportedObject | null {

@@ -1,17 +1,20 @@
 import { memo, type ReactNode } from 'react';
-import type { Presentation, ShapeObject, Slide, TextObject } from '../../types/model';
-import { ObjectView, fillToCss } from './ObjectView';
+import type { Presentation, Slide } from '../../types/model';
+import { ObjectView, fillToCss, type EditableObject, type RenderMode } from './ObjectView';
 
 interface SlideViewProps {
   slide: Slide;
   doc: Pick<Presentation, 'size' | 'theme' | 'assets' | 'layouts'>;
   editingTextId?: string | null;
-  renderEditor?: (obj: TextObject | ShapeObject) => ReactNode;
+  editingCell?: [number, number] | null;
+  renderEditor?: (obj: EditableObject, cell?: [number, number]) => ReactNode;
   interactive?: boolean;
+  mode?: RenderMode;
+  cellSelection?: { id: string; r1: number; c1: number; r2: number; c2: number } | null;
 }
 
 /** 슬라이드 원본 크기(px)로 렌더링. 확대/축소는 바깥에서 transform으로 처리 */
-export const SlideView = memo(function SlideView({ slide, doc, editingTextId, renderEditor, interactive }: SlideViewProps) {
+export const SlideView = memo(function SlideView({ slide, doc, editingTextId, editingCell, renderEditor, interactive, mode, cellSelection }: SlideViewProps) {
   const layout = doc.layouts?.[slide.layout];
   const bg = slide.background?.fill ?? layout?.background ?? doc.theme.background;
   const showLayout = layout && slide.showMasterShapes !== false;
@@ -21,12 +24,23 @@ export const SlideView = memo(function SlideView({ slide, doc, editingTextId, re
       {showLayout && (
         <div className="sl-layout-layer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
           {layout.objects.map((o) => (
-            <ObjectView key={o.id} obj={o} assets={doc.assets} />
+            <ObjectView key={o.id} obj={o} assets={doc.assets} theme={doc.theme} mode={mode ?? 'thumb'} />
           ))}
         </div>
       )}
       {slide.objects.map((o) => (
-        <ObjectView key={o.id} obj={o} assets={doc.assets} editingTextId={editingTextId} renderEditor={renderEditor} interactive={interactive} />
+        <ObjectView
+          key={o.id}
+          obj={o}
+          assets={doc.assets}
+          theme={doc.theme}
+          editingTextId={editingTextId}
+          editingCell={editingTextId === o.id ? editingCell : null}
+          renderEditor={renderEditor}
+          interactive={interactive}
+          mode={mode ?? (interactive ? 'edit' : 'thumb')}
+          cellSelection={cellSelection && cellSelection.id === o.id ? cellSelection : null}
+        />
       ))}
     </div>
   );

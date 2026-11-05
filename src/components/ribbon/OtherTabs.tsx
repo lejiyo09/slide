@@ -1,7 +1,12 @@
 import {
   Image as ImageIcon, Type, Plus, FileImage, Monitor, Play, PlayCircle, EyeOff, LayoutGrid, Square, Grid3x3, Ruler, Magnet,
   NotebookPen, ZoomIn, ZoomOut, Maximize, Moon, Sun, Ratio, Palette, PaintBucket, History, Save, Shapes,
+  Table2, BarChart3, Smile, Link2, Film, Volume2,
 } from 'lucide-react';
+import { useState } from 'react';
+import { TableGridPicker, ChartTypeMenu, LinkDialog, IconPickerDialog } from './InsertExtras';
+import { pickAndInsertMedia } from '../../editors/media/mediaActions';
+import { lockSelection } from '../../editors/text/editorSession';
 import { RibbonButton, DropdownButton, RibbonGroup, PlannedGroup, MenuItem, MenuSeparator, SplitButton } from '../common/Buttons';
 import { ColorPanel } from '../common/ColorPicker';
 import { useEditor } from '../../core/store/editorStore';
@@ -21,6 +26,7 @@ import { fillToCss } from '../../engines/rendering/ObjectView';
 
 export function InsertTab() {
   const set = useEditor((s) => s.set);
+  const [dialog, setDialog] = useState<null | 'link' | 'icon'>(null);
   return (
     <>
       <RibbonGroup label="슬라이드">
@@ -39,7 +45,11 @@ export function InsertTab() {
           )}
         </DropdownButton>
       </RibbonGroup>
-      <PlannedGroup label="표" stage="8단계" items={['표 삽입', '셀 병합', '테두리']} />
+      <RibbonGroup label="표">
+        <DropdownButton size="large" icon={<Table2 size={26} />} label="표" title="표 삽입">
+          {(close) => <TableGridPicker close={close} />}
+        </DropdownButton>
+      </RibbonGroup>
       <RibbonGroup label="이미지">
         <RibbonButton size="large" icon={<ImageIcon size={26} />} label="그림" title="이 디바이스의 그림 삽입 (PNG, JPG, GIF, WebP, SVG)" onClick={() => A.pickAndInsertImage()} />
         <RibbonButton size="large" icon={<FileImage size={26} />} label="SVG" title="SVG 파일 삽입" onClick={() => A.pickAndInsertImage(true)} />
@@ -68,12 +78,25 @@ export function InsertTab() {
           )}
         </DropdownButton>
       </RibbonGroup>
-      <PlannedGroup label="아이콘 · 3D · 차트" stage="8단계" items={['아이콘', '3D 모델(확장 인터페이스)', '차트']} />
-      <PlannedGroup label="링크" stage="8단계" items={['하이퍼링크', '실행']} />
+      <RibbonGroup label="일러스트레이션 ">
+        <RibbonButton size="large" icon={<Smile size={26} />} label="아이콘" title="아이콘 삽입 (Lucide 아이콘)" onClick={() => setDialog('icon')} />
+        <DropdownButton size="large" icon={<BarChart3 size={26} />} label="차트" title="차트 삽입">
+          {(close) => <ChartTypeMenu close={close} />}
+        </DropdownButton>
+      </RibbonGroup>
+      <RibbonGroup label="링크">
+        <RibbonButton size="large" icon={<Link2 size={26} />} label="링크" title="하이퍼링크 (Ctrl+K)" onClick={() => (lockSelection(), setDialog('link'))} />
+      </RibbonGroup>
       <RibbonGroup label="텍스트">
         <RibbonButton size="large" icon={<Type size={26} />} label="텍스트 상자" title="텍스트 상자 그리기 (클릭 또는 드래그)" onClick={() => set({ insertTool: { kind: 'text' } })} />
       </RibbonGroup>
-      <PlannedGroup label="기호 · 미디어" stage="8단계" items={['수식', '오디오', '비디오']} />
+      <PlannedGroup label="기호 · 3D" stage="13단계" items={['수식', '3D 모델(확장 인터페이스)']} />
+      <RibbonGroup label="미디어">
+        <RibbonButton size="large" icon={<Film size={26} />} label="비디오" title="이 디바이스의 비디오 삽입 (MP4, WebM)" onClick={() => void pickAndInsertMedia('video')} />
+        <RibbonButton size="large" icon={<Volume2 size={26} />} label="오디오" title="이 디바이스의 오디오 삽입 (MP3, M4A, WAV)" onClick={() => void pickAndInsertMedia('audio')} />
+      </RibbonGroup>
+      {dialog === 'link' && <LinkDialog onClose={() => setDialog(null)} />}
+      {dialog === 'icon' && <IconPickerDialog onClose={() => setDialog(null)} />}
     </>
   );
 }

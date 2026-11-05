@@ -1969,3 +1969,244 @@ button.bs-export-item:hover:not(:disabled) {
 .dialog:has(.ir-list) {
   width: min(560px, calc(100vw - 32px));
 }
+
+.sl-table td {
+  overflow: hidden;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+.sl-cell-selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(43, 125, 233, 0.22);
+  pointer-events: none;
+}
+.sl-cell .sl-text-inner.sl-editing {
+  min-height: 1em;
+}
+.sl-media {
+  position: absolute;
+  inset: 0;
+}
+.sl-audio {
+  display: grid;
+  place-items: center;
+  background: rgba(240, 240, 240, 0.9);
+  border-radius: 6px;
+}
+.sl-audio .sl-media-controls {
+  position: absolute;
+  left: -60px;
+  right: -60px;
+  bottom: -46px;
+  width: calc(100% + 120px);
+}
+.sl-video-placeholder {
+  background: #1b1b1b center / contain no-repeat;
+  display: grid;
+  place-items: center;
+  color: #fff;
+}
+.sl-play {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  padding-left: 4px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+}
+.sl-media-missing {
+  position: absolute;
+  bottom: 8px;
+  font-size: 13px;
+  opacity: 0.8;
+}
+.sl-link {
+  color: #0563c1;
+  text-decoration: underline;
+}
+
+/* 표 삽입 격자 */
+.table-picker {
+  padding: 6px;
+}
+.tp-title {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 2px 6px;
+}
+.tp-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 18px);
+  gap: 2px;
+}
+.tp-cell {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  padding: 0;
+}
+.tp-cell.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.rb-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  white-space: nowrap;
+  height: 22px;
+}
+.check-col {
+  padding-top: 4px;
+}
+.table-style-row {
+  display: flex;
+  gap: 4px;
+  padding-top: 2px;
+}
+.ts-item {
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  border-radius: 3px;
+  padding: 2px;
+  line-height: 0;
+}
+.ts-item.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.accent-row {
+  display: flex;
+  gap: 3px;
+  margin-left: 6px;
+  flex-wrap: wrap;
+  width: 48px;
+}
+.accent-row .swatch {
+  width: 14px;
+  height: 14px;
+}
+.swatch.is-active {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+.table-info {
+  font-size: 11.5px;
+  gap: 4px;
+  padding-top: 8px;
+  max-width: 180px;
+}
+.table-info span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+/* 차트 데이터 편집기 */
+.dialog:has(.chart-editor) {
+  width: min(900px, calc(100vw - 32px));
+}
+.chart-editor {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ce-left {
+  flex: 1;
+  min-width: 320px;
+}
+.ce-grid-wrap {
+  max-height: 300px;
+  overflow: auto;
+  border: 1px solid var(--border);
+}
+.ce-grid {
+  border-collapse: collapse;
+}
+.ce-grid td {
+  border: 1px solid var(--border);
+  padding: 0;
+}
+.ce-grid input {
+  width: 92px;
+  border: 0;
+  padding: 4px 6px;
+  background: var(--bg-input);
+  font-size: 12.5px;
+}
+.ce-grid input:focus {
+  outline: 2px solid var(--sel);
+  outline-offset: -2px;
+}
+.ce-head input {
+  background: var(--bg-hover);
+  font-weight: 600;
+}
+.ce-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.ce-hint {
+  font-size: 11.5px;
+}
+.ce-preview {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 4px;
+  align-self: flex-start;
+}
+/* 아이콘 선택 */
+.dialog:has(.icon-picker) {
+  width: min(640px, calc(100vw - 32px));
+}
+.ip-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.ip-bar .pp-input {
+  flex: 1;
+  width: auto;
+}
+.ip-color input {
+  width: 36px;
+  height: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 0;
+}
+.ip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  gap: 4px;
+  max-height: 320px;
+  overflow: auto;
+}
+.ip-item {
+  height: 40px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  display: grid;
+  place-items: center;
+}
+.ip-item:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+.ip-foot {
+  font-size: 11.5px;
+  margin-top: 6px;
+}
+.slideshow [data-link] {
+  cursor: pointer;
+}

@@ -1,5 +1,8 @@
 import { memo, type CSSProperties, type ReactNode } from 'react';
-import type { Asset, Fill, ImageObject, LineObject, Paragraph, ShapeObject, SlideObject, Stroke, TextBody, TextObject, UnsupportedObject } from '../../types/model';
+import type { Asset, Fill, ImageObject, LineObject, MediaObject, Paragraph, ShapeObject, SlideObject, Stroke, TableObject, TextBody, TextObject, Theme, UnsupportedObject } from '../../types/model';
+import { ChartView } from './ChartView';
+import { useAssetUrl } from '../../hooks/useAssetUrl';
+import { DEFAULT_THEME } from '../../themes/themes';
 import { customPath, shapePath, shapeTextInset } from './shapeGeometry';
 import { hexToRgba } from '../../utils/color';
 import { ptToPx } from '../../utils/units';
@@ -92,11 +95,17 @@ function ParagraphView({ p, num }: { p: Paragraph; num: string | null }) {
   return (
     <div className="sl-p" data-bullet={p.bullet ?? 'none'} data-level={p.level ?? 0} data-num={num ?? undefined} data-char={p.bullet === 'bullet' ? p.bulletChar : undefined} style={cssObjectToReact(paragraphCss(p))}>
       {runs.length ? (
-        runs.map((r, i) => (
-          <span key={i} style={cssObjectToReact(runCss(r))}>
-            {r.text}
-          </span>
-        ))
+        runs.map((r, i) =>
+          r.link ? (
+            <span key={i} data-link={r.link} className="sl-run-link" style={cssObjectToReact(runCss(r))}>
+              {r.text}
+            </span>
+          ) : (
+            <span key={i} style={cssObjectToReact(runCss(r))}>
+              {r.text}
+            </span>
+          ),
+        )
       ) : (
         <span style={cssObjectToReact(runCss(p.runs[0] ?? {}))}>
           <br />
@@ -136,17 +145,26 @@ export function textInnerStyle(body: TextBody): CSSProperties {
 
 /* ───────────── 객체 ───────────── */
 
+export type EditableObject = TextObject | ShapeObject | TableObject;
+export type RenderMode = 'edit' | 'thumb' | 'show';
+
 interface ObjectViewProps {
   obj: SlideObject;
   assets: Assets;
+  theme?: Theme;
   /** 텍스트 편집기를 렌더링할 객체 ID (캔버스 전용) */
   editingTextId?: string | null;
-  renderEditor?: (obj: TextObject | ShapeObject) => ReactNode;
+  /** 표에서 편집 중인 셀 */
+  editingCell?: [number, number] | null;
+  renderEditor?: (obj: EditableObject, cell?: [number, number]) => ReactNode;
   /** 썸네일 등에서 상호작용 속성 생략 */
   interactive?: boolean;
+  mode?: RenderMode;
+  /** 표 셀 선택 영역 강조 (편집 캔버스) */
+  cellSelection?: { r1: number; c1: number; r2: number; c2: number } | null;
 }
 
-export const ObjectView = memo(function ObjectView({ obj, assets, editingTextId, renderEditor, interactive }: ObjectViewProps) {
+export const ObjectView = memo(function ObjectView({ obj, assets, theme, editingTextId, editingCell, renderEditor, interactive, mode, cellSelection }: ObjectViewProps) {
   if (obj.hidden) return null;
   const transform = obj.rotation ? `rotate(${obj.rotation}deg)` : undefined;
   const style: CSSProperties = {
@@ -174,14 +192,23 @@ export const ObjectView = memo(function ObjectView({ obj, assets, editingTextId,
       content = <ImageContent obj={obj} assets={assets} />;
       break;
     case 'group':
-      content = obj.children.map((c) => <ObjectView key={c.id} obj={c} assets={assets} />);
+      content = obj.children.map((c) => <ObjectView key={c.id} obj={c} assets={assets} theme={theme} mode={mode} />);
+      break;
+    case 'table':
+      content = <TableContent obj={obj} editingCell={editing ? editingCell ?? null : null} renderEditor={renderEditor} selection={cellSelection ?? null} interactive={!!interactive} />;
+      break;
+    case 'chart':
+      content = <ChartView chart={obj} theme={theme ?? DEFAULT_THEME} />;
+      break;
+    case 'media':
+      content = <MediaContent obj={obj} assets={assets} mode={mode ?? (interactive ? 'edit' : 'thumb')} />;
       break;
     case 'unsupported':
       content = <UnsupportedContent obj={obj} />;
       break;
   }
   return (
-    <div className={`sl-obj sl-obj-${obj.type}`} style={style} data-obj-id={interactive ? obj.id : undefined}>
+    <div className={`sl-obj sl-obj-${obj.type}`} style={style} data-obj-id={interactive ? obj.id : undefined} data-link={obj.link || undefined}>
       {content}
     </div>
   );
@@ -383,5 +410,120 @@ function UnsupportedContent({ obj }: { obj: UnsupportedObject }) {
       <span className="sl-unsupported-label">{obj.label}</span>
       <span className="sl-unsupported-note">원본 보존 · 편집은 다음 단계에서 지원</span>
     </div>
+  );
+}
+
+/* ───────────── 표 ───────────── */
+
+const borderCss = (s: Stroke | null) => (s ? `${Math.max(0.5, ptToPx(s.width))}px ${s.dash === 'solid' ? 'solid' : s.dash === 'dot' ? 'dotted' : 'dashed'} ${s.color}` : 'none');
+
+function TableContent({
+  obj,
+  editingCell,
+  renderEditor,
+  selection,
+  interactive,
+}: {
+  interactive: boolean;
+  obj: TableObject;
+  editingCell: [number, number] | null;
+  renderEditor?: (obj: EditableObject, cell?: [number, number]) => ReactNode;
+  selection: { r1: number; c1: number; r2: number; c2: number } | null;
+}) {
+  const sel = selection;
+  return (
+    <table className="sl-table" style={{ width: obj.width, borderCollapse: 'collapse', tableLayout: 'fixed', position: 'absolute', left: 0, top: 0 }}>
+      <colgroup>
+        {obj.columns.map((w, i) => (
+          <col key={i} style={{ width: w }} />
+        ))}
+      </colgroup>
+      <tbody>
+        {obj.rows.map((row, r) => (
+          <tr key={r} style={{ height: row.height }}>
+            {row.cells.map((cell, c) => {
+              if (cell.merged) return null;
+              const editing = editingCell && editingCell[0] === r && editingCell[1] === c;
+              const inSel = sel && r >= sel.r1 && r <= sel.r2 && c >= sel.c1 && c <= sel.c2;
+              return (
+                <td
+                  key={c}
+                  data-cell={interactive ? `${r},${c}` : undefined}
+                  colSpan={cell.colSpan}
+                  rowSpan={cell.rowSpan}
+                  className={inSel ? 'sl-cell-selected' : undefined}
+                  style={{
+                    padding: 0,
+                    position: 'relative',
+                    verticalAlign: cell.text.vAlign === 'middle' ? 'middle' : cell.text.vAlign === 'bottom' ? 'bottom' : 'top',
+                    borderTop: borderCss(cell.borders.top),
+                    borderRight: borderCss(cell.borders.right),
+                    borderBottom: borderCss(cell.borders.bottom),
+                    borderLeft: borderCss(cell.borders.left),
+                    ...fillToCss(cell.fill, {}),
+                  }}
+                >
+                  <div className="sl-cell" style={{ position: 'relative', padding: `${cell.text.padding.top}px ${cell.text.padding.right}px ${cell.text.padding.bottom}px ${cell.text.padding.left}px` }}>
+                    {editing && renderEditor ? renderEditor(obj, [r, c]) : <CellText body={cell.text} />}
+                  </div>
+                </td>
+              );
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** 셀 텍스트: 셀 크기에 따라 흐르도록 정적 배치 (TextBodyView는 절대 배치) */
+export function CellText({ body }: { body: TextBody }) {
+  const nums = computeNumbers(body.paragraphs);
+  return (
+    <div className={`sl-text-inner ${textDirClass(body)}`} style={textInnerStyle(body)}>
+      {body.paragraphs.map((p, i) => (
+        <ParagraphView key={i} p={p} num={nums[i]} />
+      ))}
+    </div>
+  );
+}
+
+/* ───────────── 미디어 ───────────── */
+
+function MediaContent({ obj, assets, mode }: { obj: MediaObject; assets: Assets; mode: RenderMode }) {
+  const asset = assets[obj.assetId];
+  const poster = obj.posterId ? assets[obj.posterId]?.dataUrl : undefined;
+  const url = useAssetUrl(mode === 'thumb' ? undefined : asset);
+  if (obj.kind === 'audio') {
+    return (
+      <div className="sl-media sl-audio">
+        <svg viewBox="0 0 24 24" width="60%" height="60%" fill="none" stroke="#3a3a3a" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M11 5 6 9H2v6h4l5 4V5z" fill="#3a3a3a" />
+          <path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14" />
+        </svg>
+        {mode === 'show' && url && <audio src={url} controls autoPlay={obj.autoPlay} loop={obj.loop} className="sl-media-controls" />}
+      </div>
+    );
+  }
+  if (mode === 'thumb' || !url) {
+    return (
+      <div className="sl-media sl-video-placeholder" style={poster ? { backgroundImage: `url("${poster}")` } : undefined}>
+        <span className="sl-play">▶</span>
+        {!asset && <span className="sl-media-missing">미디어 파일 없음</span>}
+      </div>
+    );
+  }
+  return (
+    <video
+      className="sl-media"
+      src={url}
+      poster={poster}
+      controls={mode === 'show'}
+      autoPlay={mode === 'show' && obj.autoPlay}
+      loop={obj.loop}
+      preload="metadata"
+      muted={mode !== 'show'}
+      style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000', pointerEvents: mode === 'show' ? 'auto' : 'none' }}
+    />
   );
 }

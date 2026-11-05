@@ -3,6 +3,7 @@ import { useEditor } from '../core/store/editorStore';
 import { findSlide } from '../core/document/query';
 import { onEditorSelectionChange } from '../editors/text/editorSession';
 import { currentSelectionStyle } from '../editors/text/formatting';
+import { textBodies } from '../core/commands/commands';
 import type { BulletType, HAlign, SlideObject, TextRunStyle } from '../types/model';
 
 export type CurrentTextStyle = TextRunStyle & { align?: HAlign; bullet?: BulletType; lineSpacing?: number; hasText: boolean };
@@ -10,7 +11,7 @@ export type CurrentTextStyle = TextRunStyle & { align?: HAlign; bullet?: BulletT
 function firstTextObject(o: SlideObject | undefined): SlideObject | undefined {
   if (!o) return undefined;
   if (o.type === 'group') return o.children.map(firstTextObject).find(Boolean);
-  return o.type === 'text' || o.type === 'shape' ? o : undefined;
+  return o.type === 'text' || o.type === 'shape' || o.type === 'table' ? o : undefined;
 }
 
 /** 리본/속성창 표시용 현재 텍스트 서식 */
@@ -21,6 +22,7 @@ export function useCurrentTextStyle(): CurrentTextStyle {
     const id = s.editingTextId ?? s.selectedIds[0];
     return id ? firstTextObject(slide?.objects.find((o) => o.id === id)) : undefined;
   });
+  const cellSel = useEditor((s) => s.cellSelection);
   const [tick, setTick] = useState(0);
   useEffect(() => onEditorSelectionChange(() => setTick((t) => t + 1)), []);
   void tick;
@@ -29,10 +31,12 @@ export function useCurrentTextStyle(): CurrentTextStyle {
     const cs = currentSelectionStyle();
     if (cs.fontFamily) return { ...cs, hasText: true };
   }
-  if (!obj || (obj.type !== 'text' && obj.type !== 'shape')) return { hasText: false };
-  const p = obj.text.paragraphs[0];
+  if (!obj) return { hasText: false };
+  const bodies = textBodies(obj, cellSel && cellSel.id === obj.id ? cellSel : null);
+  if (!bodies.length) return { hasText: false };
+  const p = bodies[0].paragraphs[0];
   const r = p?.runs[0] ?? {};
-  const runs = obj.text.paragraphs.flatMap((x) => x.runs);
+  const runs = bodies.flatMap((b) => b.paragraphs.flatMap((x) => x.runs));
   return {
     hasText: true,
     fontFamily: r.fontFamily,

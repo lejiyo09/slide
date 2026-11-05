@@ -4,7 +4,10 @@ import { SlideView } from '../../engines/rendering/SlideView';
 import { TextEditor } from '../../editors/text/TextEditor';
 import * as C from '../../core/commands/commands';
 import * as A from '../../core/commands/actions';
-import type { ImageObject, ShapeObject, SlideObject, TextObject } from '../../types/model';
+import type { ImageObject, SlideObject } from '../../types/model';
+import type { EditableObject } from '../../engines/rendering/ObjectView';
+import { setCellSelectionFromPoint } from '../../editors/table/tableActions';
+import { expandRange, normRange } from '../../editors/table/table';
 import { rectsIntersect, rotatedBounds, rotatePoint, unionRects, type Point, type Rect } from '../../utils/geometry';
 import { collectTargets, snapRect, type Guide } from './snapping';
 import { SelectionOverlay, type HandleId } from './SelectionOverlay';
@@ -20,7 +23,8 @@ type Drag =
   | { kind: 'marquee'; start: Point; current: Point; additive: boolean; base: string[] }
   | { kind: 'draw'; start: Point; current: Point }
   | { kind: 'lineEnd'; id: string; end: 'start' | 'end'; other: Point }
-  | { kind: 'crop'; handle: HandleId; start: Point; origin: ImageObject };
+  | { kind: 'crop'; handle: HandleId; start: Point; origin: ImageObject }
+  | { kind: 'cells'; tableId: string; start: Point; anchor: [number, number]; started: boolean; clientX: number; clientY: number };
 
 export function EditorCanvas() {
   const slide = useActiveSlide();
@@ -111,6 +115,21 @@ export function EditorCanvas() {
       if (s.formatPainter) {
         A.applyFormatPainterTo(hit.id);
         return;
+      }
+      // 이미 선택된 표의 셀을 누르면: 클릭 → 셀 편집, 드래그 → 셀 범위 선택, Shift → 범위 확장
+      if (hit.type === 'table' && s.selectedIds.length === 1 && s.selectedIds[0] === hit.id && !hit.locked) {
+        const cellEl = cellAt(e.clientX, e.clientY);
+        if (cellEl) {
+          const [r, c] = cellEl;
+          if (e.shiftKey) {
+            if (s.editingTextId) s.setEditingText(null);
+            setCellSelectionFromPoint(hit.id, r, c, true);
+            return;
+          }
+          dragRef.current = { kind: 'cells', tableId: hit.id, start: p, anchor: [r, c], started: false, clientX: e.clientX, clientY: e.clientY };
+          capture(e);
+          return;
+        }
       }
       let ids = s.selectedIds;
       if (e.shiftKey || e.ctrlKey || e.metaKey) {
@@ -337,6 +356,17 @@ export function EditorCanvas() {
         );
         break;
       }
+      case 'cells': {
+        const cell = cellAt(e.clientX, e.clientY);
+        if (!d.started && Math.hypot(e.clientX - d.clientX, e.clientY - d.clientY) < 4) return;
+        if (!d.started) {
+          d.started = true;
+          if (s.editingTextId) s.setEditingText(null);
+          setCellSelectionFromPoint(d.tableId, d.anchor[0], d.anchor[1], false);
+        }
+        if (cell) setCellSelectionFromPoint(d.tableId, cell[0], cell[1], true);
+        break;
+      }
       case 'crop': {
         const res = computeCrop(d.origin, d.handle, p);
         s.updateGesture((doc) =>
@@ -375,6 +405,14 @@ export function EditorCanvas() {
       }
       return;
     }
+    if (d.kind === 'cells') {
+      if (!d.started) {
+        // 클릭: 해당 셀 편집 시작 (클릭 위치에 커서)
+        setPendingCaretPoint({ x: d.clientX, y: d.clientY });
+        s.setEditingText(d.tableId, d.anchor);
+      }
+      return;
+    }
     if (d.kind === 'move' && !d.started) {
       // 클릭만: 이미 선택된 텍스트 개체를 다시 클릭하면 편집 모드 (PowerPoint와 동일)
       return;
@@ -389,7 +427,15 @@ export function EditorCanvas() {
     const target = hitTest(e.clientX, e.clientY);
     const o = target ? getObj(target.dataset.objId!) : undefined;
     if (!o || o.locked) return;
-    if (o.type === 'text' || o.type === 'shape') {
+    if (o.type === 'table') {
+      const cell = cellAt(e.clientX, e.clientY);
+      if (cell) {
+        setPendingCaretPoint({ x: e.clientX, y: e.clientY });
+        useEditor.getState().setEditingText(o.id, cell);
+      }
+    } else if (o.type === 'chart') {
+      useEditor.getState().set({ chartEditorId: o.id });
+    } else if (o.type === 'text' || o.type === 'shape') {
       setPendingCaretPoint({ x: e.clientX, y: e.clientY });
       useEditor.getState().setEditingText(o.id);
     } else if (o.type === 'image') {
@@ -420,7 +466,21 @@ export function EditorCanvas() {
     if (files.length) void A.insertImageFiles(files, toSlide(e.clientX, e.clientY));
   };
 
-  const renderEditor = useCallback((obj: TextObject | ShapeObject) => <TextEditor obj={obj} slideId={slide.id} />, [slide.id]);
+  const renderEditor = useCallback(
+    (obj: EditableObject, cell?: [number, number]) => <TextEditor key={cell ? cell.join(',') : obj.id} obj={obj} slideId={slide.id} cell={cell} />,
+    [slide.id],
+  );
+  const editingCell = useEditor((s) => s.editingCell);
+  const rawCellSel = useEditor((s) => s.cellSelection);
+  const cellSel = (() => {
+    if (!rawCellSel) return null;
+    const t = slide.objects.find((o) => o.id === rawCellSel.id);
+    if (!t || t.type !== 'table') return null;
+    const r = expandRange(t, normRange(rawCellSel));
+    // 편집 중인 단일 셀은 강조하지 않음
+    if (editingTextId === t.id && r.r1 === r.r2 && r.c1 === r.c2) return null;
+    return { id: t.id, ...r };
+  })();
 
   const cursor = insertTool ? 'crosshair' : formatPainter ? 'copy' : undefined;
   const stageW = W * zoom;
@@ -466,7 +526,7 @@ export function EditorCanvas() {
           data-testid="slide-stage"
         >
           <div className="stage-inner" style={{ width: W, height: H, transform: `scale(${zoom})` }}>
-            <SlideView slide={slide} doc={doc} editingTextId={editingTextId} renderEditor={renderEditor} interactive />
+            <SlideView slide={slide} doc={doc} editingTextId={editingTextId} editingCell={editingCell} renderEditor={renderEditor} interactive cellSelection={cellSel} />
             {showGrid && <GridOverlay w={W} h={H} />}
           </div>
           <SelectionOverlay
@@ -498,6 +558,18 @@ export function EditorCanvas() {
 }
 
 /* ───────────── 계산 도우미 ───────────── */
+
+/** 화면 좌표의 표 셀 [행, 열] */
+function cellAt(clientX: number, clientY: number): [number, number] | null {
+  for (const el of document.elementsFromPoint(clientX, clientY)) {
+    const td = (el as HTMLElement).closest?.('[data-cell]') as HTMLElement | null;
+    if (td) {
+      const [r, c] = td.dataset.cell!.split(',').map(Number);
+      return [r, c];
+    }
+  }
+  return null;
+}
 
 function hitTest(clientX: number, clientY: number): HTMLElement | null {
   for (const el of document.elementsFromPoint(clientX, clientY)) {
@@ -570,7 +642,13 @@ function computeResize(
 }
 
 function resizeFromOrigin(o: SlideObject, org: SlideObject, w: number, h: number) {
-  if (o.type === 'group' && org.type === 'group') {
+  if (o.type === 'table' && org.type === 'table') {
+    o.columns = [...org.columns];
+    o.rows = structuredClone(org.rows);
+    o.width = org.width;
+    o.height = org.height;
+    C.resizeGroup(o, w, h);
+  } else if (o.type === 'group' && org.type === 'group') {
     // 원본 자식 기준으로 스케일 (누적 오차 방지)
     o.children = structuredClone(org.children);
     o.width = org.width;

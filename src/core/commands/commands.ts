@@ -308,6 +308,13 @@ export function ungroupObjects(doc: Doc, slideId: string, ids: string[]): string
 
 /** 객체 크기 비례 조정 (그룹 자식/글자 크기는 유지, 그룹은 자식 위치·크기 스케일) */
 export function scaleObject(o: SlideObject, sx: number, sy: number) {
+  if (o.type === 'table') {
+    o.columns = o.columns.map((c) => Math.max(8, c * sx));
+    o.rows.forEach((r) => (r.height = Math.max(8, r.height * sy)));
+    o.width = o.columns.reduce((a, b) => a + b, 0);
+    o.height = o.rows.reduce((a, r) => a + r.height, 0);
+    return;
+  }
   if (o.type === 'group') {
     for (const c of o.children) {
       c.x *= sx;
@@ -321,6 +328,10 @@ export function scaleObject(o: SlideObject, sx: number, sy: number) {
 
 /** 그룹의 새 크기를 적용하며 자식 스케일 */
 export function resizeGroup(o: SlideObject, width: number, height: number) {
+  if (o.type === 'table') {
+    scaleObject(o, width / Math.max(1, o.width), height / Math.max(1, o.height));
+    return;
+  }
   if (o.type !== 'group') {
     o.width = width;
     o.height = height;
@@ -333,40 +344,58 @@ export function resizeGroup(o: SlideObject, width: number, height: number) {
 
 /* ───────────── 텍스트 서식 ───────────── */
 
-/** 텍스트 객체의 모든 런에 스타일 적용 (편집 모드가 아닐 때) */
-export function applyRunStyle(o: SlideObject, style: Partial<TextRunStyle>) {
-  if (o.type === 'group') return o.children.forEach((c) => applyRunStyle(c, style));
-  if (!hasText(o)) return;
-  for (const p of o.text.paragraphs) {
-    if (p.runs.length === 0) p.runs.push({ text: '' });
-    for (const r of p.runs) Object.assign(r, style);
+/** 표 셀 범위 (텍스트 서식을 일부 셀에만 적용할 때) */
+export interface CellRangeLike {
+  r1: number;
+  c1: number;
+  r2: number;
+  c2: number;
+}
+
+/** 개체가 가진 텍스트 본문들 (표는 셀별, 그룹은 자식 포함) */
+export function textBodies(o: SlideObject, range?: CellRangeLike | null): TextBody[] {
+  if (o.type === 'group') return o.children.flatMap((c) => textBodies(c));
+  if (o.type === 'table') {
+    const out: TextBody[] = [];
+    o.rows.forEach((row, r) =>
+      row.cells.forEach((cell, c) => {
+        if (cell.merged) return;
+        if (range && (r < Math.min(range.r1, range.r2) || r > Math.max(range.r1, range.r2) || c < Math.min(range.c1, range.c2) || c > Math.max(range.c1, range.c2))) return;
+        out.push(cell.text);
+      }),
+    );
+    return out;
   }
+  return hasText(o) ? [o.text] : [];
 }
 
-export function applyParagraphStyle(o: SlideObject, style: Partial<Paragraph>) {
-  if (o.type === 'group') return o.children.forEach((c) => applyParagraphStyle(c, style));
-  if (!hasText(o)) return;
-  for (const p of o.text.paragraphs) Object.assign(p, style);
+/** 텍스트 객체의 모든 런에 스타일 적용 (편집 모드가 아닐 때) */
+export function applyRunStyle(o: SlideObject, style: Partial<TextRunStyle>, range?: CellRangeLike | null) {
+  for (const body of textBodies(o, range))
+    for (const p of body.paragraphs) {
+      if (p.runs.length === 0) p.runs.push({ text: '' });
+      for (const r of p.runs) Object.assign(r, style);
+    }
 }
 
-export function applyTextBody(o: SlideObject, patch: Partial<Omit<TextBody, 'paragraphs'>>) {
-  if (o.type === 'group') return o.children.forEach((c) => applyTextBody(c, patch));
-  if (!hasText(o)) return;
-  Object.assign(o.text, patch);
+export function applyParagraphStyle(o: SlideObject, style: Partial<Paragraph>, range?: CellRangeLike | null) {
+  for (const body of textBodies(o, range)) for (const p of body.paragraphs) Object.assign(p, style);
+}
+
+export function applyTextBody(o: SlideObject, patch: Partial<Omit<TextBody, 'paragraphs'>>, range?: CellRangeLike | null) {
+  for (const body of textBodies(o, range)) Object.assign(body, patch);
 }
 
 /** 굵게 등 토글: 모든 런이 이미 켜져 있으면 끄고, 아니면 켠다 */
-export function toggleRunFlag(o: SlideObject, key: 'bold' | 'italic' | 'underline' | 'strike'): boolean {
-  const runs = collectRuns(o);
+export function toggleRunFlag(o: SlideObject, key: 'bold' | 'italic' | 'underline' | 'strike', range?: CellRangeLike | null): boolean {
+  const runs = collectRuns(o, range);
   const allOn = runs.length > 0 && runs.every((r) => r[key]);
-  applyRunStyle(o, { [key]: !allOn });
+  applyRunStyle(o, { [key]: !allOn }, range);
   return !allOn;
 }
 
-export function collectRuns(o: SlideObject): TextRunStyle[] {
-  if (o.type === 'group') return o.children.flatMap(collectRuns);
-  if (!hasText(o)) return [];
-  return o.text.paragraphs.flatMap((p) => p.runs);
+export function collectRuns(o: SlideObject, range?: CellRangeLike | null): TextRunStyle[] {
+  return textBodies(o, range).flatMap((b) => b.paragraphs.flatMap((p) => p.runs));
 }
 
 /* ───────────── 채우기 / 윤곽선 ───────────── */

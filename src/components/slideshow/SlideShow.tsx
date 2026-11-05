@@ -114,7 +114,17 @@ export function SlideShow() {
       className={`slideshow ${cursorVisible ? '' : 'hide-cursor'}`}
       tabIndex={-1}
       onKeyDown={onKey}
-      onClick={next}
+      onClick={(e) => {
+        const t = e.target as HTMLElement;
+        // 미디어 컨트롤 클릭은 슬라이드를 넘기지 않음
+        if (t.closest('video, audio')) return;
+        const link = t.closest('[data-link]')?.getAttribute('data-link');
+        if (link) {
+          window.open(link, '_blank', 'noopener');
+          return;
+        }
+        next();
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         prev();
@@ -125,7 +135,7 @@ export function SlideShow() {
       {slide && !ended && (
         <div className="show-stage" style={{ width: doc.size.width * scale, height: doc.size.height * scale }}>
           <div style={{ transform: `scale(${scale})`, transformOrigin: '0 0', width: doc.size.width, height: doc.size.height, position: 'relative' }}>
-            <SlideView slide={slide} doc={doc} />
+            <SlideView slide={slide} doc={doc} mode="show" />
           </div>
         </div>
       )}

@@ -74,7 +74,13 @@ export function paragraphsToHtml(paragraphs: Paragraph[]): string {
     .map((p, i) => {
       const runs = p.runs.filter((r) => r.text.length > 0);
       const inner = runs.length
-        ? runs.map((r) => `<span style="${styleAttr(runCss(r))}">${escapeHtml(r.text)}</span>`).join('')
+        ? runs
+            .map((r) =>
+              r.link
+                ? `<a href="${escapeHtml(r.link).replace(/"/g, '&quot;')}" data-link="1" style="${styleAttr(runCss(r))}">${escapeHtml(r.text)}</a>`
+                : `<span style="${styleAttr(runCss(r))}">${escapeHtml(r.text)}</span>`,
+            )
+            .join('')
         : `<span style="${styleAttr(runCss(p.runs[0] ?? {}))}"><br></span>`;
       const attrs = [
         'class="sl-p"',
@@ -147,20 +153,28 @@ const sameStyle = (a: TextRunStyle, b: TextRunStyle) =>
   !!a.underline === !!b.underline &&
   !!a.strike === !!b.strike &&
   a.color === b.color &&
-  a.highlight === b.highlight;
+  a.highlight === b.highlight &&
+  (a as TextRun).link === (b as TextRun).link;
 
 function paragraphFromNodes(nodes: Node[], el: HTMLElement, fallback: TextRunStyle): Paragraph {
   const runs: TextRun[] = [];
-  const push = (text: string, style: TextRunStyle) => {
+  const push = (text: string, style: TextRunStyle & { link?: string }) => {
     const last = runs[runs.length - 1];
     if (last && sameStyle(last, style)) last.text += text;
     else runs.push({ text, ...style });
+  };
+  const linkOf = (n: Node): string | undefined => {
+    const a = (n.nodeType === Node.ELEMENT_NODE ? (n as Element) : n.parentElement)?.closest('a[href]');
+    return a && el.contains(a) ? a.getAttribute('href') ?? undefined : undefined;
   };
   let emptyStyle: TextRunStyle | null = null;
   const walk = (n: Node) => {
     if (n.nodeType === Node.TEXT_NODE) {
       const t = (n.textContent ?? '').replace(/​/g, '').replace(/\n/g, ' ');
-      if (t) push(t, styleOfTextNode(n, el));
+      if (t) {
+        const link = linkOf(n);
+        push(t, link ? { ...styleOfTextNode(n, el), link } : styleOfTextNode(n, el));
+      }
       return;
     }
     if (n.nodeType !== Node.ELEMENT_NODE) return;

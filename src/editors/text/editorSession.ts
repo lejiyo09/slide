@@ -8,6 +8,8 @@ export interface EditorSession {
   /** DOM 변경 후 모델과 동기화 */
   sync: () => void;
   savedRange: Range | null;
+  /** 대화 상자 등으로 포커스가 옮겨갈 때 선택 영역을 고정 */
+  locked?: boolean;
 }
 
 let session: EditorSession | null = null;
@@ -31,7 +33,7 @@ export function notifySelectionChange() {
 
 if (typeof document !== 'undefined') {
   document.addEventListener('selectionchange', () => {
-    if (!session) return;
+    if (!session || session.locked) return;
     const sel = document.getSelection();
     if (sel && sel.rangeCount && session.root.contains(sel.anchorNode)) {
       session.savedRange = sel.getRangeAt(0).cloneRange();
@@ -40,9 +42,27 @@ if (typeof document !== 'undefined') {
   });
 }
 
+/** 현재 편집기 선택 영역을 고정 (대화 상자를 열기 직전에 호출) */
+export function lockSelection() {
+  if (!session) return;
+  const sel = document.getSelection();
+  if (sel && sel.rangeCount && session.root.contains(sel.anchorNode)) session.savedRange = sel.getRangeAt(0).cloneRange();
+  session.locked = true;
+}
+
 /** 저장된 선택 영역 복원 (리본의 select 요소로 포커스가 옮겨간 경우) */
 export function restoreSelection(): Selection | null {
   if (!session) return null;
+  if (session.locked) {
+    session.locked = false;
+    const sel = document.getSelection();
+    session.root.focus({ preventScroll: true });
+    if (sel && session.savedRange) {
+      sel.removeAllRanges();
+      sel.addRange(session.savedRange);
+    }
+    return sel;
+  }
   const sel = document.getSelection();
   if (!sel) return null;
   // 현재 선택이 편집기 안에 있으면 그대로 사용 (selectionchange는 비동기라 저장본이 늦을 수 있음)

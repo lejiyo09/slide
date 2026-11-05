@@ -43,8 +43,14 @@ export interface EditorState {
   selectedSlideIds: string[];
   selectedIds: string[];
   editingTextId: string | null;
+  /** 표 셀 편집: [행, 열] */
+  editingCell: [number, number] | null;
+  /** 표 셀 선택 영역 */
+  cellSelection: { id: string; r1: number; c1: number; r2: number; c2: number } | null;
   /** 이미지 자르기 모드인 객체 */
   cropId: string | null;
+  /** 데이터 편집 창이 열린 차트 */
+  chartEditorId: string | null;
   /** 키보드 단축키 대상 영역 */
   focusArea: 'canvas' | 'slides';
 
@@ -85,7 +91,7 @@ export interface EditorState {
   setSelectedSlides: (ids: string[]) => void;
   select: (ids: string[]) => void;
   toggleSelect: (id: string) => void;
-  setEditingText: (id: string | null) => void;
+  setEditingText: (id: string | null, cell?: [number, number]) => void;
 
   // ── UI ──
   set: (patch: Partial<EditorState>) => void;
@@ -116,7 +122,10 @@ export const useEditor = create<EditorState>()((set, get) => ({
   selectedSlideIds: [initialDoc.slides[0].id],
   selectedIds: [],
   editingTextId: null,
+  editingCell: null,
+  cellSelection: null,
   cropId: null,
+  chartEditorId: null,
   focusArea: 'canvas',
 
   zoom: 0.6,
@@ -235,12 +244,21 @@ export const useEditor = create<EditorState>()((set, get) => ({
     });
   },
   setSelectedSlides: (ids) => set({ selectedSlideIds: ids }),
-  select: (ids) => set({ cropId: ids.includes(get().cropId ?? '') ? get().cropId : null, selectedIds: ids, editingTextId: get().editingTextId && ids.includes(get().editingTextId!) ? get().editingTextId : null }),
+  select: (ids) => set({ cellSelection: get().cellSelection && ids.includes(get().cellSelection!.id) ? get().cellSelection : null, cropId: ids.includes(get().cropId ?? '') ? get().cropId : null, selectedIds: ids, editingTextId: get().editingTextId && ids.includes(get().editingTextId!) ? get().editingTextId : null }),
   toggleSelect: (id) => {
     const cur = get().selectedIds;
     set({ selectedIds: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id], editingTextId: null });
   },
-  setEditingText: (id) => set({ editingTextId: id, selectedIds: id ? [id] : get().selectedIds }),
+  setEditingText: (id, cell) => {
+    const sel = get().cellSelection;
+    set({
+      editingTextId: id,
+      editingCell: id && cell ? cell : null,
+      selectedIds: id ? [id] : get().selectedIds,
+      // 셀 편집 시 해당 셀을 선택 영역으로
+      cellSelection: id && cell ? { id, r1: cell[0], c1: cell[1], r2: cell[0], c2: cell[1] } : id ? null : sel,
+    });
+  },
 
   set: (patch) => {
     if (Object.keys(patch).length) set(patch);

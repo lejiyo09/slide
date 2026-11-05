@@ -2,7 +2,7 @@
  * 파일 열기: .pptx → 편집 가능한 문서 (원본 패키지는 IndexedDB에 보관)
  */
 import { useEditor } from '../../core/store/editorStore';
-import { savePackage } from '../storage/db';
+import { saveBlob, savePackage } from '../storage/db';
 import { saveNow } from '../storage/autosave';
 import { importNative } from '../storage/files';
 import type { ImportReport } from './report';
@@ -43,7 +43,8 @@ export async function openPresentationFile(file: File): Promise<boolean> {
     const progress = s.toast(`'${file.name}' 가져오는 중…`);
     const { importPptx } = await import('./pptxImport');
     const buf = await file.arrayBuffer();
-    const { doc, report } = await importPptx(buf, file.name);
+    const { doc, report, blobs } = await importPptx(buf, file.name);
+    for (const b of blobs) await saveBlob(b.key, new Blob([b.data as BlobPart], { type: b.mime }));
     const packageId = newId();
     await savePackage(packageId, new Blob([buf], { type: file.type || 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }));
     doc.source = { packageId, fileName: file.name, importedAt: Date.now() };

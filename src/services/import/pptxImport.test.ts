@@ -69,22 +69,28 @@ describe('PPTX 가져오기 (python-pptx로 만든 실제 파일)', () => {
     expect(pic.type === 'image' && doc.assets[pic.assetId].dataUrl.startsWith('data:image/png;base64,')).toBe(true);
   });
 
-  it('표·차트는 원본 XML과 함께 보존, 전환·애니메이션 보존', async () => {
+  it('표·차트를 편집 가능한 개체로 변환 (원본 XML·지문 보관), 전환·애니메이션 보존', async () => {
     const { doc, report } = await importPptx(fixture());
     const s4 = doc.slides[3];
-    const table = s4.objects.find((o) => o.type === 'unsupported' && o.kind === 'table');
-    const chart = s4.objects.find((o) => o.type === 'unsupported' && o.kind === 'chart');
-    expect(table).toBeTruthy();
-    expect(chart).toBeTruthy();
-    if (table?.type !== 'unsupported' || chart?.type !== 'unsupported') return;
-    expect(table.preview?.rows[1].cells).toEqual(['R1C0', 'R1C1', 'R1C2']);
-    expect(table.sourceXml).toContain('a:tbl');
-    expect(chart.sourceXml).toMatch(/r:id="rId\d+"/);
-    expect(chart.sourceXml).toContain('xmlns:r=');
-    expect(chart.sourcePart).toBe('ppt/slides/slide4.xml');
+    const table = s4.objects.find((o) => o.type === 'table');
+    const chart = s4.objects.find((o) => o.type === 'chart');
+    expect(table?.type).toBe('table');
+    expect(chart?.type).toBe('chart');
+    if (table?.type !== 'table' || chart?.type !== 'chart') return;
+    expect(table.columns).toHaveLength(3);
+    expect(table.rows[1].cells.map((c) => c.text.paragraphs[0].runs.map((r) => r.text).join(''))).toEqual(['R1C0', 'R1C1', 'R1C2']);
+    // 기본 표 스타일(보통 스타일 2 - 강조 1) 근사: 머리글 행은 강조색, 굵은 흰 글자
+    expect(table.rows[0].cells[0].fill.type).toBe('solid');
+    expect(table.rows[0].cells[0].text.paragraphs[0].runs[0]).toMatchObject({ bold: true, color: '#FFFFFF' });
+    expect(table.preserved?.xml).toContain('a:tbl');
+    expect(chart).toMatchObject({ chartType: 'column', categories: ['1분기', '2분기', '3분기'] });
+    expect(chart.series[0]).toMatchObject({ name: '매출', values: [10, 25, 18] });
+    expect(chart.preserved?.xml).toMatch(/r:id="rId\d+"/);
+    expect(chart.preserved?.part).toBe('ppt/slides/slide4.xml');
     expect(s4.source?.transitionXml).toContain('fade');
     expect(s4.source?.timingXml).toContain('spTgt');
-    expect(report.unsupported).toMatchObject({ table: 1, chart: 1 });
+    expect(report.converted).toMatchObject({ table: 1, chart: 1 });
+    expect(report.unsupported).toEqual({});
     expect(summarizeReport(report).some((l) => l.includes('표 1개'))).toBe(true);
     const animated = s4.objects.find((o) => o.name === 'Animated')!;
     expect(s4.source?.timingXml).toContain(`spid="${animated.sourceId}"`);
@@ -123,5 +129,24 @@ describe('PPTX 가져오기 (LibreOffice가 작성한 파일)', () => {
     const t1 = doc.slides.flatMap((s) => s.objects).map(textOf).join('|');
     const t2 = again.doc.slides.flatMap((s) => s.objects).map(textOf).join('|');
     expect(t2.split('|')).toEqual(t1.split('|'));
+  });
+});
+
+describe('차트 종류별 가져오기 (python-pptx)', () => {
+  const src = () => readFileSync('src/services/import/__fixtures__/charts.pptx');
+  it('세로/가로 누적/꺾은선/원형/도넛/영역/분산형 → 편집 가능, 방사형 → 보존', async () => {
+    const { doc, report } = await importPptx(src(), 'charts.pptx');
+    const charts = doc.slides.map((s) => s.objects.find((o) => o.type === 'chart' || o.type === 'unsupported')!);
+    const types = charts.map((c) => (c.type === 'chart' ? `${c.chartType}${c.stacked ? '+stacked' : ''}` : `keep:${c.type === 'unsupported' && c.kind}`));
+    expect(types).toEqual(['column', 'bar+stacked', 'line', 'pie', 'doughnut', 'area', 'keep:chart', 'scatter']);
+    const col = charts[0];
+    expect(col.type === 'chart' && col.series.map((s) => s.values)).toEqual([[3, 5, 2, 6], [4, 1, 5, 2]]);
+    expect(col.type === 'chart' && col.categories).toEqual(['가', '나', '다', '라']);
+    expect(col.type === 'chart' && col.legendPos).toBe('b');
+    const sc = charts[7];
+    expect(sc.type === 'chart' && sc.series[0].xValues).toEqual([1, 2, 3.5, 5]);
+    expect(sc.type === 'chart' && sc.series[0].values).toEqual([2.5, 3.1, 1.2, 4.4]);
+    expect(report.converted.chart).toBe(7);
+    expect(report.unsupported.chart).toBe(1);
   });
 });

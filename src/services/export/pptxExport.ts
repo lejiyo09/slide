@@ -6,10 +6,13 @@
  * (향후 7단계에서 원본 XML 보존이 가능한 자체 OOXML 작성기로 확장 예정)
  */
 import PptxGenJS from 'pptxgenjs';
-import type { Fill, GroupObject, Paragraph, Presentation, ShapeKind, ShapeObject, SlideObject, Stroke, TextBody } from '../../types/model';
+import type { Asset, ChartObject, Fill, GroupObject, Paragraph, Presentation, ShapeKind, ShapeObject, SlideObject, Stroke, TableObject, TextBody } from '../../types/model';
+import { isPristine } from '../../core/document/fingerprint';
+import { chartPalette } from '../../editors/chart/chart';
 import { KEEP_PREFIX, postProcessPptx, type SlidePlan } from './preserve';
 import { OoxmlPackage } from '../import/ooxml';
-import { getPackage } from '../storage/db';
+import { getBlob, getPackage } from '../storage/db';
+import { readAsDataUrl } from '../storage/files';
 import { pxToInch, pxToPt } from '../../utils/units';
 import { toPptxHex } from '../../utils/color';
 import { rotatePoint } from '../../utils/geometry';
@@ -97,6 +100,10 @@ export const browserImageCropper: ImageCropper = (dataUrl, crop) =>
 interface BuildOptions {
   rasterizeGradient?: GradientRasterizer;
   cropImage?: ImageCropper;
+  /** 원본 패키지가 있어 보존 XML을 복원할 수 있는가 */
+  sourceAvailable?: boolean;
+  /** 미디어 바이너리 → data URL (브라우저: IndexedDB) */
+  loadMedia?: (asset: Asset) => Promise<string | null>;
 }
 
 type TextRunProps = PptxGenJS.TextProps;
@@ -135,6 +142,7 @@ function paragraphsToRuns(body: TextBody): TextRunProps[] {
           strike: r.strike ? 'sngStrike' : undefined,
           color: r.color ? toPptxHex(r.color) : undefined,
           highlight: r.highlight ? toPptxHex(r.highlight) : undefined,
+          hyperlink: r.link ? { url: r.link } : undefined,
           breakLine: lastRun && !isLast ? true : undefined,
         },
       });
@@ -271,12 +279,43 @@ export async function buildPptx(doc: Presentation, opts: BuildOptions = {}): Pro
         objectName: o.name,
       };
       const opacity = o.opacity ?? 1;
+      const objLink = o.link ? { hyperlink: { url: o.link } } : {};
       const emit = () => {
         plan.emitted.push(o.sourceId);
         plan.groupPaths.push(groups);
         plan.fills.push((o.type === 'shape' || o.type === 'text') && o.fill.type === 'gradient' ? o.fill : undefined);
       };
+      // 가져온 표·차트·미디어: 내용이 그대로면 원본 XML 복원 (위치/크기만 반영)
+      if (o.type !== 'unsupported' && o.preserved && opts.sourceAvailable && isPristine(o)) {
+        const marker = `${KEEP_PREFIX}${o.id}`;
+        plan.markers.set(marker, { xml: o.preserved.xml, part: o.preserved.part, label: o.name });
+        slide.addShape('rect' as PptxGenJS.ShapeType, { ...pos, flipH: undefined, flipV: undefined, objectName: marker });
+        emit();
+        continue;
+      }
+      if (o.type !== 'unsupported' && o.preserved && !isPristine(o)) warn('가져온 표/차트/미디어 중 내용을 바꾼 개체는 SlideLab 서식으로 새로 저장되었습니다.');
       switch (o.type) {
+        case 'table':
+          slide.addTable(tableRows(o), { ...pos, w: pxToInch(o.columns.reduce((a, b) => a + b, 0)), colW: o.columns.map(pxToInch), rowH: o.rows.map((r) => pxToInch(r.height)) });
+          emit();
+          break;
+        case 'chart':
+          addChart(pptx, slide, o, pos, doc);
+          emit();
+          break;
+        case 'media': {
+          const a = doc.assets[o.assetId];
+          const data = a && opts.loadMedia ? await opts.loadMedia(a) : null;
+          if (!data) {
+            warn('미디어 파일을 읽을 수 없어 저장하지 못했습니다.');
+            break;
+          }
+          const poster = o.posterId ? doc.assets[o.posterId]?.dataUrl : undefined;
+          const extn = (a.name?.split('.').pop() ?? a.mime.split('/')[1] ?? 'mp4').toLowerCase();
+          slide.addMedia({ ...pos, type: o.kind, data, extn, ...(poster ? { cover: poster } : {}) });
+          emit();
+          break;
+        }
         case 'text':
         case 'shape': {
           if (o.type === 'text' && o.placeholder && o.fill.type === 'none' && !o.stroke && o.text.paragraphs.every((p) => p.runs.every((r) => !r.text))) break;
@@ -293,6 +332,7 @@ export async function buildPptx(doc: Presentation, opts: BuildOptions = {}): Pro
             line: lineOpts(o.stroke, opacity),
             rectRadius: o.type === 'shape' && o.shape === 'roundRect' && !o.sourcePreset ? Math.min(pos.w, pos.h) * 0.1667 : undefined,
             ...(points ? { points } : {}),
+            ...objLink,
           } as PptxGenJS.TextPropsOptions);
           emit();
           break;
@@ -327,6 +367,7 @@ export async function buildPptx(doc: Presentation, opts: BuildOptions = {}): Pro
             data,
             transparency: opacity < 1 ? Math.round((1 - opacity) * 100) : undefined,
             altText: o.name,
+            ...objLink,
           });
           emit();
           break;
@@ -334,7 +375,7 @@ export async function buildPptx(doc: Presentation, opts: BuildOptions = {}): Pro
         case 'unsupported': {
           // 자리 표시 도형: 후처리에서 원본 XML로 교체된다 (위치/크기/회전은 이 도형에서 읽음)
           const marker = `${KEEP_PREFIX}${o.id}`;
-          plan.markers.set(marker, o);
+          plan.markers.set(marker, { xml: o.sourceXml, part: o.sourcePart, label: o.label });
           slide.addShape('rect' as PptxGenJS.ShapeType, { ...pos, flipH: undefined, flipV: undefined, objectName: marker });
           emit();
           break;
@@ -344,6 +385,64 @@ export async function buildPptx(doc: Presentation, opts: BuildOptions = {}): Pro
     if (s.notes) slide.addNotes(s.notes);
   }
   return { pptx, warnings: [...warnings], plans };
+}
+
+const borderOpt = (s: Stroke | null): PptxGenJS.BorderProps =>
+  s ? { type: s.dash === 'solid' ? 'solid' : 'dash', pt: s.width, color: toPptxHex(s.color) } : { type: 'none' };
+
+function tableRows(t: TableObject): PptxGenJS.TableRow[] {
+  return t.rows.map((row) =>
+    row.cells
+      .filter((c) => !c.merged)
+      .map((cell) => {
+        const p = cell.text.padding;
+        return {
+          text: paragraphsToRuns(cell.text) as PptxGenJS.TableCell[],
+          options: {
+            colspan: cell.colSpan,
+            rowspan: cell.rowSpan,
+            fill: cell.fill.type === 'solid' ? { color: toPptxHex(cell.fill.color) } : cell.fill.type === 'gradient' ? { color: toPptxHex(cell.fill.stops[0].color) } : undefined,
+            border: [borderOpt(cell.borders.top), borderOpt(cell.borders.right), borderOpt(cell.borders.bottom), borderOpt(cell.borders.left)],
+            valign: cell.text.vAlign,
+            // 표 셀 여백: [위, 오른쪽, 아래, 왼쪽] pt (1 미만은 인치로 해석되므로 최소 1pt)
+            margin: [p.top, p.right, p.bottom, p.left].map((v) => Math.max(1, pxToPt(v))) as [number, number, number, number],
+          },
+        };
+      }),
+  );
+}
+
+function addChart(pptx: PptxGenJS, slide: PptxGenJS.Slide, c: ChartObject, pos: { x: number; y: number; w: number; h: number; objectName?: string }, doc: Presentation) {
+  const radial = c.chartType === 'pie' || c.chartType === 'doughnut';
+  const palette = chartPalette(doc.theme, Math.max(c.series.length, c.categories.length), c.colors);
+  const colors = radial ? c.categories.map((_, i) => palette[i]) : c.series.map((s, i) => s.color ?? palette[i]);
+  let data: PptxGenJS.OptsChartData[];
+  if (c.chartType === 'scatter') {
+    const xs = c.series[0]?.xValues ?? c.series[0]?.values.map((_, i) => i + 1) ?? [];
+    data = [{ name: 'X', values: xs }, ...c.series.map((s) => ({ name: s.name, values: s.values }))];
+  } else data = (radial ? c.series.slice(0, 1) : c.series).map((s) => ({ name: s.name, labels: c.categories, values: s.values }));
+  const type = { column: pptx.ChartType.bar, bar: pptx.ChartType.bar, line: pptx.ChartType.line, area: pptx.ChartType.area, pie: pptx.ChartType.pie, doughnut: pptx.ChartType.doughnut, scatter: pptx.ChartType.scatter }[c.chartType];
+  const fs = c.fontSize;
+  slide.addChart(type as unknown as PptxGenJS.CHART_NAME, data, {
+    ...pos,
+    chartColors: colors.map(toPptxHex),
+    showLegend: c.showLegend,
+    legendPos: c.legendPos,
+    legendFontSize: fs,
+    showTitle: !!(c.showTitle && c.title),
+    title: c.title || undefined,
+    titleFontSize: Math.round(fs * 1.33),
+    showValue: c.showDataLabels,
+    dataLabelFontSize: fs,
+    catAxisLabelFontSize: fs,
+    valAxisLabelFontSize: fs,
+    barDir: c.chartType === 'bar' ? 'bar' : 'col',
+    barGrouping: c.stacked ? 'stacked' : 'clustered',
+    ...(c.chartType === 'area' && c.stacked ? { barGrouping: 'stacked' } : {}),
+    ...(c.chartType === 'doughnut' ? { holeSize: 50 } : {}),
+    ...(c.chartType === 'scatter' ? { lineSize: 0, lineDataSymbolSize: 8 } : {}),
+    ...(radial && c.showDataLabels ? { showPercent: false, showValue: true } : {}),
+  });
 }
 
 function geometryToPoints(o: ShapeObject, warn: (m: string) => void) {
@@ -369,7 +468,7 @@ export async function exportPptxBytes(
   doc: Presentation,
   opts: BuildOptions & { sourcePackage?: ArrayBuffer | Uint8Array | Blob | null } = {},
 ): Promise<{ bytes: Uint8Array; warnings: string[] }> {
-  const { pptx, warnings, plans } = await buildPptx(doc, opts);
+  const { pptx, warnings, plans } = await buildPptx(doc, { ...opts, sourceAvailable: !!opts.sourcePackage });
   const raw = (await pptx.write({ outputType: 'uint8array', compression: true })) as Uint8Array;
   const extra: string[] = [];
   const source = opts.sourcePackage ? await OoxmlPackage.load(opts.sourcePackage) : null;
@@ -383,7 +482,12 @@ export async function exportPptxBlob(doc: Presentation): Promise<{ blob: Blob; w
   if (doc.source) {
     sourcePackage = (await getPackage(doc.source.packageId)) ?? null;
   }
-  const { bytes, warnings } = await exportPptxBytes(doc, { rasterizeGradient: browserGradientRasterizer, cropImage: browserImageCropper, sourcePackage });
+  const loadMedia = async (a: Asset) => {
+    if (!a.blobKey) return a.dataUrl || null;
+    const b = await getBlob(a.blobKey);
+    return b ? readAsDataUrl(b) : null;
+  };
+  const { bytes, warnings } = await exportPptxBytes(doc, { rasterizeGradient: browserGradientRasterizer, cropImage: browserImageCropper, sourcePackage, loadMedia });
   const blob = new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
   return { blob, warnings };
 }

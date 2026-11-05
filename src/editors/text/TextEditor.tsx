@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import type { ShapeObject, TextObject } from '../../types/model';
+import type { TextBody } from '../../types/model';
+import type { EditableObject } from '../../engines/rendering/ObjectView';
 import { useEditor } from '../../core/store/editorStore';
 import { updateObjects } from '../../core/commands/commands';
 import { htmlToParagraphs, paragraphsToHtml, renumberDom } from './richText';
@@ -12,17 +13,22 @@ import { textContainerStyle, textDirClass, textInnerStyle } from '../../engines/
  * contentEditable 기반 서식 있는 텍스트 편집기.
  * 편집 세션 전체가 하나의 실행 취소 단계가 되도록 제스처로 묶는다.
  */
-export function TextEditor({ obj, slideId, selectAll }: { obj: TextObject | ShapeObject; slideId: string; selectAll?: boolean }) {
+const bodyOf = (obj: EditableObject, cell?: [number, number]): TextBody =>
+  obj.type === 'table' ? obj.rows[cell?.[0] ?? 0].cells[cell?.[1] ?? 0].text : obj.text;
+
+export function TextEditor({ obj, slideId, selectAll, cell }: { obj: EditableObject; slideId: string; selectAll?: boolean; cell?: [number, number] }) {
   const ref = useRef<HTMLDivElement>(null);
   const objRef = useRef(obj);
   objRef.current = obj;
+  const cellKey = cell ? `${cell[0]},${cell[1]}` : '';
 
   useLayoutEffect(() => {
     const root = ref.current!;
     const store = useEditor.getState();
-    store.beginGesture('텍스트 편집');
-    root.innerHTML = paragraphsToHtml(obj.text.paragraphs);
-    const first = obj.text.paragraphs[0]?.runs[0] ?? {};
+    store.beginGesture(cell ? '셀 편집' : '텍스트 편집');
+    const initial = bodyOf(obj, cell);
+    root.innerHTML = paragraphsToHtml(initial.paragraphs);
+    const first = initial.paragraphs[0]?.runs[0] ?? {};
     const fallback = { ...first, text: undefined } as Record<string, unknown>;
     delete fallback.text;
 
@@ -32,6 +38,21 @@ export function TextEditor({ obj, slideId, selectAll }: { obj: TextObject | Shap
       const id = objRef.current.id;
       useEditor.getState().updateGesture((d) =>
         updateObjects(d, slideId, [id], (o) => {
+          if (o.type === 'table' && cell) {
+            const [r, c] = cell;
+            const target = o.rows[r]?.cells[c];
+            if (!target) return;
+            target.text.paragraphs = paragraphs;
+            // 셀 내용이 넘치면 행 높이를 늘림 (병합 셀은 마지막 행)
+            const lastRow = r + (target.rowSpan ?? 1) - 1;
+            const spanH = o.rows.slice(r, lastRow + 1).reduce((a, x) => a + x.height, 0);
+            const needed = Math.ceil(root.scrollHeight + target.text.padding.top + target.text.padding.bottom);
+            if (needed > spanH + 1) {
+              o.rows[lastRow].height += needed - spanH;
+              o.height = o.rows.reduce((a, x) => a + x.height, 0);
+            }
+            return;
+          }
           if (o.type !== 'text' && o.type !== 'shape') return;
           o.text.paragraphs = paragraphs;
           // 텍스트 상자는 내용에 맞게 높이 자동 조정 (PowerPoint의 '텍스트에 맞게 도형 크기 조정')
@@ -73,9 +94,9 @@ export function TextEditor({ obj, slideId, selectAll }: { obj: TextObject | Shap
       if (getEditorSession()?.root === root) setEditorSession(null);
       useEditor.getState().endGesture();
     };
-    // 편집 세션은 객체 ID 기준으로 한 번만 시작
+    // 편집 세션은 객체 ID(+셀) 기준으로 한 번만 시작
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [obj.id]);
+  }, [obj.id, cellKey]);
 
   useEffect(() => {
     const root = ref.current!;
@@ -95,6 +116,13 @@ export function TextEditor({ obj, slideId, selectAll }: { obj: TextObject | Shap
     if (e.key === 'Escape') {
       e.preventDefault();
       useEditor.getState().setEditingText(null);
+      return;
+    }
+    if (e.key === 'Tab' && obj.type === 'table' && cell) {
+      // 표: Tab/Shift+Tab으로 다음/이전 셀 (마지막 셀에서 Tab이면 행 추가)
+      e.preventDefault();
+      e.stopPropagation();
+      moveCell(obj.id, slideId, cell, e.shiftKey ? -1 : 1);
       return;
     }
     if (e.key === 'Tab') {
@@ -132,6 +160,12 @@ export function TextEditor({ obj, slideId, selectAll }: { obj: TextObject | Shap
         fmt[k]();
         return;
       }
+      if (k === 'k') {
+        e.preventDefault();
+        e.stopPropagation();
+        window.dispatchEvent(new CustomEvent('slidelab:link'));
+        return;
+      }
       // 실행 취소/저장/슬라이드 쇼 등은 편집기 밖 단축키로 전달
       if (k === 's' || k === 'm') return;
     }
@@ -140,9 +174,9 @@ export function TextEditor({ obj, slideId, selectAll }: { obj: TextObject | Shap
     e.stopPropagation();
   };
 
-  const body = obj.text;
+  const body = bodyOf(obj, cell);
   return (
-    <div style={textContainerStyle(body)} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+    <div style={cell ? { position: 'relative' } : textContainerStyle(body)} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       <div
         ref={ref}
         className={`sl-text-inner sl-editing ${textDirClass(body)}`}
@@ -156,4 +190,32 @@ export function TextEditor({ obj, slideId, selectAll }: { obj: TextObject | Shap
       />
     </div>
   );
+}
+
+/** 표에서 다음/이전 셀로 편집 이동 */
+function moveCell(objId: string, slideId: string, cell: [number, number], dir: 1 | -1) {
+  const st = useEditor.getState();
+  const slide = st.doc.slides.find((x) => x.id === slideId);
+  const t = slide?.objects.find((o) => o.id === objId);
+  if (!t || t.type !== 'table') return;
+  const cols = t.columns.length;
+  let idx = cell[0] * cols + cell[1];
+  for (;;) {
+    idx += dir;
+    if (idx < 0) return;
+    if (idx >= t.rows.length * cols) {
+      // 마지막 셀: 새 행 추가 후 첫 셀로
+      st.setEditingText(null);
+      import('../table/tableActions').then((m) => m.tableInsertRow('below', objId, t.rows.length - 1)).then(() => {
+        useEditor.getState().setEditingText(objId, [t.rows.length, 0]);
+      });
+      return;
+    }
+    const r = Math.floor(idx / cols), c = idx % cols;
+    if (!t.rows[r].cells[c].merged) {
+      st.setEditingText(null);
+      setTimeout(() => useEditor.getState().setEditingText(objId, [r, c]), 0);
+      return;
+    }
+  }
 }
