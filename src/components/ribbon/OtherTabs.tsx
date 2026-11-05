@@ -340,26 +340,6 @@ function TemplateThumb({ template }: { template: DesignTemplate }) {
 
 /* ───────────── 전환 / 애니메이션 / 녹화 ───────────── */
 
-export function TransitionsTab() {
-  return (
-    <>
-      <PlannedGroup label="미리 보기" stage="10단계" items={['전환 미리 보기']} />
-      <PlannedGroup label="이 슬라이드로 전환" stage="10단계" items={['없음', '페이드', '밀어내기', '닦아내기', '분할', '모양', '확대/축소', '회전']} />
-      <PlannedGroup label="타이밍" stage="10단계" items={['기간', '방향', '모두 적용']} />
-    </>
-  );
-}
-
-export function AnimationsTab() {
-  return (
-    <>
-      <PlannedGroup label="애니메이션" stage="10단계" items={['나타내기', '강조', '끝내기', '이동 경로']} />
-      <PlannedGroup label="고급 애니메이션" stage="10단계" items={['애니메이션 창', '트리거', '애니메이션 복사']} />
-      <PlannedGroup label="타이밍" stage="10단계" items={['시작', '재생 시간', '지연', '반복', '순서 바꾸기']} />
-    </>
-  );
-}
-
 export function RecordTab() {
   return <PlannedGroup label="녹화" stage="11단계" items={['현재 슬라이드부터 녹화', '처음부터 녹화', '내레이션', '비디오로 내보내기']} />;
 }

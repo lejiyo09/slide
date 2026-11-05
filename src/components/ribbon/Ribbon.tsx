@@ -5,7 +5,8 @@ import { useEditor, useSelectedObjects } from '../../core/store/editorStore';
 import { TableDesignTab, TableLayoutTab, ChartDesignTab, MediaTab } from './ObjectTabs';
 import { saveNow } from '../../services/storage/autosave';
 import { HomeTab } from './HomeTab';
-import { AnimationsTab, DesignTab, InsertTab, RecordTab, ReviewTab, SlideShowTab, TransitionsTab, ViewTab } from './OtherTabs';
+import { DesignTab, InsertTab, RecordTab, ReviewTab, SlideShowTab, ViewTab } from './OtherTabs';
+import { AnimationsTab, TransitionsTab } from './AnimTabs';
 import { ContextualTab } from './ContextualTab';
 import { usePwaInstall } from '../../hooks/usePwaInstall';
 
@@ -50,6 +51,9 @@ export function Ribbon({ onCustomSize }: { onCustomSize: () => void }) {
   let activeTab: TabId = isContextual(tab) && !contextualTabs.some((c) => c.id === tab) ? 'home' : tab;
   if (activeTab === 'master' && !masterView) activeTab = 'home';
   const table = selected.length === 1 && selected[0].type === 'table' ? selected[0] : null;
+  useEffect(() => {
+    if (useEditor.getState().ribbonTab !== activeTab) useEditor.setState({ ribbonTab: activeTab });
+  }, [activeTab]);
 
   return (
     <header className="ribbon-wrap">

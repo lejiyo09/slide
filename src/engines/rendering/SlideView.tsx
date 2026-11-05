@@ -1,6 +1,7 @@
 import { memo, type ReactNode } from 'react';
 import type { Fill, MasterSlide, Presentation, Slide, SlideObject } from '../../types/model';
 import { ObjectView, fillToCss, type EditableObject, type RenderMode } from './ObjectView';
+import type { Frame } from '../animation/effects';
 
 interface SlideViewProps {
   slide: Slide;
@@ -11,10 +12,12 @@ interface SlideViewProps {
   interactive?: boolean;
   mode?: RenderMode;
   cellSelection?: { id: string; r1: number; c1: number; r2: number; c2: number } | null;
+  /** 애니메이션 프레임 (개체 ID → 상태) */
+  frames?: Map<string, Frame>;
 }
 
 /** 슬라이드 원본 크기(px)로 렌더링. 확대/축소는 바깥에서 transform으로 처리 */
-export const SlideView = memo(function SlideView({ slide, doc, editingTextId, editingCell, renderEditor, interactive, mode, cellSelection }: SlideViewProps) {
+export const SlideView = memo(function SlideView({ slide, doc, editingTextId, editingCell, renderEditor, interactive, mode, cellSelection, frames }: SlideViewProps) {
   const { bg, layers } = designLayers(slide, doc);
   return (
     <div className="sl-slide" style={{ position: 'absolute', left: 0, top: 0, width: doc.size.width, height: doc.size.height, overflow: 'hidden', background: '#fff' }}>
@@ -38,6 +41,8 @@ export const SlideView = memo(function SlideView({ slide, doc, editingTextId, ed
           interactive={interactive}
           mode={mode ?? (interactive ? 'edit' : 'thumb')}
           cellSelection={cellSelection && cellSelection.id === o.id ? cellSelection : null}
+          frame={frames?.get(o.id)}
+          tagId={mode === 'show'}
         />
       ))}
     </div>

@@ -13,6 +13,7 @@ import { collectTargets, snapRect, type Guide } from './snapping';
 import { SelectionOverlay, type HandleId } from './SelectionOverlay';
 import { CanvasContextMenu, type MenuState } from './ContextMenu';
 import { setPendingCaretPoint } from '../../editors/text/caret';
+import { AnimBadges, PreviewOverlay } from './AnimOverlay';
 
 const PAD = 48; // 캔버스 여백 (화면 px)
 
@@ -528,7 +529,9 @@ export function EditorCanvas() {
           <div className="stage-inner" style={{ width: W, height: H, transform: `scale(${zoom})` }}>
             <SlideView slide={slide} doc={doc} editingTextId={editingTextId} editingCell={editingCell} renderEditor={renderEditor} interactive cellSelection={cellSel} />
             {showGrid && <GridOverlay w={W} h={H} />}
+            <PreviewOverlay slide={slide} doc={doc} />
           </div>
+          <AnimBadges slide={slide} zoom={zoom} />
           <SelectionOverlay
             objects={selectedObjs}
             zoom={zoom}

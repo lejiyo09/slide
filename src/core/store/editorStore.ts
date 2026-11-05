@@ -53,6 +53,14 @@ export interface EditorState {
   cropId: string | null;
   /** 슬라이드 마스터 보기 */
   masterView: boolean;
+  /** 애니메이션 창 */
+  animPaneOpen: boolean;
+  /** 현재 리본 탭 (애니메이션 번호 배지 표시 판단) */
+  ribbonTab: string;
+  /** 애니메이션 창에서 선택한 효과 */
+  selectedAnimIds: string[];
+  /** 편집기 미리 보기 (전환/애니메이션) */
+  preview: { kind: 'transition' | 'animation'; slideId: string; key: number } | null;
   /** 데이터 편집 창이 열린 차트 */
   chartEditorId: string | null;
   /** 키보드 단축키 대상 영역 */
@@ -130,6 +138,10 @@ export const useEditor = create<EditorState>()((set, get) => ({
   cellSelection: null,
   cropId: null,
   masterView: false,
+  animPaneOpen: false,
+  ribbonTab: 'home',
+  selectedAnimIds: [],
+  preview: null,
   chartEditorId: null,
   focusArea: 'canvas',
 

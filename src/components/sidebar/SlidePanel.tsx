@@ -57,6 +57,11 @@ export const SlideThumb = memo(function SlideThumb({
       <span className="thumb-num">
         {index + 1}
         {slide.hidden && <EyeOff size={11} />}
+        {(slide.animations?.length || (slide.transition && slide.transition.type !== 'none')) && (
+          <span className="thumb-fx" title={`${slide.transition && slide.transition.type !== 'none' ? '전환 효과' : ''}${slide.animations?.length ? ` 애니메이션 ${slide.animations.length}개` : ''}`}>
+            ★
+          </span>
+        )}
       </span>
       <div className="thumb-frame">
         <ScaledSlide slide={slide} doc={doc} width={width} />

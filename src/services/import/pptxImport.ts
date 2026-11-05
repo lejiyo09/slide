@@ -12,10 +12,11 @@
 import type {
   BulletType, CustomGeometry, Fill, GroupObject, HAlign, ImageObject, LayoutDef, LineObject, Paragraph, PathCommand, Presentation,
   Section, ShapeKind, ShapeObject, Slide, SlideObject, Stroke, TextBody, TextObject, TextRun, Theme, UnsupportedKind, UnsupportedObject, VAlign,
-  TableObject, TableCell, CellBorders, ChartObject, ChartType, MediaObject, MasterSlide, PlaceholderType,
+  TableObject, TableCell, CellBorders, ChartObject, ChartType, MediaObject, MasterSlide, PlaceholderType, SlideTransition, Animation,
 } from '../../types/model';
 import type { Rel } from './ooxml';
 import { contentFingerprint } from '../../core/document/fingerprint';
+import { parseTiming, parseTransition } from './animImport';
 import { applyTableStyle } from '../../editors/table/table';
 import { newId } from '../../utils/id';
 import { MIME_BY_EXT, NS, OoxmlPackage, REL, WEB_IMAGE_EXT, boolAttr, descendants, kid, kids, numAttr, path, rAttr, serializeElement } from './ooxml';
@@ -315,13 +316,22 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
 
     // 전환/애니메이션 원본 보존
     const source: Slide['source'] = { part: slidePath };
+    let transition: SlideTransition | undefined;
+    let animations: Animation[] | undefined;
     for (const c of kids(root)) {
       if (c.localName === 'transition' || (c.localName === 'AlternateContent' && descendants(c, 'transition').length)) {
         source.transitionXml = serializeElement(c);
         report.preservedTransitions++;
+        transition = parseTransition(c) ?? undefined;
+        if (transition) source.transitionFingerprint = JSON.stringify(transition);
       } else if (c.localName === 'timing') {
         source.timingXml = serializeElement(c);
         report.preservedTimings++;
+        const r = parseTiming(c, objects, width, height);
+        if (r.animations.length) animations = r.animations;
+        source.animationFingerprint = JSON.stringify(r.animations);
+        if (r.approximated) report.approximated.push('일부 애니메이션은 비슷한 효과로 표시됩니다 (내용을 바꾸지 않으면 저장 시 원본 유지).');
+        if (r.skipped) report.approximated.push('그룹 안 개체나 텍스트 단락 등을 대상으로 한 애니메이션 일부는 편집 목록에 표시되지 않습니다 (저장 시 원본 유지).');
       }
     }
 
@@ -332,6 +342,8 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
       notes,
       layout: layout.part,
       source,
+      ...(transition && transition.type !== 'none' ? { transition } : transition ? { transition } : {}),
+      ...(animations ? { animations } : {}),
       ...(root.getAttribute('show') === '0' ? { hidden: true } : {}),
       ...(root.getAttribute('showMasterSp') === '0' ? { showMasterShapes: false } : {}),
     };

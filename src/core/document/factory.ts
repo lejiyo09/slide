@@ -228,7 +228,19 @@ export function cloneObject<T extends SlideObject>(obj: T, offset = 0): T {
 export function cloneSlide(slide: Slide): Slide {
   const copy = deepClone(slide);
   copy.id = newId();
-  copy.objects = copy.objects.map((o) => cloneObject(o));
+  const idMap = new Map<string, string>();
+  copy.objects = copy.objects.map((o) => {
+    const c = cloneObject(o);
+    idMap.set(o.id, c.id);
+    return c;
+  });
+  // 애니메이션 대상/트리거를 새 개체 ID로
+  if (copy.animations)
+    copy.animations = copy.animations
+      .filter((a) => idMap.has(a.targetId))
+      .map((a) => ({ ...a, id: newId(), targetId: idMap.get(a.targetId)!, ...(a.triggerId ? { triggerId: idMap.get(a.triggerId) } : {}) }));
+  // 복제본은 원본 PPTX 타이밍과 개체 ID가 달라지므로 원본 XML 대신 모델에서 생성
+  if (copy.source) delete copy.source.timingXml;
   return copy;
 }
 

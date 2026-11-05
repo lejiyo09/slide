@@ -9,6 +9,8 @@ import { ptToPx } from '../../utils/units';
 import { computeNumbers, cssObjectToReact, paragraphCss, runCss } from '../../editors/text/richText';
 import { resolveTokensDeep } from '../../utils/themeColor';
 import { patternDataUrl } from './patterns';
+import { frameToCss } from '../animation/timeline';
+import type { Frame } from '../animation/effects';
 
 export type Assets = Record<string, Asset>;
 
@@ -188,9 +190,13 @@ interface ObjectViewProps {
   mode?: RenderMode;
   /** 표 셀 선택 영역 강조 (편집 캔버스) */
   cellSelection?: { r1: number; c1: number; r2: number; c2: number } | null;
+  /** 애니메이션 프레임 (슬라이드 쇼/미리 보기) */
+  frame?: Frame;
+  /** 슬라이드 쇼에서 트리거 클릭 판별용 ID 표시 */
+  tagId?: boolean;
 }
 
-export const ObjectView = memo(function ObjectView({ obj: raw, assets, theme, editingTextId, editingCell, renderEditor: renderEditorProp, interactive, mode, cellSelection }: ObjectViewProps) {
+export const ObjectView = memo(function ObjectView({ obj: raw, assets, theme, editingTextId, editingCell, renderEditor: renderEditorProp, interactive, mode, cellSelection, frame, tagId }: ObjectViewProps) {
   if (raw.hidden) return null;
   // 편집기는 토큰이 살아 있는 원본을, 화면 표시는 테마 색으로 해석한 개체를 사용
   const obj = resolveForRender(raw, theme);
@@ -205,6 +211,15 @@ export const ObjectView = memo(function ObjectView({ obj: raw, assets, theme, ed
     transform,
     opacity: obj.opacity ?? 1,
   };
+  if (frame) {
+    const fc = frameToCss(frame, obj.rotation);
+    if (fc) {
+      style.transform = fc.transform;
+      style.opacity = (obj.opacity ?? 1) * (frame.opacity ?? 1);
+      if (fc.visibility) style.visibility = fc.visibility;
+      if (fc.clipPath) style.clipPath = fc.clipPath;
+    }
+  }
   const editing = editingTextId === obj.id;
   let content: ReactNode = null;
   switch (obj.type) {
@@ -237,7 +252,7 @@ export const ObjectView = memo(function ObjectView({ obj: raw, assets, theme, ed
       break;
   }
   return (
-    <div className={`sl-obj sl-obj-${obj.type}`} style={style} data-obj-id={interactive ? obj.id : undefined} data-link={obj.link || undefined}>
+    <div className={`sl-obj sl-obj-${obj.type}`} style={style} data-obj-id={interactive || tagId ? obj.id : undefined} data-link={obj.link || undefined}>
       {content}
     </div>
   );

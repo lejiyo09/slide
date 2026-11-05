@@ -8,7 +8,8 @@
  *  4. 슬라이드 전환/애니메이션(timing) XML 재삽입 (대상이 사라진 애니메이션은 제외하고 경고)
  */
 import JSZip from 'jszip';
-import type { Fill } from '../../types/model';
+import type { Animation, Fill } from '../../types/model';
+import { buildTimingXml } from './animXml';
 
 export interface PreservedXml {
   xml: string;
@@ -27,6 +28,11 @@ export interface SlidePlan {
   fills: (Extract<Fill, { type: 'gradient' | 'pattern' }> | undefined)[];
   /** 그라데이션/무늬 슬라이드 배경 (pptxgenjs 미지원 → 후처리) */
   background?: Extract<Fill, { type: 'gradient' | 'pattern' }>;
+  /** emitted와 같은 순서: SlideLab 개체 ID (애니메이션 대상 매핑) */
+  objIds: string[];
+  /** 모델에서 생성할 애니메이션 */
+  animations?: Animation[];
+  slideSize?: { width: number; height: number };
   /** emitted와 같은 순서: 소속 그룹 경로 (바깥 → 안쪽) */
   groupPaths: { key: string; name: string; sourceId?: number }[][];
   markers: Map<string, PreservedXml>;
@@ -41,7 +47,7 @@ const serialize = (d: Document) => XML_DECL + new XMLSerializer().serializeToStr
 const SHAPE_TAGS = new Set(['sp', 'pic', 'graphicFrame', 'grpSp', 'cxnSp', 'contentPart', 'AlternateContent']);
 
 export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], source: OoxmlPackage | null, warn: (m: string) => void): Promise<Uint8Array> {
-  const needs = plans.some((p) => p.markers.size || p.transitionXml || p.timingXml || p.emitted.some((x) => x !== undefined) || p.fills.some(Boolean) || p.groupPaths.some((g) => g.length) || !!p.background);
+  const needs = plans.some((p) => p.markers.size || p.transitionXml || p.timingXml || p.emitted.some((x) => x !== undefined) || p.fills.some(Boolean) || p.groupPaths.some((g) => g.length) || !!p.background || !!p.animations?.length);
   if (!needs) return bytes;
   const out = await JSZip.loadAsync(bytes);
   const ctDoc = parse(await out.file('[Content_Types].xml')!.async('string'));
@@ -209,9 +215,10 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
     }
 
     // 2-1) 평탄화된 그룹을 p:grpSp로 다시 묶기
+    let groupIds = new Map<string, number>();
     if (elementAt && plan.groupPaths.some((g) => g.length)) {
       const used = new Set(Array.from(sdoc.getElementsByTagNameNS(NS.p, 'cNvPr')).map((e) => Number(e.getAttribute('id'))));
-      regroup(sdoc, elementAt, plan.groupPaths, used, () => freshId++);
+      groupIds = regroup(sdoc, elementAt, plan.groupPaths, used, () => freshId++);
     } else if (plan.groupPaths.some((g) => g.length)) {
       warn('일부 그룹을 개별 개체로 풀어서 저장했습니다 (위치·모양은 유지).');
     }
@@ -244,6 +251,21 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
     // 3) 전환/애니메이션
     const ids = new Set(Array.from(sdoc.getElementsByTagNameNS(NS.p, 'cNvPr')).map((e) => e.getAttribute('id')));
     let timing = plan.timingXml;
+    // 모델 애니메이션 → p:timing (최종 도형 ID로)
+    if (!timing && plan.animations?.length && elementAt) {
+      const spidOf = (id: string) => {
+        const gid = groupIds.get(id);
+        if (gid !== undefined) return gid;
+        const i = plan.objIds.indexOf(id);
+        const v = i >= 0 ? Number(elementAt[i]?.getElementsByTagNameNS(NS.p, 'cNvPr')[0]?.getAttribute('id')) : NaN;
+        return Number.isFinite(v) ? v : undefined;
+      };
+      const isTextShape = (id: string) => {
+        const i = plan.objIds.indexOf(id);
+        return i >= 0 && elementAt[i]?.localName === 'sp';
+      };
+      timing = buildTimingXml(plan.animations, spidOf, plan.slideSize?.width ?? 1280, plan.slideSize?.height ?? 720, isTextShape);
+    } else if (!timing && plan.animations?.length) warn(`슬라이드 ${plan.index + 1}: 개체 대응을 확인할 수 없어 애니메이션을 저장하지 않았습니다.`);
     if (timing) {
       const refs = [...timing.matchAll(/spid="(\d+)"/g)].map((m) => m[1]);
       const missing = refs.filter((r) => !ids.has(r));
@@ -319,15 +341,16 @@ function regroup(
   paths: { key: string; name: string; sourceId?: number }[][],
   usedIds: Set<number>,
   fresh: () => number,
-) {
+): Map<string, number> {
+  const ids = new Map<string, number>();
   const P = NS.p, A = NS.a;
   const top = new Map<Element, Element>(elements.map((e) => [e, e]));
-  const ranges = new Map<string, { start: number; end: number; depth: number; name: string; sourceId?: number }>();
+  const ranges = new Map<string, { key: string; start: number; end: number; depth: number; name: string; sourceId?: number }>();
   paths.forEach((gp, i) =>
     gp.forEach((g, depth) => {
       const r = ranges.get(g.key);
       if (r) r.end = i + 1;
-      else ranges.set(g.key, { start: i, end: i + 1, depth, name: g.name, sourceId: g.sourceId });
+      else ranges.set(g.key, { key: g.key, start: i, end: i + 1, depth, name: g.name, sourceId: g.sourceId });
     }),
   );
   const sorted = [...ranges.values()].sort((a, b) => b.depth - a.depth);
@@ -371,7 +394,9 @@ function regroup(
     members[0].parentNode!.insertBefore(g, members[0]);
     for (const m of members) g.appendChild(m);
     for (let i = r.start; i < r.end; i++) top.set(elements[i], g);
+    ids.set(r.key, id);
   }
+  return ids;
 }
 
 async function restoreTheme(out: JSZip, source: OoxmlPackage, copyPart: (p: string) => Promise<string | null>) {

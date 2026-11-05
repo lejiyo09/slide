@@ -12,6 +12,7 @@ import { designLayers } from '../../engines/rendering/SlideView';
 import { resolveTokensDeep } from '../../utils/themeColor';
 import { chartPalette } from '../../editors/chart/chart';
 import { KEEP_PREFIX, postProcessPptx, type SlidePlan } from './preserve';
+import { buildTransitionXml } from './animXml';
 import { OoxmlPackage } from '../import/ooxml';
 import { getBlob, getPackage } from '../storage/db';
 import { readAsDataUrl } from '../storage/files';
@@ -261,10 +262,17 @@ export async function buildPptx(source: Presentation, opts: BuildOptions = {}): 
       slide.background = { color: toPptxHex(bg.type === 'gradient' ? bg.stops[0]?.color ?? '#FFFFFF' : bg.bg) };
     }
 
+    // 전환/애니메이션: 가져온 뒤 바꾸지 않았으면 원본 XML, 아니면 모델에서 생성
+    const keepTransition = !!s.source?.transitionXml && opts.sourceAvailable !== false && JSON.stringify(s.transition) === s.source.transitionFingerprint;
+    const keepTiming = !!s.source?.timingXml && JSON.stringify(s.animations ?? []) === s.source.animationFingerprint;
     const plan: SlidePlan = {
-      index: slideIndex, emitted: [], fills: [], groupPaths: [], markers: new Map(), transitionXml: s.source?.transitionXml, timingXml: s.source?.timingXml,
+      index: slideIndex, emitted: [], objIds: [], fills: [], groupPaths: [], markers: new Map(),
+      transitionXml: keepTransition ? s.source!.transitionXml : buildTransitionXml(s.transition),
+      timingXml: keepTiming ? s.source!.timingXml : undefined,
+      ...(!keepTiming && s.animations?.length ? { animations: s.animations, slideSize: doc.size } : {}),
       ...(bg.type === 'gradient' || bg.type === 'pattern' ? { background: bg } : {}),
     };
+    if (!keepTiming && s.source?.timingXml && s.animations?.length) warn('애니메이션을 바꾼 슬라이드는 SlideLab 효과로 새로 저장되었습니다.');
     plans.push(plan);
     const layoutObjs = designObjs.map((o) => ({ ...o, sourceId: undefined }) as SlideObject);
     if (layoutObjs.length) warn('마스터/레이아웃 디자인 요소는 각 슬라이드에 포함되어 저장됩니다 (PowerPoint에서 보이는 모양은 같고, 마스터 구조는 SlideLab 안에서만 유지).');
@@ -285,6 +293,7 @@ export async function buildPptx(source: Presentation, opts: BuildOptions = {}): 
       const objLink = o.link ? { hyperlink: { url: o.link } } : {};
       const emit = () => {
         plan.emitted.push(o.sourceId);
+        plan.objIds.push(o.id);
         plan.groupPaths.push(groups);
         plan.fills.push((o.type === 'shape' || o.type === 'text') && (o.fill.type === 'gradient' || o.fill.type === 'pattern') ? o.fill : undefined);
       };

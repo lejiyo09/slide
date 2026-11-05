@@ -309,12 +309,62 @@ export interface Slide {
   layout: string; // 레이아웃 ID (doc.layouts의 키 또는 기본 레이아웃 이름)
   /** 마스터/레이아웃의 디자인 개체 표시 여부 (PPTX showMasterSp) */
   showMasterShapes?: boolean;
+  /** 슬라이드 전환 효과 */
+  transition?: SlideTransition;
+  /** 애니메이션 (배열 순서 = 재생 순서) */
+  animations?: Animation[];
   /** PPTX에서 가져온 슬라이드의 원본 XML 조각 (전환·애니메이션 보존) */
   source?: {
     part: string;
     transitionXml?: string;
     timingXml?: string;
+    /** 가져온 직후 전환/애니메이션 모델의 지문 (그대로면 저장 시 원본 XML 사용) */
+    transitionFingerprint?: string;
+    animationFingerprint?: string;
   };
+}
+
+/* ───────────── 전환 ───────────── */
+
+export type TransitionType =
+  | 'none' | 'fade' | 'fadeBlack' | 'push' | 'wipe' | 'split' | 'cover' | 'uncover' | 'circle' | 'zoom' | 'rotate' | 'flip';
+
+export type Direction = 'left' | 'right' | 'up' | 'down';
+
+export interface SlideTransition {
+  type: TransitionType;
+  /** 재생 시간 ms */
+  duration: number;
+  /** push/wipe/cover/uncover: 이동 방향, split: 'horizontal'|'vertical' + in/out */
+  direction?: Direction | 'horizontalIn' | 'horizontalOut' | 'verticalIn' | 'verticalOut';
+  /** 마우스를 클릭할 때 넘김 (기본 true) */
+  advanceOnClick?: boolean;
+  /** 이 시간(ms) 후 자동으로 넘김 */
+  advanceAfter?: number;
+}
+
+/* ───────────── 애니메이션 ───────────── */
+
+export type AnimationCategory = 'entrance' | 'emphasis' | 'exit' | 'path';
+export type AnimationStart = 'onClick' | 'withPrevious' | 'afterPrevious';
+
+export interface Animation {
+  id: ID;
+  /** 대상 개체 ID (슬라이드 최상위 개체) */
+  targetId: ID;
+  category: AnimationCategory;
+  /** 효과 ID (engines/animation/effects.ts) */
+  effect: string;
+  start: AnimationStart;
+  duration: number; // ms
+  delay: number; // ms
+  /** 반복 횟수 (1 = 한 번), 0 = 다음 클릭까지 반복 */
+  repeat: number;
+  direction?: Direction;
+  /** 이동 경로: 개체 시작 위치 기준 오프셋 점들 (슬라이드 px) */
+  path?: { x: number; y: number }[];
+  /** 트리거: 이 개체를 클릭하면 재생 (없으면 기본 순서) */
+  triggerId?: ID;
 }
 
 /**

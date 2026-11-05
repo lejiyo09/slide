@@ -16,6 +16,8 @@ import type {
   TextRunStyle,
   Theme,
   MasterSlide,
+  Animation,
+  SlideTransition,
 } from '../../types/model';
 import { cloneObject, cloneSlide, createGroup, createSlide, type SlideLayout } from '../document/factory';
 import { findSlide, hasText } from '../document/query';
@@ -192,7 +194,54 @@ export function addObjects(doc: Doc, slideId: string, objs: SlideObject[]) {
 
 export function deleteObjects(doc: Doc, slideId: string, ids: string[]) {
   const s = findSlide(doc, slideId);
-  if (s) s.objects = s.objects.filter((o) => !ids.includes(o.id));
+  if (!s) return;
+  s.objects = s.objects.filter((o) => !ids.includes(o.id));
+  dropAnimationsFor(s, ids);
+}
+
+/** 개체가 사라지면 그 개체의 애니메이션과 트리거도 정리 */
+function dropAnimationsFor(s: Slide, ids: string[]) {
+  if (!s.animations?.length) return;
+  s.animations = s.animations.filter((a) => !ids.includes(a.targetId));
+  for (const a of s.animations) if (a.triggerId && ids.includes(a.triggerId)) delete a.triggerId;
+}
+
+/* ───────────── 전환 / 애니메이션 ───────────── */
+
+export function setTransition(doc: Doc, slideIds: string[] | 'all', patch: Partial<SlideTransition>) {
+  for (const s of doc.slides) {
+    if (slideIds !== 'all' && !slideIds.includes(s.id)) continue;
+    s.transition = { type: 'none', duration: 0, advanceOnClick: true, ...(s.transition ?? {}), ...patch };
+  }
+}
+
+export function addAnimations(doc: Doc, slideId: string, anims: Animation[], afterId?: string) {
+  const s = findSlide(doc, slideId);
+  if (!s) return;
+  s.animations ??= [];
+  const at = afterId ? s.animations.findIndex((a) => a.id === afterId) + 1 : s.animations.length;
+  s.animations.splice(at <= 0 ? s.animations.length : at, 0, ...anims);
+}
+
+export function updateAnimations(doc: Doc, slideId: string, ids: string[], fn: (a: Animation) => void) {
+  const s = findSlide(doc, slideId);
+  for (const a of s?.animations ?? []) if (ids.includes(a.id)) fn(a);
+}
+
+export function removeAnimations(doc: Doc, slideId: string, ids: string[]) {
+  const s = findSlide(doc, slideId);
+  if (s?.animations) s.animations = s.animations.filter((a) => !ids.includes(a.id));
+}
+
+/** 애니메이션 순서 이동 (delta: -1 앞으로, +1 뒤로) */
+export function moveAnimation(doc: Doc, slideId: string, id: string, delta: -1 | 1) {
+  const s = findSlide(doc, slideId);
+  const list = s?.animations;
+  if (!list) return;
+  const i = list.findIndex((a) => a.id === id);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
 }
 
 export function updateObjects(doc: Doc, slideId: string, ids: string[], fn: (o: SlideObject) => void) {
@@ -286,6 +335,8 @@ export function groupObjects(doc: Doc, slideId: string, ids: string[]): string |
   const at = remaining.findIndex((o) => o.id === s.objects[topIndex].id);
   remaining.splice(at, 1, group);
   s.objects = remaining;
+  // PowerPoint와 같이 그룹화하면 구성 개체의 애니메이션은 제거
+  dropAnimationsFor(s, ids);
   return group.id;
 }
 
@@ -311,6 +362,7 @@ export function ungroupObjects(doc: Doc, slideId: string, ids: string[]): string
     } else next.push(o);
   }
   s.objects = next;
+  dropAnimationsFor(s, ids);
   return result;
 }
 

@@ -5,6 +5,7 @@ import { Ribbon } from '../components/ribbon/Ribbon';
 import { Backstage } from '../components/ribbon/Backstage';
 import { SlidePanel, SorterView } from '../components/sidebar/SlidePanel';
 import { MasterPanel } from '../components/sidebar/MasterPanel';
+import { AnimationPane } from '../components/properties/AnimationPane';
 import { EditorCanvas } from '../components/canvas/EditorCanvas';
 import { PropertiesPanel } from '../components/properties/PropertiesPanel';
 import { NotesPane, StatusBar } from '../components/statusbar/StatusBar';
@@ -37,6 +38,7 @@ export function App() {
   const showNotes = useEditor((s) => s.showNotes);
   const showProps = useEditor((s) => s.showProperties);
   const masterView = useEditor((s) => s.masterView);
+  const animPane = useEditor((s) => s.animPaneOpen);
   useShortcuts();
 
   useEffect(() => {
@@ -93,7 +95,9 @@ export function App() {
               <EditorCanvas />
               {showNotes && !masterView && <NotesPane />}
             </main>
-            {showProps ? (
+            {animPane && !masterView ? (
+              <AnimationPane onClose={() => useEditor.getState().set({ animPaneOpen: false })} />
+            ) : showProps ? (
               <PropertiesPanel onClose={() => setProps(false)} />
             ) : (
               <button type="button" className="props-reopen" title="서식 창 열기" onClick={() => setProps(true)}>
