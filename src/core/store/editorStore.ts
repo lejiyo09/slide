@@ -89,7 +89,7 @@ export interface EditorState {
 
   // ── UI ──
   set: (patch: Partial<EditorState>) => void;
-  toast: (message: string, tone?: Toast['tone']) => void;
+  toast: (message: string, tone?: Toast['tone']) => number;
   dismissToast: (id: number) => void;
 }
 
@@ -249,6 +249,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
     const id = toastSeq++;
     set({ toasts: [...get().toasts, { id, message, tone }] });
     setTimeout(() => get().dismissToast(id), tone === 'error' || tone === 'warning' ? 7000 : 3500);
+    return id;
   },
   dismissToast: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
 }));

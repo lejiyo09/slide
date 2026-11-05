@@ -5,7 +5,8 @@ import { createPresentation } from '../../core/document/factory';
 import { THEMES } from '../../themes/themes';
 import { deleteProject, listProjects, listVersions, loadProject, loadVersion, type ProjectMeta } from '../../services/storage/db';
 import { saveNow } from '../../services/storage/autosave';
-import { downloadBlob, exportNative, importNative, pickFiles, safeFileName } from '../../services/storage/files';
+import { downloadBlob, exportNative, pickFiles, safeFileName } from '../../services/storage/files';
+import { openPresentationFile } from '../../services/import/importFile';
 import { ScaledSlide } from '../../engines/rendering/SlideView';
 import { usePwaInstall } from '../../hooks/usePwaInstall';
 
@@ -101,23 +102,23 @@ function OpenPage({ close }: { close: () => void }) {
           className="btn"
           onClick={async () => {
             const [f] = await pickFiles('.slidelab,application/json');
-            if (!f) return;
-            try {
-              const doc = await importNative(f);
-              await switchTo(() => useEditor.getState().loadDocument(doc));
-              await saveNow();
-              close();
-            } catch (e) {
-              useEditor.getState().toast((e as Error).message, 'error');
-            }
+            if (f && (await openPresentationFile(f))) close();
           }}
         >
           <FileJson size={16} /> SlideLab 파일 열기 (.slidelab)
         </button>
-        <button type="button" className="btn" disabled title="7단계(PPTX 가져오기)에서 구현 예정">
-          <PptIcon size={16} /> PowerPoint 파일 열기 (.pptx) — 준비 중
+        <button
+          type="button"
+          className="btn primary"
+          onClick={async () => {
+            const [f] = await pickFiles('.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation');
+            if (f && (await openPresentationFile(f))) close();
+          }}
+        >
+          <PptIcon size={16} /> PowerPoint 파일 열기 (.pptx)
         </button>
       </div>
+      <p className="muted">파일을 편집기 창으로 끌어다 놓아도 열 수 있습니다. 앱으로 설치하면 .pptx 파일을 SlideLab으로 바로 열 수 있습니다.</p>
       <h2>최근 프레젠테이션 (이 브라우저에 저장됨)</h2>
       {!list && <p className="muted">불러오는 중…</p>}
       {list && list.length === 0 && <p className="muted">저장된 프레젠테이션이 없습니다.</p>}
@@ -194,7 +195,7 @@ function ExportPage() {
             <span className="muted">Microsoft PowerPoint, Keynote, Google 슬라이드에서 열 수 있습니다.</span>
           </span>
         </button>
-        <button type="button" className="bs-export-item" onClick={() => exportNative(doc)}>
+        <button type="button" className="bs-export-item" onClick={() => void exportNative(doc)}>
           <FileJson size={28} />
           <span>
             <strong>SlideLab 문서 (.slidelab)</strong>

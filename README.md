@@ -20,7 +20,7 @@ npm run verify:pptx  # 내보낸 PPTX를 python-pptx/LibreOffice로 검증
 GitHub Codespaces에서도 동일하게 실행됩니다. `main`에 push하면 `.github/workflows/deploy.yml`이 테스트·빌드 후 GitHub Pages에 배포합니다
 (저장소 Settings → Pages → Source를 **GitHub Actions**로 설정해야 합니다). `base: './'`로 빌드하므로 하위 경로에서도 동작합니다.
 
-## 현재 상태 (1차 작동 버전)
+## 현재 상태
 
 | 단계 | 내용 | 상태 |
 | --- | --- | --- |
@@ -29,7 +29,7 @@ GitHub Codespaces에서도 동일하게 실행됩니다. `main`에 push하면 `.
 | 4 | 슬라이드/개체 JSON 데이터 모델 | 완료 |
 | 5 | 텍스트·도형·이미지 삽입/편집 | 완료 (아래 상세) |
 | 6 | 실행 취소/다시 실행, 자동 저장, 버전 기록 | 완료 |
-| 7 | PPTX 내보내기 | **기본 내보내기 완료** · 가져오기 미구현 |
+| 7 | PPTX 가져오기/내보내기 | **완료** (아래 "PPTX 호환성" 참고) |
 | 8 | 표, 차트, 미디어 | 미구현 (리본에 "준비 중"으로 표시) |
 | 9 | 테마/디자인 | 테마 5종·배경(단색/그라데이션/그림)·슬라이드 크기 완료 · 마스터 미구현 |
 | 10 | 애니메이션·전환 엔진 | 미구현 |
@@ -49,9 +49,36 @@ GitHub Codespaces에서도 동일하게 실행됩니다. `main`에 push하면 `.
 - **디자인**: 테마 5종, 슬라이드 배경, 모두 적용, 16:9 / 4:3 / 사용자 지정 크기
 - **저장**: IndexedDB 자동 저장, 프로젝트 목록 열기/삭제, `.slidelab`(JSON) 가져오기/내보내기, 버전 저장·복원
 - **PPTX 내보내기**: 텍스트·문단 서식, 도형, 선/화살표, 이미지(자르기 반영), 회전/대칭, 투명도, 배경(그라데이션은 이미지로), 노트, 숨김 슬라이드, 구역, 슬라이드 크기. 변환 손실은 내보내기 화면에 **호환성 알림**으로 표시
+- **PPTX 가져오기**: 파일 › 열기, 창에 끌어다 놓기, 설치된 앱에서 .pptx 바로 열기. 이미지로 변환하지 않고 편집 가능한 개체로 해석하며, 결과를 "호환성 알림"으로 보고
 - **슬라이드 쇼**: 처음부터/현재부터, 전체 화면, 키보드(→ ← Space PgUp/Dn Home End, 번호+Enter), 검은/흰 화면(B/W), 숨김 슬라이드 건너뛰기
 - **PWA**: 매니페스트, 서비스 워커(오프라인 실행), 설치 버튼, 새 버전 알림, `.pptx`/`.slidelab` 파일 핸들러 선언
 - **기타**: 다크 모드, 상황별 탭(도형 서식/그림 서식), 키보드 단축키
+
+## PPTX 호환성 (7단계)
+
+**가져오기** (`src/services/import/`) — ZIP(Open XML) 패키지를 직접 해석합니다.
+- 슬라이드 크기·순서·구역(p14:sectionLst)·숨김·노트, 테마 색(색 변형 lumMod/lumOff/tint/shade/alpha 포함)·글꼴(라틴/동아시아)
+- 개체 틀 상속: 위치(슬라이드 → 레이아웃 → 마스터), 텍스트 서식(마스터 txStyles → 개체 틀 lstStyle → 문단 → 런), 본문 속성(맞춤·여백·세로쓰기·자동 맞춤)
+- 문단/런: 맞춤, 수준, 글머리 기호(문자)/번호, 줄·문단 간격, 글꼴·크기·굵게·기울임·밑줄·취소선·색·강조, 줄 바꿈
+- 도형: 프리셋 20종 + 근사(원래 프리셋 이름은 저장 시 유지), 사용자 지정 경로(custGeom: 직선·베지어·호), 채우기(단색·투명도·그라데이션·그림·스타일 참조), 선(색·두께·대시·화살표)
+- 그림(자르기·투명도), 연결선, 그룹(중첩, 자식 좌표계), 슬라이드/레이아웃/마스터 배경, 마스터·레이아웃 디자인 개체(슬라이드 뒤에 표시)
+- **편집하지 못하는 요소는 버리지 않습니다**: 표·차트·SmartArt·오디오/비디오·OLE·EMF 그림은 원본 XML을 그대로 보존하는 "보존된 개체"가 되어
+  이동·크기 조절·삭제가 가능하고(표는 내용 미리 보기 표시), 전환·애니메이션 XML도 슬라이드에 보존됩니다.
+
+**내보내기** (`src/services/export/`) — pptxgenjs로 생성한 뒤 `preserve.ts`가 후처리합니다.
+- 보존된 개체를 원본 XML로 복원하고, 참조 파트(차트, 내장 Excel, SmartArt 데이터/그리기 캐시, 미디어)를 관계·콘텐츠 형식과 함께 재귀 복사
+- 원래 도형 ID 복원 → 애니메이션 대상 유지 (대상이 삭제되면 해당 슬라이드 애니메이션만 제외하고 경고)
+- 그라데이션 채우기, 그룹 구조(p:grpSp)를 XML에 직접 기록 (pptxgenjs 미지원 보완), 원본 테마·표 스타일 복원
+- 원본 패키지는 IndexedDB(`packages`)에 보관되며 `.slidelab` 백업 파일에도 포함됩니다.
+
+**알려진 제한** (가져오기 결과 대화 상자에 표시됨): 도형 효과(그림자·3D), 도형 조정 핸들 값, 꺾인 연결선 모양, 다중 경로 자유형의 경로별 채우기, 개체 틀 의미(저장 시 일반 텍스트 상자), 마스터 구조(디자인 요소는 각 슬라이드에 포함되어 저장). 표·차트 편집은 8단계, 애니메이션 편집·재생은 10단계, 마스터 편집은 9단계에서 지원 예정입니다. Strict Open XML과 이전 형식(.ppt)은 지원하지 않습니다.
+
+**검증 방법**
+- `scripts/make_fixtures.py`: python-pptx(독립 도구)로 표·차트·그룹·자른 그림·연결선·전환/애니메이션·구역이 든 테스트 파일 생성
+- `src/services/import/__fixtures__/libreoffice.pptx`: LibreOffice가 작성한 PPTX (다른 XML 구조)
+- 단위 테스트: 가져오기 해석, 왕복(가져오기 → 내보내기 → 다시 가져오기), 편집 후 저장(이동한 표 위치 반영, 삭제된 애니메이션 대상 처리)
+- `REAL_PPTX_DIR=폴더 npx vitest run src/services/import/realFiles.test.ts`: 실제 PowerPoint로 만든 파일 일괄 왕복 검사
+- 내보낸 파일은 python-pptx와 LibreOffice(`npm run verify:pptx`)로 다시 열어 확인
 
 ## 아키텍처
 
@@ -67,7 +94,7 @@ src/
   editors/text/   모델↔DOM 변환(richText), contentEditable 편집기, 서식 엔진
   engines/rendering/  ObjectView/SlideView (캔버스·축소판·슬라이드 쇼 공용), 도형 기하
   components/     ribbon, sidebar, canvas, properties, statusbar, slideshow, dialogs, common
-  services/       storage(IndexedDB, 자동 저장, 파일), export(PPTX), import(스크린샷)
+  services/       storage(IndexedDB, 자동 저장, 파일), import(PPTX 해석, 스크린샷), export(PPTX + 원본 보존 후처리)
   themes/  hooks/  utils/  styles/
 ```
 
@@ -75,7 +102,7 @@ src/
 - **실행 취소**: 모든 변경은 `commit(label, recipe)` 하나 = 실행 취소 1단계. 드래그·텍스트 편집·슬라이더는 `beginGesture/updateGesture/endGesture`로 묶어 1단계로 기록.
 - **렌더링**: 하나의 `SlideView`를 편집 캔버스, 축소판, 슬라이드 쇼, 새 문서 미리보기에서 공유해 화면이 일치.
 - **텍스트**: 문단/런 모델과 동일한 DOM 구조를 편집기와 정적 렌더러가 공유하고, 편집 결과는 계산된 스타일로 다시 모델에 반영.
-- **PPTX 원본 보존**: 모델에 `sourceXml` 필드를 예약해 두었으며, 7단계 가져오기에서 미지원 요소 원본 XML을 보존할 예정.
+- **PPTX 원본 보존**: 미지원 요소는 `UnsupportedObject`(원본 XML + 원본 파트 경로)로, 전환/애니메이션은 `slide.source`로 보관.
 
 ## 사용 라이브러리 검증
 

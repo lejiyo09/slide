@@ -14,7 +14,7 @@ import { fileToAsset, pickFiles } from '../../services/storage/files';
 const pxToCm = (px: number) => round((px / 96) * 2.54, 2);
 const cmToPx = (cm: number) => (cm / 2.54) * 96;
 
-const TYPE_NAMES: Record<SlideObject['type'], string> = { text: '텍스트 상자', shape: '도형', line: '선', image: '그림', group: '그룹' };
+const TYPE_NAMES: Record<SlideObject['type'], string> = { text: '텍스트 상자', shape: '도형', line: '선', image: '그림', group: '그룹', unsupported: '보존된 개체' };
 
 /** 선택된 개체에 적용 (하나의 실행 취소 단계) */
 function edit(label: string, fn: (o: SlideObject) => void) {
@@ -102,7 +102,14 @@ function ObjectProps({ objs }: { objs: SlideObject[] }) {
           <FillEditor fill={o.fill} onChange={(f) => edit('채우기', (x) => C.setFill(x, f))} />
         </Section>
       )}
-      {o.type !== 'group' && (
+      {single && o.type === 'unsupported' && (
+        <Section title="보존된 개체">
+          <p className="pp-hint">
+            {o.label} — PowerPoint 원본 XML이 그대로 보존되어 PPTX로 저장할 때 복원됩니다. 위치·크기 변경과 삭제는 저장 시 반영되며, 내용 편집은 다음 단계(표·차트: 8단계)에서 지원됩니다.
+          </p>
+        </Section>
+      )}
+      {o.type !== 'group' && o.type !== 'unsupported' && (
         <Section title="선">
           <StrokeEditor obj={o} />
         </Section>

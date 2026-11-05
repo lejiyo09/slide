@@ -28,6 +28,9 @@ type Doc = Presentation;
 export function addSlide(doc: Doc, afterId: string | null, layout: SlideLayout = 'titleContent'): string {
   const slide = createSlide(layout, doc.size, doc.theme);
   const idx = afterId ? doc.slides.findIndex((s) => s.id === afterId) : doc.slides.length - 1;
+  // 가져온 PPTX: 기준 슬라이드의 마스터/레이아웃 디자인을 이어받음
+  const ref = doc.slides[idx];
+  if (ref && doc.layouts?.[ref.layout]) slide.layout = ref.layout;
   doc.slides.splice(idx + 1, 0, slide);
   return slide.id;
 }

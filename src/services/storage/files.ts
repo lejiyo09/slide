@@ -1,6 +1,7 @@
 /** 파일 입출력 도우미 */
 import type { Asset, Presentation } from '../../types/model';
 import { newId } from '../../utils/id';
+import { getPackage, savePackage } from './db';
 
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -51,9 +52,14 @@ export async function fileToAsset(file: File): Promise<{ asset: Asset; width: nu
 
 export const safeFileName = (title: string) => (title.trim() || 'presentation').replace(/[\\/:*?"<>|]+/g, '_');
 
-/** SlideLab 고유 형식 (.slidelab = JSON) */
-export function exportNative(doc: Presentation) {
-  const blob = new Blob([JSON.stringify({ format: 'slidelab', version: 1, doc })], { type: 'application/json' });
+/** SlideLab 고유 형식 (.slidelab = JSON). 가져온 PPTX의 원본 패키지도 함께 포함해 보존 개체를 유지한다 */
+export async function exportNative(doc: Presentation) {
+  let sourcePackage: string | undefined;
+  if (doc.source) {
+    const pkg = await getPackage(doc.source.packageId);
+    if (pkg) sourcePackage = await readAsDataUrl(pkg);
+  }
+  const blob = new Blob([JSON.stringify({ format: 'slidelab', version: 1, doc, sourcePackage })], { type: 'application/json' });
   downloadBlob(blob, `${safeFileName(doc.title)}.slidelab`);
 }
 
@@ -63,5 +69,10 @@ export async function importNative(file: File): Promise<Presentation> {
   if (data?.format !== 'slidelab' || !data.doc?.slides) throw new Error('SlideLab 파일 형식이 아닙니다');
   const doc = data.doc as Presentation;
   doc.id = newId(); // 기존 프로젝트를 덮어쓰지 않도록 새 ID
+  if (doc.source && typeof data.sourcePackage === 'string') {
+    const packageId = newId();
+    await savePackage(packageId, await (await fetch(data.sourcePackage)).blob());
+    doc.source = { ...doc.source, packageId };
+  }
   return doc;
 }

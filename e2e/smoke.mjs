@@ -323,6 +323,59 @@ await page.waitForSelector('.bs-warnings');
 await page.screenshot({ path: `${OUT}/04-export.png` });
 await page.locator('.bs-back').click();
 
+// ── PPTX 가져오기 (python-pptx로 만든 실제 파일) ──
+await page.locator('.tab-file').click();
+await page.locator('.bs-nav-item', { hasText: '열기' }).click();
+const [pptxChooser] = await Promise.all([page.waitForEvent('filechooser'), page.locator('.btn', { hasText: 'PowerPoint 파일 열기' }).click()]);
+await pptxChooser.setFiles('src/services/import/__fixtures__/sample.pptx');
+await page.waitForSelector('.ir-list', { timeout: 15000 });
+await page.screenshot({ path: `${OUT}/07-import-report.png` });
+check('가져오기 결과 대화 상자 (표/차트 보존 알림)', (await page.locator('.ir-list li', { hasText: '표 1개' }).count()) === 1);
+await page.locator('.dialog .btn.primary').click();
+s = await state();
+check('PPTX 가져오기: 슬라이드 5장, 구역 2개', s.doc.slides.length === 5 && s.doc.sections.length === 2);
+check('가져온 문서에 원본 정보 기록', !!s.doc.source?.packageId);
+await page.locator('.slide-panel .thumb').nth(3).click();
+await page.waitForTimeout(200);
+await page.screenshot({ path: `${OUT}/08-imported-slide4.png` });
+// 보존된 표 이동
+slide = await activeSlide();
+const keptTable = slide.objects.find((o) => o.type === 'unsupported' && o.kind === 'table');
+p = await toScreen(keptTable.x + 20, keptTable.y + 10);
+await page.mouse.move(p.x, p.y);
+await page.mouse.down();
+await page.mouse.move(p.x + 60, p.y + 200, { steps: 6 });
+await page.mouse.up();
+slide = await activeSlide();
+const movedTable = slide.objects.find((o) => o.id === keptTable.id);
+check('보존된 표 이동 가능', movedTable.y > keptTable.y + 50);
+// 도형 텍스트 편집 (가져온 도형)
+await page.locator('.slide-panel .thumb').nth(2).click();
+slide = await activeSlide();
+const rb = slide.objects.find((o) => o.name === 'RoundBox');
+p = await toScreen(rb.x + rb.width / 2, rb.y + rb.height / 2);
+await page.mouse.dblclick(p.x, p.y);
+await page.keyboard.press('End');
+await page.keyboard.type(' 수정됨');
+await page.keyboard.press('Escape');
+slide = await activeSlide();
+check('가져온 도형의 텍스트 편집', slide.objects.find((o) => o.id === rb.id).text.paragraphs[0].runs.map((r) => r.text).join('').endsWith('수정됨'));
+await page.screenshot({ path: `${OUT}/09-imported-slide3.png` });
+// 다시 PPTX로 저장
+await page.waitForFunction(() => window.__SLIDELAB__.getState().saveStatus === 'saved', null, { timeout: 5000 });
+await page.locator('.tab-file').click();
+await page.locator('.bs-nav-item', { hasText: '내보내기' }).click();
+const [dl2] = await Promise.all([page.waitForEvent('download'), page.locator('.bs-export-item', { hasText: 'PowerPoint' }).click()]);
+await dl2.saveAs(`${OUT}/e2e-roundtrip.pptx`);
+const { default: JSZip } = await import('jszip');
+const rz = await JSZip.loadAsync((await import('node:fs')).readFileSync(`${OUT}/e2e-roundtrip.pptx`));
+const rs4 = await rz.file('ppt/slides/slide4.xml').async('string');
+check('브라우저 왕복 저장: 표·차트 원본 복원', rs4.includes('<a:tbl>') && /<c:chart [^>]*r:id=/.test(rs4) && !rs4.includes('__SLIDELAB_KEEP__'));
+check('브라우저 왕복 저장: 전환·애니메이션 유지', rs4.includes('<p:transition') && rs4.includes('<p:timing'));
+const rs3 = await rz.file('ppt/slides/slide3.xml').async('string');
+check('브라우저 왕복 저장: 편집한 텍스트 반영', rs3.includes('수정됨'));
+await page.locator('.bs-back').click();
+
 // ── 슬라이드 쇼 ──
 await page.keyboard.press('F5');
 await page.waitForSelector('.slideshow');

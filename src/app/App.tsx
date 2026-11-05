@@ -13,6 +13,8 @@ import { Toasts } from '../components/common/Toasts';
 import { PwaPrompt } from '../components/common/PwaPrompt';
 import { useShortcuts } from '../hooks/useShortcuts';
 import { bootstrap } from './bootstrap';
+import { ImportReportDialog } from '../components/dialogs/ImportReportDialog';
+import { isOpenableFile, openPresentationFile, registerLaunchQueue } from '../services/import/importFile';
 
 export function App() {
   const [ready, setReady] = useState(false);
@@ -24,7 +26,10 @@ export function App() {
   useShortcuts();
 
   useEffect(() => {
-    void bootstrap().finally(() => setReady(true));
+    void bootstrap().finally(() => {
+      setReady(true);
+      registerLaunchQueue();
+    });
   }, []);
 
   useEffect(() => {
@@ -50,7 +55,21 @@ export function App() {
   }
 
   return (
-    <div className="app">
+    <div
+      className="app"
+      onDragOver={(e) => {
+        // .pptx/.slidelab 파일은 창 어디에 놓아도 열기 (이미지는 캔버스가 처리)
+        if (e.dataTransfer.types.includes('Files')) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        const f = Array.from(e.dataTransfer.files).find(isOpenableFile);
+        if (f) {
+          e.preventDefault();
+          e.stopPropagation();
+          void openPresentationFile(f);
+        }
+      }}
+    >
       <Ribbon onCustomSize={() => setSizeDialog(true)} />
       <div className="workspace">
         {viewMode === 'normal' ? (
@@ -76,6 +95,7 @@ export function App() {
       <Backstage />
       <SlideShow />
       {sizeDialog && <SlideSizeDialog onClose={() => setSizeDialog(false)} />}
+      <ImportReportDialog />
       <Toasts />
       <PwaPrompt />
     </div>

@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
-export function Dialog({ title, children, onClose, onOk, okLabel = '확인' }: { title: string; children: ReactNode; onClose: () => void; onOk?: () => void; okLabel?: string }) {
+export function Dialog({ title, children, onClose, onOk, okLabel = '확인', hideCancel }: { title: string; children: ReactNode; onClose: () => void; onOk?: () => void; okLabel?: string; hideCancel?: boolean }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -26,9 +26,11 @@ export function Dialog({ title, children, onClose, onOk, okLabel = '확인' }: {
               {okLabel}
             </button>
           )}
-          <button type="button" className="btn" onClick={onClose}>
-            취소
-          </button>
+          {!hideCancel && (
+            <button type="button" className="btn" onClick={onClose}>
+              취소
+            </button>
+          )}
         </div>
       </div>
     </div>,

@@ -6,7 +6,10 @@
  * (향후 7단계에서 원본 XML 보존이 가능한 자체 OOXML 작성기로 확장 예정)
  */
 import PptxGenJS from 'pptxgenjs';
-import type { Fill, GroupObject, Paragraph, Presentation, ShapeKind, SlideObject, Stroke, TextBody } from '../../types/model';
+import type { Fill, GroupObject, Paragraph, Presentation, ShapeKind, ShapeObject, SlideObject, Stroke, TextBody } from '../../types/model';
+import { KEEP_PREFIX, postProcessPptx, type SlidePlan } from './preserve';
+import { OoxmlPackage } from '../import/ooxml';
+import { getPackage } from '../storage/db';
 import { pxToInch, pxToPt } from '../../utils/units';
 import { toPptxHex } from '../../utils/color';
 import { rotatePoint } from '../../utils/geometry';
@@ -36,6 +39,7 @@ const SHAPE_MAP: Record<ShapeKind, string> = {
   heart: 'heart',
   cloud: 'cloud',
   plus: 'plus',
+  custom: 'custGeom',
 };
 
 const DASH_MAP: Record<Stroke['dash'], 'solid' | 'dash' | 'sysDot' | 'dashDot'> = {
@@ -105,7 +109,14 @@ function paragraphsToRuns(body: TextBody): TextRunProps[] {
       align: p.align ?? 'left',
       lineSpacingMultiple: p.lineSpacing && p.lineSpacing !== 1 ? p.lineSpacing : undefined,
       indentLevel: p.level ? p.level : undefined,
-      bullet: p.bullet === 'bullet' ? true : p.bullet === 'number' ? { type: 'number' } : undefined,
+      bullet:
+        p.bullet === 'bullet'
+          ? p.bulletChar
+            ? { characterCode: p.bulletChar.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0') }
+            : true
+          : p.bullet === 'number'
+            ? { type: 'number' }
+            : undefined,
       paraSpaceBefore: p.spaceBefore || undefined,
       paraSpaceAfter: p.spaceAfter || undefined,
     };
@@ -152,7 +163,7 @@ function fillOpts(fill: Fill, objOpacity: number, warn: (m: string) => void): Pp
       return { color: toPptxHex(fill.color), transparency: alpha < 1 ? Math.round((1 - alpha) * 100) : undefined };
     }
     case 'gradient':
-      warn('도형의 그라데이션 채우기는 단색(첫 번째 색)으로 변환되었습니다.');
+      // 후처리(preserve.ts)에서 a:gradFill로 교체된다
       return { color: toPptxHex(fill.stops[0]?.color ?? '#FFFFFF') };
     case 'image':
       warn('도형의 그림 채우기는 아직 PPTX로 내보내지 않습니다.');
@@ -171,10 +182,19 @@ function lineOpts(stroke: Stroke | null, objOpacity: number): PptxGenJS.ShapeLin
   };
 }
 
-/** 그룹을 절대 좌표 객체 목록으로 평탄화 (pptxgenjs는 그룹을 지원하지 않음) */
-function flatten(objs: SlideObject[], warn: (m: string) => void): SlideObject[] {
-  const out: SlideObject[] = [];
-  const walk = (o: SlideObject, parent: GroupObject | null) => {
+export interface GroupTag {
+  key: string;
+  name: string;
+  sourceId?: number;
+}
+
+/**
+ * 그룹을 절대 좌표 개체 목록으로 평탄화 (pptxgenjs는 그룹을 쓰지 못함).
+ * 각 개체에 소속 그룹 경로를 남겨, 후처리에서 p:grpSp로 다시 묶는다.
+ */
+function flatten(objs: SlideObject[]): { obj: SlideObject; groups: GroupTag[] }[] {
+  const out: { obj: SlideObject; groups: GroupTag[] }[] = [];
+  const walk = (o: SlideObject, parent: GroupObject | null, groups: GroupTag[]) => {
     let abs = o;
     if (parent) {
       const gc = { x: parent.x + parent.width / 2, y: parent.y + parent.height / 2 };
@@ -183,15 +203,15 @@ function flatten(objs: SlideObject[], warn: (m: string) => void): SlideObject[] 
       abs = { ...o, x: rc.x - o.width / 2, y: rc.y - o.height / 2, rotation: (o.rotation + parent.rotation) % 360, opacity: (o.opacity ?? 1) * (parent.opacity ?? 1) } as SlideObject;
     }
     if (abs.type === 'group') {
-      warn('그룹은 개별 개체로 풀어서 내보냈습니다(위치/모양은 유지).');
-      abs.children.forEach((c) => walk(c, abs as GroupObject));
-    } else out.push(abs);
+      const tag: GroupTag = { key: o.id, name: o.name, sourceId: o.sourceId };
+      abs.children.forEach((c) => walk(c, abs as GroupObject, [...groups, tag]));
+    } else out.push({ obj: abs, groups });
   };
-  objs.forEach((o) => walk(o, null));
+  objs.forEach((o) => walk(o, null, []));
   return out;
 }
 
-export async function buildPptx(doc: Presentation, opts: BuildOptions = {}): Promise<{ pptx: PptxGenJS; warnings: string[] }> {
+export async function buildPptx(doc: Presentation, opts: BuildOptions = {}): Promise<{ pptx: PptxGenJS; warnings: string[]; plans: SlidePlan[] }> {
   const warnings = new Set<string>();
   const warn = (m: string) => warnings.add(m);
   const pptx = new PptxGenJS();
@@ -205,7 +225,8 @@ export async function buildPptx(doc: Presentation, opts: BuildOptions = {}): Pro
   const sectionOf = new Map(doc.sections.map((s) => [s.startSlideId, s.name]));
   let currentSection: string | undefined;
 
-  for (const s of doc.slides) {
+  const plans: SlidePlan[] = [];
+  for (const [slideIndex, s] of doc.slides.entries()) {
     const secName = sectionOf.get(s.id);
     if (secName) {
       pptx.addSection({ title: secName });
@@ -231,7 +252,13 @@ export async function buildPptx(doc: Presentation, opts: BuildOptions = {}): Pro
       }
     }
 
-    for (const o of flatten(s.objects, warn)) {
+    const plan: SlidePlan = { index: slideIndex, emitted: [], fills: [], groupPaths: [], markers: new Map(), transitionXml: s.source?.transitionXml, timingXml: s.source?.timingXml };
+    plans.push(plan);
+    const layout = doc.layouts?.[s.layout];
+    const layoutObjs = layout && s.showMasterShapes !== false ? layout.objects.map((o) => ({ ...o, sourceId: undefined }) as SlideObject) : [];
+    if (layoutObjs.length) warn('마스터/레이아웃 디자인 요소는 각 슬라이드에 포함되어 저장됩니다 (슬라이드 마스터 편집은 9단계).');
+
+    for (const { obj: o, groups } of flatten([...layoutObjs, ...s.objects])) {
       if (o.hidden) continue;
       const pos = {
         x: pxToInch(o.x),
@@ -244,20 +271,30 @@ export async function buildPptx(doc: Presentation, opts: BuildOptions = {}): Pro
         objectName: o.name,
       };
       const opacity = o.opacity ?? 1;
+      const emit = () => {
+        plan.emitted.push(o.sourceId);
+        plan.groupPaths.push(groups);
+        plan.fills.push((o.type === 'shape' || o.type === 'text') && o.fill.type === 'gradient' ? o.fill : undefined);
+      };
       switch (o.type) {
         case 'text':
         case 'shape': {
           if (o.type === 'text' && o.placeholder && o.fill.type === 'none' && !o.stroke && o.text.paragraphs.every((p) => p.runs.every((r) => !r.text))) break;
           const fill = fillOpts(o.fill, opacity, warn);
-          const shapeName = o.type === 'shape' ? SHAPE_MAP[o.shape] : 'rect';
+          let shapeName = o.type === 'shape' ? SHAPE_MAP[o.shape] : 'rect';
+          // 가져온 도형의 원래 프리셋(근사 표시된 경우)을 그대로 기록
+          if (o.type === 'shape' && o.sourcePreset) shapeName = o.sourcePreset;
+          const points = o.type === 'shape' && o.shape === 'custom' ? geometryToPoints(o, warn) : undefined;
           slide.addText(paragraphsToRuns(o.text), {
             ...pos,
             ...textBodyOpts(o.text),
             shape: shapeName as PptxGenJS.ShapeType,
             fill,
             line: lineOpts(o.stroke, opacity),
-            rectRadius: o.type === 'shape' && o.shape === 'roundRect' ? Math.min(pos.w, pos.h) * 0.1667 : undefined,
-          });
+            rectRadius: o.type === 'shape' && o.shape === 'roundRect' && !o.sourcePreset ? Math.min(pos.w, pos.h) * 0.1667 : undefined,
+            ...(points ? { points } : {}),
+          } as PptxGenJS.TextPropsOptions);
+          emit();
           break;
         }
         case 'line':
@@ -269,6 +306,7 @@ export async function buildPptx(doc: Presentation, opts: BuildOptions = {}): Pro
               endArrowType: o.headEnd === 'none' ? undefined : o.headEnd,
             },
           });
+          emit();
           break;
         case 'image': {
           const a = doc.assets[o.assetId];
@@ -290,18 +328,62 @@ export async function buildPptx(doc: Presentation, opts: BuildOptions = {}): Pro
             transparency: opacity < 1 ? Math.round((1 - opacity) * 100) : undefined,
             altText: o.name,
           });
+          emit();
+          break;
+        }
+        case 'unsupported': {
+          // 자리 표시 도형: 후처리에서 원본 XML로 교체된다 (위치/크기/회전은 이 도형에서 읽음)
+          const marker = `${KEEP_PREFIX}${o.id}`;
+          plan.markers.set(marker, o);
+          slide.addShape('rect' as PptxGenJS.ShapeType, { ...pos, flipH: undefined, flipV: undefined, objectName: marker });
+          emit();
           break;
         }
       }
     }
     if (s.notes) slide.addNotes(s.notes);
   }
-  return { pptx, warnings: [...warnings] };
+  return { pptx, warnings: [...warnings], plans };
 }
 
-/** 브라우저: PPTX Blob 생성 */
+function geometryToPoints(o: ShapeObject, warn: (m: string) => void) {
+  const w = pxToInch(o.width), h = pxToInch(o.height);
+  const pts: NonNullable<PptxGenJS.ShapeProps['points']> = [];
+  const paths = o.geometry?.paths ?? [];
+  if (paths.length > 1) warn('여러 경로로 된 자유형 도형은 하나의 경로로 저장됩니다.');
+  for (const p of paths)
+    for (const c of p.cmds) {
+      if (c.c === 'M') pts.push({ x: c.x * w, y: c.y * h, moveTo: true });
+      else if (c.c === 'L') pts.push({ x: c.x * w, y: c.y * h });
+      else if (c.c === 'C') pts.push({ x: c.x * w, y: c.y * h, curve: { type: 'cubic', x1: c.x1 * w, y1: c.y1 * h, x2: c.x2 * w, y2: c.y2 * h } });
+      else pts.push({ close: true });
+    }
+  return pts.length ? pts : undefined;
+}
+
+/**
+ * PPTX 바이트 생성 + 원본 보존 후처리.
+ * sourcePackage: 가져온 원본 PPTX (보존된 표·차트 등을 복원하는 데 필요)
+ */
+export async function exportPptxBytes(
+  doc: Presentation,
+  opts: BuildOptions & { sourcePackage?: ArrayBuffer | Uint8Array | Blob | null } = {},
+): Promise<{ bytes: Uint8Array; warnings: string[] }> {
+  const { pptx, warnings, plans } = await buildPptx(doc, opts);
+  const raw = (await pptx.write({ outputType: 'uint8array', compression: true })) as Uint8Array;
+  const extra: string[] = [];
+  const source = opts.sourcePackage ? await OoxmlPackage.load(opts.sourcePackage) : null;
+  const bytes = await postProcessPptx(raw, plans, source, (m) => extra.push(m));
+  return { bytes, warnings: [...new Set([...warnings, ...extra])] };
+}
+
+/** 브라우저: PPTX Blob 생성 (원본 패키지는 IndexedDB에서 읽음) */
 export async function exportPptxBlob(doc: Presentation): Promise<{ blob: Blob; warnings: string[] }> {
-  const { pptx, warnings } = await buildPptx(doc, { rasterizeGradient: browserGradientRasterizer, cropImage: browserImageCropper });
-  const blob = (await pptx.write({ outputType: 'blob', compression: true })) as Blob;
+  let sourcePackage: Blob | null = null;
+  if (doc.source) {
+    sourcePackage = (await getPackage(doc.source.packageId)) ?? null;
+  }
+  const { bytes, warnings } = await exportPptxBytes(doc, { rasterizeGradient: browserGradientRasterizer, cropImage: browserImageCropper, sourcePackage });
+  const blob = new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
   return { blob, warnings };
 }

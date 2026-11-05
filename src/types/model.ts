@@ -57,6 +57,8 @@ export interface Paragraph {
   align?: HAlign;
   lineSpacing?: number; // 배수 (1.0 = 한 줄)
   bullet?: BulletType;
+  /** 글머리 기호 문자 (기본 '•') */
+  bulletChar?: string;
   level?: number; // 들여쓰기 수준 0..8
   spaceBefore?: number; // pt
   spaceAfter?: number; // pt
@@ -93,7 +95,19 @@ export type ShapeKind =
   | 'trapezoid'
   | 'heart'
   | 'cloud'
-  | 'plus';
+  | 'plus'
+  /** PPTX 사용자 지정 도형(custGeom) 또는 미지원 프리셋의 경로 */
+  | 'custom';
+
+/** 사용자 지정 도형 경로: 좌표는 0..1로 정규화 (도형 크기에 맞춰 늘어남) */
+export type PathCommand =
+  | { c: 'M' | 'L'; x: number; y: number }
+  | { c: 'C'; x1: number; y1: number; x2: number; y2: number; x: number; y: number }
+  | { c: 'Z' };
+
+export interface CustomGeometry {
+  paths: { cmds: PathCommand[]; fill: boolean; stroke: boolean }[];
+}
 
 interface BaseObject {
   id: ID;
@@ -108,8 +122,8 @@ interface BaseObject {
   opacity?: number; // 0..1, 기본 1
   locked?: boolean;
   hidden?: boolean;
-  /** PPTX에서 가져왔으나 SlideLab이 해석하지 못한 원본 XML (재저장 시 보존용, 향후 단계) */
-  sourceXml?: string;
+  /** PPTX에서 가져온 개체의 원본 cNvPr id (애니메이션 대상 참조 유지용) */
+  sourceId?: number;
 }
 
 export interface TextObject extends BaseObject {
@@ -124,6 +138,10 @@ export interface TextObject extends BaseObject {
 export interface ShapeObject extends BaseObject {
   type: 'shape';
   shape: ShapeKind;
+  /** shape === 'custom' 일 때의 경로 */
+  geometry?: CustomGeometry;
+  /** 원본 프리셋 이름 (PPTX prstGeom, 근사 렌더링된 경우) */
+  sourcePreset?: string;
   fill: Fill;
   stroke: Stroke | null;
   text: TextBody;
@@ -160,7 +178,31 @@ export interface GroupObject extends BaseObject {
   children: SlideObject[];
 }
 
-export type SlideObject = TextObject | ShapeObject | LineObject | ImageObject | GroupObject;
+export type UnsupportedKind = 'table' | 'chart' | 'smartart' | 'media' | 'ole' | 'image' | 'other';
+
+/** 표 미리보기 (읽기 전용 렌더링용) */
+export interface TablePreview {
+  cols: number[]; // 열 너비 px
+  rows: { height: number; cells: string[] }[];
+}
+
+/**
+ * SlideLab이 아직 편집하지 못하는 PPTX 요소 (표, 차트, SmartArt, 미디어 등).
+ * 원본 XML을 그대로 보관해 PPTX로 다시 저장할 때 관련 파트(차트, 내장 파일 등)와 함께 복원한다.
+ * 이동/크기 조절/삭제는 가능하며, 변경된 위치·크기는 저장 시 XML에 반영된다.
+ */
+export interface UnsupportedObject extends BaseObject {
+  type: 'unsupported';
+  kind: UnsupportedKind;
+  label: string;
+  /** 원본 요소 XML (네임스페이스 선언 포함) */
+  sourceXml: string;
+  /** 원본 패키지에서 이 요소가 속한 파트 경로 (관계 r:id 해석용) */
+  sourcePart: string;
+  preview?: TablePreview;
+}
+
+export type SlideObject = TextObject | ShapeObject | LineObject | ImageObject | GroupObject | UnsupportedObject;
 export type ObjectType = SlideObject['type'];
 
 export interface SlideBackground {
@@ -173,7 +215,24 @@ export interface Slide {
   background: SlideBackground | null; // null = 테마 배경 사용
   notes: string;
   hidden?: boolean;
-  layout: string; // 레이아웃 이름 (향후 마스터 연동)
+  layout: string; // 레이아웃 ID (doc.layouts의 키 또는 기본 레이아웃 이름)
+  /** 마스터/레이아웃의 디자인 개체 표시 여부 (PPTX showMasterSp) */
+  showMasterShapes?: boolean;
+  /** PPTX에서 가져온 슬라이드의 원본 XML 조각 (전환·애니메이션 보존) */
+  source?: {
+    part: string;
+    transitionXml?: string;
+    timingXml?: string;
+  };
+}
+
+/** 가져온 PPTX의 레이아웃(마스터 + 레이아웃 디자인 요소). 9단계 슬라이드 마스터의 기반 */
+export interface LayoutDef {
+  id: string;
+  name: string;
+  /** 슬라이드 뒤에 그려지는 디자인 개체 (개체 틀 제외) */
+  objects: SlideObject[];
+  background?: Fill;
 }
 
 export interface Section {
@@ -226,6 +285,13 @@ export interface Presentation {
   sections: Section[];
   assets: Record<ID, Asset>;
   theme: Theme;
+  layouts?: Record<string, LayoutDef>;
+  /** PPTX에서 가져온 경우 원본 패키지 정보 (패키지 바이트는 IndexedDB packages 저장소에 보관) */
+  source?: {
+    packageId: string;
+    fileName: string;
+    importedAt: number;
+  };
   createdAt: number;
   updatedAt: number;
   version: 1;

@@ -80,6 +80,7 @@ export function paragraphsToHtml(paragraphs: Paragraph[]): string {
         'class="sl-p"',
         `data-bullet="${p.bullet ?? 'none'}"`,
         `data-level="${p.level ?? 0}"`,
+        p.bullet === 'bullet' && p.bulletChar ? `data-char="${escapeHtml(p.bulletChar).replace(/"/g, '&quot;')}"` : '',
         nums[i] ? `data-num="${nums[i]}"` : '',
         `style="${styleAttr(paragraphCss(p))}"`,
       ]
@@ -179,6 +180,7 @@ function paragraphFromNodes(nodes: Node[], el: HTMLElement, fallback: TextRunSty
     align: (['left', 'center', 'right', 'justify'].includes(align) ? align : align === 'start' ? 'left' : align === 'end' ? 'right' : 'left') as HAlign,
     lineSpacing: Number.isFinite(lh) && lh > 0 ? round(lh / LINE_HEIGHT_FACTOR, 2) : 1,
     bullet: (el.dataset?.bullet as BulletType) ?? 'none',
+    ...(el.dataset?.char && el.dataset?.bullet === 'bullet' ? { bulletChar: el.dataset.char } : {}),
     level: Number(el.dataset?.level ?? 0) || 0,
   };
   const mt = parseFloat(el.style?.marginTop ?? '');

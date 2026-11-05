@@ -1,6 +1,6 @@
 import { memo, type CSSProperties, type ReactNode } from 'react';
-import type { Asset, Fill, ImageObject, LineObject, Paragraph, ShapeObject, SlideObject, Stroke, TextBody, TextObject } from '../../types/model';
-import { shapePath, shapeTextInset } from './shapeGeometry';
+import type { Asset, Fill, ImageObject, LineObject, Paragraph, ShapeObject, SlideObject, Stroke, TextBody, TextObject, UnsupportedObject } from '../../types/model';
+import { customPath, shapePath, shapeTextInset } from './shapeGeometry';
 import { hexToRgba } from '../../utils/color';
 import { ptToPx } from '../../utils/units';
 import { computeNumbers, cssObjectToReact, paragraphCss, runCss } from '../../editors/text/richText';
@@ -90,7 +90,7 @@ export function TextBodyView({ body, style }: { body: TextBody; style?: CSSPrope
 function ParagraphView({ p, num }: { p: Paragraph; num: string | null }) {
   const runs = p.runs.filter((r) => r.text.length);
   return (
-    <div className="sl-p" data-bullet={p.bullet ?? 'none'} data-level={p.level ?? 0} data-num={num ?? undefined} style={cssObjectToReact(paragraphCss(p))}>
+    <div className="sl-p" data-bullet={p.bullet ?? 'none'} data-level={p.level ?? 0} data-num={num ?? undefined} data-char={p.bullet === 'bullet' ? p.bulletChar : undefined} style={cssObjectToReact(paragraphCss(p))}>
       {runs.length ? (
         runs.map((r, i) => (
           <span key={i} style={cssObjectToReact(runCss(r))}>
@@ -176,6 +176,9 @@ export const ObjectView = memo(function ObjectView({ obj, assets, editingTextId,
     case 'group':
       content = obj.children.map((c) => <ObjectView key={c.id} obj={c} assets={assets} />);
       break;
+    case 'unsupported':
+      content = <UnsupportedContent obj={obj} />;
+      break;
   }
   return (
     <div className={`sl-obj sl-obj-${obj.type}`} style={style} data-obj-id={interactive ? obj.id : undefined}>
@@ -191,7 +194,9 @@ function flipTransform(o: SlideObject) {
 
 function ShapeContent({ obj, assets, editor }: { obj: ShapeObject; assets: Assets; editor: ReactNode }) {
   const gid = `g-${obj.id}`;
-  const d = shapePath(obj.shape, obj.width, obj.height);
+  const custom = obj.shape === 'custom';
+  const d = shapePath(obj.shape, obj.width, obj.height, obj.geometry);
+  const strokeD = custom ? customPath(obj.geometry, obj.width, obj.height, 'stroke') : d;
   const sw = obj.stroke ? ptToPx(obj.stroke.width) : 0;
   const inset = shapeTextInset(obj.shape);
   return (
@@ -206,9 +211,10 @@ function ShapeContent({ obj, assets, editor }: { obj: ShapeObject; assets: Asset
         <defs>
           <SvgFill id={gid} fill={obj.fill} assets={assets} />
         </defs>
+        {custom && <path d={d} {...svgFillAttrs(obj.fill, gid)} stroke="none" />}
         <path
-          d={d}
-          {...svgFillAttrs(obj.fill, gid)}
+          d={custom ? strokeD : d}
+          {...(custom ? { fill: 'none' } : svgFillAttrs(obj.fill, gid))}
           stroke={obj.stroke ? obj.stroke.color : 'none'}
           strokeOpacity={obj.stroke?.opacity ?? 1}
           strokeWidth={sw}
@@ -331,6 +337,51 @@ function ImageContent({ obj, assets }: { obj: ImageObject; assets: Assets }) {
         <div className="sl-missing-image">이미지를 찾을 수 없음</div>
       )}
       {obj.stroke && <div style={{ position: 'absolute', inset: 0, border: `${sw}px solid ${obj.stroke.color}` }} />}
+    </div>
+  );
+}
+
+const UNSUPPORTED_ICONS: Record<UnsupportedObject['kind'], string> = {
+  table: '표',
+  chart: '차트',
+  smartart: 'SmartArt',
+  media: '미디어',
+  ole: 'OLE 개체',
+  image: '그림',
+  other: '개체',
+};
+
+/** 아직 편집할 수 없는 PPTX 요소: 원본은 보존되며 위치/크기만 편집 가능 */
+function UnsupportedContent({ obj }: { obj: UnsupportedObject }) {
+  if (obj.preview && obj.kind === 'table') {
+    const totalW = obj.preview.cols.reduce((a, b) => a + b, 0) || 1;
+    const totalH = obj.preview.rows.reduce((a, b) => a + b.height, 0) || 1;
+    return (
+      <div className="sl-unsupported sl-table-preview" title={`${obj.label} — 원본 보존됨 (표 편집은 8단계)`}>
+        <table style={{ width: '100%', height: '100%' }}>
+          <colgroup>
+            {obj.preview.cols.map((c, i) => (
+              <col key={i} style={{ width: `${(c / totalW) * 100}%` }} />
+            ))}
+          </colgroup>
+          <tbody>
+            {obj.preview.rows.map((r, ri) => (
+              <tr key={ri} style={{ height: `${(r.height / totalH) * 100}%` }}>
+                {r.cells.map((c, ci) => (
+                  <td key={ci}>{c}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+  return (
+    <div className="sl-unsupported" title="원본 XML이 보존되어 PPTX로 저장할 때 그대로 복원됩니다">
+      <span className="sl-unsupported-kind">{UNSUPPORTED_ICONS[obj.kind]}</span>
+      <span className="sl-unsupported-label">{obj.label}</span>
+      <span className="sl-unsupported-note">원본 보존 · 편집은 다음 단계에서 지원</span>
     </div>
   );
 }

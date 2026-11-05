@@ -28,10 +28,12 @@ interface SlideLabDB extends DBSchema {
   meta: { key: string; value: ProjectMeta; indexes: { byUpdated: number } };
   versions: { key: string; value: VersionEntry; indexes: { byProject: string } };
   settings: { key: string; value: unknown };
+  /** 가져온 원본 PPTX 패키지 (보존 개체 복원용) */
+  packages: { key: string; value: Blob };
 }
 
 const DB_NAME = 'slidelab';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const MAX_VERSIONS = 20;
 
 let dbPromise: Promise<IDBPDatabase<SlideLabDB>> | null = null;
@@ -39,13 +41,16 @@ let dbPromise: Promise<IDBPDatabase<SlideLabDB>> | null = null;
 export function getDB() {
   if (!dbPromise) {
     dbPromise = openDB<SlideLabDB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        db.createObjectStore('projects', { keyPath: 'id' });
-        const meta = db.createObjectStore('meta', { keyPath: 'id' });
-        meta.createIndex('byUpdated', 'updatedAt');
-        const versions = db.createObjectStore('versions', { keyPath: 'key' });
-        versions.createIndex('byProject', 'projectId');
-        db.createObjectStore('settings');
+      upgrade(db, oldVersion) {
+        if (oldVersion < 1) {
+          db.createObjectStore('projects', { keyPath: 'id' });
+          const meta = db.createObjectStore('meta', { keyPath: 'id' });
+          meta.createIndex('byUpdated', 'updatedAt');
+          const versions = db.createObjectStore('versions', { keyPath: 'key' });
+          versions.createIndex('byProject', 'projectId');
+          db.createObjectStore('settings');
+        }
+        if (oldVersion < 2) db.createObjectStore('packages');
       },
     });
   }
@@ -73,6 +78,8 @@ export async function listProjects(): Promise<ProjectMeta[]> {
 
 export async function deleteProject(id: string) {
   const db = await getDB();
+  const doc = await db.get('projects', id);
+  if (doc?.source) await db.delete('packages', doc.source.packageId);
   const tx = db.transaction(['projects', 'meta', 'versions'], 'readwrite');
   await tx.objectStore('projects').delete(id);
   await tx.objectStore('meta').delete(id);
@@ -105,4 +112,12 @@ export async function listVersions(projectId: string): Promise<Omit<VersionEntry
 
 export async function loadVersion(key: string) {
   return (await getDB()).get('versions', key);
+}
+
+export async function savePackage(id: string, data: Blob) {
+  await (await getDB()).put('packages', data, id);
+}
+
+export async function getPackage(id: string): Promise<Blob | undefined> {
+  return (await getDB()).get('packages', id);
 }

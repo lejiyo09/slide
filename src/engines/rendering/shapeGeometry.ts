@@ -1,7 +1,30 @@
-import type { ShapeKind } from '../../types/model';
+import type { CustomGeometry, ShapeKind } from '../../types/model';
 
 /** 도형 종류별 SVG path (w x h 좌표계). PowerPoint 프리셋 도형의 기본 조정값 기준으로 근사 */
-export function shapePath(kind: ShapeKind, w: number, h: number): string {
+/** 사용자 지정 도형 경로 → SVG path (정규화 좌표 × 크기) */
+export function customPath(g: CustomGeometry | undefined, w: number, h: number, which: 'fill' | 'stroke' = 'fill'): string {
+  if (!g) return `M0,0 H${w} V${h} H0 Z`;
+  return g.paths
+    .filter((p) => (which === 'fill' ? p.fill : p.stroke))
+    .map((p) =>
+      p.cmds
+        .map((c) => {
+          switch (c.c) {
+            case 'M':
+            case 'L':
+              return `${c.c}${r(c.x * w)},${r(c.y * h)}`;
+            case 'C':
+              return `C${r(c.x1 * w)},${r(c.y1 * h)} ${r(c.x2 * w)},${r(c.y2 * h)} ${r(c.x * w)},${r(c.y * h)}`;
+            case 'Z':
+              return 'Z';
+          }
+        })
+        .join(' '),
+    )
+    .join(' ');
+}
+
+export function shapePath(kind: ShapeKind, w: number, h: number, geometry?: CustomGeometry): string {
   const p = (pts: [number, number][]) => 'M' + pts.map(([x, y]) => `${r(x)},${r(y)}`).join(' L') + ' Z';
   const m = Math.min(w, h);
   switch (kind) {
@@ -72,6 +95,8 @@ export function shapePath(kind: ShapeKind, w: number, h: number): string {
     }
     case 'heart':
       return `M${w / 2},${h * 0.25} C${w / 2},${h * 0.1} ${w * 0.4},0 ${w * 0.25},0 C${w * 0.05},0 0,${h * 0.18} 0,${h * 0.32} C0,${h * 0.55} ${w * 0.25},${h * 0.75} ${w / 2},${h} C${w * 0.75},${h * 0.75} ${w},${h * 0.55} ${w},${h * 0.32} C${w},${h * 0.18} ${w * 0.95},0 ${w * 0.75},0 C${w * 0.6},0 ${w / 2},${h * 0.1} ${w / 2},${h * 0.25} Z`;
+    case 'custom':
+      return customPath(geometry, w, h);
     case 'cloud': {
       const s = (x: number, y: number) => `${r(x * w)},${r(y * h)}`;
       return `M${s(0.25, 0.85)} C${s(0.05, 0.85)} ${s(0, 0.6)} ${s(0.12, 0.5)} C${s(0.05, 0.3)} ${s(0.25, 0.15)} ${s(0.38, 0.25)} C${s(0.45, 0.05)} ${s(0.7, 0.05)} ${s(0.72, 0.25)} C${s(0.9, 0.18)} ${s(1.02, 0.4)} ${s(0.92, 0.55)} C${s(1.02, 0.75)} ${s(0.85, 0.92)} ${s(0.72, 0.85)} C${s(0.6, 1)} ${s(0.38, 1)} ${s(0.25, 0.85)} Z`;

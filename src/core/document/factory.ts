@@ -104,6 +104,7 @@ export const SHAPE_NAMES: Record<ShapeKind, string> = {
   heart: '하트',
   cloud: '구름',
   plus: '더하기 기호',
+  custom: '자유형',
 };
 
 export function createShape(kind: ShapeKind, x: number, y: number, width = 200, height = 140, theme: Theme = DEFAULT_THEME): ShapeObject {

@@ -4,7 +4,7 @@ import { ObjectView, fillToCss } from './ObjectView';
 
 interface SlideViewProps {
   slide: Slide;
-  doc: Pick<Presentation, 'size' | 'theme' | 'assets'>;
+  doc: Pick<Presentation, 'size' | 'theme' | 'assets' | 'layouts'>;
   editingTextId?: string | null;
   renderEditor?: (obj: TextObject | ShapeObject) => ReactNode;
   interactive?: boolean;
@@ -12,10 +12,19 @@ interface SlideViewProps {
 
 /** 슬라이드 원본 크기(px)로 렌더링. 확대/축소는 바깥에서 transform으로 처리 */
 export const SlideView = memo(function SlideView({ slide, doc, editingTextId, renderEditor, interactive }: SlideViewProps) {
-  const bg = slide.background?.fill ?? doc.theme.background;
+  const layout = doc.layouts?.[slide.layout];
+  const bg = slide.background?.fill ?? layout?.background ?? doc.theme.background;
+  const showLayout = layout && slide.showMasterShapes !== false;
   return (
     <div className="sl-slide" style={{ position: 'absolute', left: 0, top: 0, width: doc.size.width, height: doc.size.height, overflow: 'hidden', background: '#fff' }}>
       <div style={{ position: 'absolute', inset: 0, ...fillToCss(bg, doc.assets) }} />
+      {showLayout && (
+        <div className="sl-layout-layer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+          {layout.objects.map((o) => (
+            <ObjectView key={o.id} obj={o} assets={doc.assets} />
+          ))}
+        </div>
+      )}
       {slide.objects.map((o) => (
         <ObjectView key={o.id} obj={o} assets={doc.assets} editingTextId={editingTextId} renderEditor={renderEditor} interactive={interactive} />
       ))}

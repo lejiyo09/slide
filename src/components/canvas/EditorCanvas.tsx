@@ -394,6 +394,8 @@ export function EditorCanvas() {
       useEditor.getState().setEditingText(o.id);
     } else if (o.type === 'image') {
       useEditor.getState().set({ cropId: o.id, selectedIds: [o.id] });
+    } else if (o.type === 'unsupported') {
+      useEditor.getState().toast(`${o.label}: 원본이 보존된 개체입니다. 이동·크기 조절·삭제는 가능하며, 내용 편집은 다음 단계에서 지원됩니다.`);
     } else if (o.type === 'group') {
       useEditor.getState().toast('그룹 안의 개체를 편집하려면 그룹을 해제하세요 (Ctrl+Shift+G).');
     }
@@ -414,6 +416,7 @@ export function EditorCanvas() {
     e.preventDefault();
     setDropActive(false);
     const files = Array.from(e.dataTransfer.files);
+    if (files.some((f) => /\.(pptx|slidelab)$/i.test(f.name))) return; // 앱 수준에서 파일 열기
     if (files.length) void A.insertImageFiles(files, toSlide(e.clientX, e.clientY));
   };
 
