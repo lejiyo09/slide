@@ -66,6 +66,10 @@ export function useShortcuts() {
             handled();
             void saveNow().then(() => useEditor.getState().toast('저장되었습니다.', 'success'));
             return;
+          case 'p':
+            // PowerPoint와 같이 Ctrl+P → 파일 › 인쇄
+            handled();
+            return s.set({ backstageOpen: true, backstagePage: 'print' });
           case 'c':
             if (e.shiftKey) {
               handled();

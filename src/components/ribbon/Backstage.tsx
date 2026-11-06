@@ -3,7 +3,7 @@ import { TEMPLATES, type DesignTemplate } from '../../themes/templates';
 import { applyDesignSnapshot, applyTemplate } from '../../core/commands/masterActions';
 import { useDesignLibrary } from '../../hooks/useDesignLibrary';
 import type { Presentation } from '../../types/model';
-import { ArrowLeft, FilePlus2, FolderOpen, Download, History, Info, Trash2, FileJson, Presentation as PptIcon, MonitorDown } from 'lucide-react';
+import { ArrowLeft, Printer, FilePlus2, FolderOpen, Download, History, Info, Trash2, FileJson, Presentation as PptIcon, MonitorDown } from 'lucide-react';
 import { useEditor } from '../../core/store/editorStore';
 import { createPresentation } from '../../core/document/factory';
 import { THEMES } from '../../themes/themes';
@@ -13,12 +13,20 @@ import { downloadBlob, exportNative, pickFiles, safeFileName } from '../../servi
 import { openPresentationFile } from '../../services/import/importFile';
 import { ScaledSlide } from '../../engines/rendering/SlideView';
 import { usePwaInstall } from '../../hooks/usePwaInstall';
+import { PdfImageExport, PrintPage } from './BackstageOutput';
 
-type Page = 'new' | 'open' | 'export' | 'history' | 'info';
+type Page = 'new' | 'open' | 'print' | 'export' | 'history' | 'info';
 
 export function Backstage() {
   const open = useEditor((s) => s.backstageOpen);
+  const requested = useEditor((s) => s.backstagePage);
   const [page, setPage] = useState<Page>('open');
+  useEffect(() => {
+    if (requested) {
+      setPage(requested as Page);
+      useEditor.getState().set({ backstagePage: null });
+    }
+  }, [requested]);
   if (!open) return null;
   const close = () => useEditor.getState().set({ backstageOpen: false });
   return (
@@ -29,6 +37,7 @@ export function Backstage() {
         </button>
         <BsNav icon={<FilePlus2 size={18} />} label="새로 만들기" active={page === 'new'} onClick={() => setPage('new')} />
         <BsNav icon={<FolderOpen size={18} />} label="열기" active={page === 'open'} onClick={() => setPage('open')} />
+        <BsNav icon={<Printer size={18} />} label="인쇄" active={page === 'print'} onClick={() => setPage('print')} />
         <BsNav icon={<Download size={18} />} label="내보내기" active={page === 'export'} onClick={() => setPage('export')} />
         <BsNav icon={<History size={18} />} label="버전 기록" active={page === 'history'} onClick={() => setPage('history')} />
         <BsNav icon={<Info size={18} />} label="정보" active={page === 'info'} onClick={() => setPage('info')} />
@@ -36,6 +45,7 @@ export function Backstage() {
       <main className="bs-main">
         {page === 'new' && <NewPage close={close} />}
         {page === 'open' && <OpenPage close={close} />}
+        {page === 'print' && <PrintPage />}
         {page === 'export' && <ExportPage />}
         {page === 'history' && <HistoryPage close={close} />}
         {page === 'info' && <InfoPage />}
@@ -261,14 +271,8 @@ function ExportPage() {
             <span className="muted">모든 편집 정보를 손실 없이 저장하는 백업 형식입니다.</span>
           </span>
         </button>
-        <div className="bs-export-item is-disabled" title="14단계에서 구현 예정">
-          <Download size={28} />
-          <span>
-            <strong>PDF / 이미지 — 준비 중</strong>
-            <span className="muted">PDF 및 슬라이드 이미지 내보내기는 다음 단계에서 제공됩니다.</span>
-          </span>
-        </div>
       </div>
+      <PdfImageExport />
       {warnings && (
         <div className={`bs-warnings ${warnings.length ? '' : 'ok'}`}>
           {warnings.length ? (

@@ -99,6 +99,8 @@ export interface EditorState {
   clipboard: Clipboard;
   slideshow: ShowRequest | null;
   backstageOpen: boolean;
+  /** 백스테이지를 열 때 보여 줄 페이지 (예: Ctrl+P → 'print') */
+  backstagePage: string | null;
   saveStatus: 'saved' | 'saving' | 'unsaved' | 'error';
   lastSavedAt: number | null;
   toasts: Toast[];
@@ -180,6 +182,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
   clipboard: null,
   slideshow: null,
   backstageOpen: false,
+  backstagePage: null,
   saveStatus: 'saved',
   lastSavedAt: null,
   toasts: [],

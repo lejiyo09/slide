@@ -3892,3 +3892,179 @@ button.bs-export-item:hover:not(:disabled) {
   align-items: center;
   gap: 4px;
 }
+
+/* ───────────── 내보내기: PDF·그림 ───────────── */
+.bs-export-forms {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 620px;
+  margin-top: 8px;
+}
+.bs-form {
+  align-items: flex-start;
+}
+.bs-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 4px;
+}
+.bs-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  padding: 6px 4px;
+}
+
+/* ───────────── 인쇄 ───────────── */
+.bs-print {
+  display: flex;
+  gap: 32px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.bs-print-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 280px;
+  max-width: 100%;
+}
+.bs-print-settings label:not(.fm-check) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+.bs-print-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 8px 22px;
+}
+.error-text {
+  color: #c42b1c;
+}
+.bs-print-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.pv-page {
+  position: relative;
+  background: #fff;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  color: #000;
+}
+.pv-empty {
+  padding: 24px;
+}
+.pv-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+.print-page {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+  color: #000;
+  box-sizing: border-box;
+}
+.pv-slide {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+}
+.pp-notes {
+  padding: 72px 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.pp-notes-text {
+  white-space: pre-wrap;
+  font: 14pt/1.5 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+}
+.pp-num {
+  position: absolute;
+  right: 48px;
+  bottom: 32px;
+  font: 10pt sans-serif;
+  color: #555;
+}
+.pp-outline {
+  padding: 72px;
+  font: 12pt/1.5 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+}
+.pp-outline h3 {
+  font-size: 14pt;
+  margin: 12px 0 4px;
+}
+.pp-outline ul {
+  margin: 0;
+  padding-left: 24px;
+}
+.pp-handout {
+  padding: 72px;
+}
+.pp-grid {
+  display: grid;
+  gap: 24px;
+  justify-content: center;
+  align-content: start;
+  height: 100%;
+}
+.pp-h1 .pp-grid,
+.pp-h2 .pp-grid {
+  align-content: space-evenly;
+}
+.pp-h3 .pp-cell {
+  display: grid;
+  grid-template-columns: 45% 1fr;
+  gap: 24px;
+}
+.pp-lines {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+}
+.pp-lines span {
+  border-bottom: 1px solid #888;
+  height: 1px;
+}
+#sl-print-root {
+  position: fixed;
+  left: -100000px;
+  top: 0;
+}
+@media print {
+  body > *:not(#sl-print-root) {
+    display: none !important;
+  }
+  html,
+  body {
+    background: #fff !important;
+    margin: 0;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  #sl-print-root {
+    position: static;
+  }
+  .print-page {
+    break-after: page;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-page:last-child {
+    break-after: auto;
+  }
+}

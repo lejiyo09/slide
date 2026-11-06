@@ -20,6 +20,7 @@
     "immer": "^11.2.9",
     "jszip": "^3.10.2",
     "lucide-react": "^1.68.0",
+    "modern-screenshot": "4.7.0",
     "nanoid": "^5.1.16",
     "pptxgenjs": "^4.0.1",
     "react": "^19.3.1",
