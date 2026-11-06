@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Dialog } from '../dialogs/Dialog';
 import { useEditor } from '../../core/store/editorStore';
 import { DEFAULT_AI_SETTINGS, getProvider, loadAIKeys, loadAISettings, saveAISettings, type AIKeys, type AISettings } from '../../services/ai/settings';
-import { CLAUDE_MODELS, DEFAULT_GPT_IMAGE_MODEL, GPT_MODEL_SUGGESTIONS, type Effort } from '../../services/ai/models';
+import { AI_PROXY_URL, CLAUDE_MODELS, DEFAULT_GPT_IMAGE_MODEL, GPT_MODEL_SUGGESTIONS, type Effort } from '../../services/ai/models';
 import { AIError } from '../../services/ai/types';
 
 export function AISettingsDialog({ onClose }: { onClose: (saved: boolean) => void }) {
@@ -38,6 +38,12 @@ export function AISettingsDialog({ onClose }: { onClose: (saved: boolean) => voi
             </span>
           </label>
           <label>
+            <input type="radio" name="aip" checked={s.provider === 'gpt-proxy'} onChange={() => patch({ provider: 'gpt-proxy' })} />
+            <span>
+              <b>GPT — 사이트 중계 서버</b> {AI_PROXY_URL ? '(이 사이트에 설정됨, 권장)' : ''} — OpenAI 키는 중계 서버에만 있고 브라우저에는 접근 코드만 입력
+            </span>
+          </label>
+          <label>
             <input type="radio" name="aip" checked={s.provider === 'openai'} onChange={() => patch({ provider: 'openai' })} />
             <span>
               <b>OpenAI (GPT)</b> — 본인의 OpenAI API 키로 GPT를 직접 호출. 이미지 생성(gpt-image)에도 같은 키 사용 가능
@@ -56,6 +62,29 @@ export function AISettingsDialog({ onClose }: { onClose: (saved: boolean) => voi
             </span>
           </label>
         </fieldset>
+        {s.provider === 'gpt-proxy' && (
+          <fieldset>
+            <legend>GPT — 사이트 중계 서버</legend>
+            <label className="ai-row">
+              주소
+              <input value={s.proxy.url} placeholder="https://slidelab-ai-proxy.<계정>.workers.dev" onChange={(e) => patch({ proxy: { ...s.proxy, url: e.target.value.trim() } })} aria-label="중계 서버 주소" />
+            </label>
+            <label className="ai-row">
+              모델
+              <input list="gpt-models" value={s.proxy.model} onChange={(e) => patch({ proxy: { ...s.proxy, model: e.target.value.trim() } })} aria-label="중계 서버 모델" />
+            </label>
+            <label className="ai-row">
+              접근 코드
+              <input type="password" autoComplete="off" placeholder="사이트 관리자에게 받은 코드" value={keys.access ?? ''} onChange={(e) => setKeys({ ...keys, access: e.target.value.trim() })} aria-label="접근 코드" />
+            </label>
+            <datalist id="gpt-models">
+              {GPT_MODEL_SUGGESTIONS.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+            <p className="ai-note">중계 서버(Cloudflare Worker)가 OpenAI 키를 보관하고, 허용된 사이트와 접근 코드가 맞는 요청만 GPT로 전달합니다. 설치 방법은 저장소의 proxy/README.md를 보세요.</p>
+          </fieldset>
+        )}
         {s.provider === 'openai' && (
           <fieldset>
             <legend>OpenAI (GPT)</legend>
@@ -129,6 +158,9 @@ export function AISettingsDialog({ onClose }: { onClose: (saved: boolean) => voi
           </label>
           {s.image.enabled && (
             <>
+              <label>
+                <input type="radio" name="imgsrc" checked={s.image.source === 'proxy'} onChange={() => patch({ image: { ...s.image, source: 'proxy', model: s.image.model || DEFAULT_GPT_IMAGE_MODEL } })} /> 사이트 중계 서버 (OpenAI 이미지 API)
+              </label>
               <label>
                 <input type="radio" name="imgsrc" checked={s.image.source === 'gpt'} onChange={() => patch({ image: { ...s.image, source: 'gpt', model: s.image.model || DEFAULT_GPT_IMAGE_MODEL } })} /> OpenAI 이미지 API (위 GPT 키 사용)
               </label>

@@ -50,6 +50,7 @@ function useJob() {
 
 function providerLabel() {
   const s = loadAISettings();
+  if (s.provider === 'gpt-proxy') return `GPT (${s.proxy.model}) · 중계 서버`;
   if (s.provider === 'openai') return `GPT (${s.gpt.model})`;
   if (s.provider === 'anthropic') return CLAUDE_MODELS.find((m) => m.id === s.anthropic.model)?.name.replace(' (기본)', '') ?? s.anthropic.model;
   if (s.provider === 'openai-compatible') return s.openai.model || 'OpenAI 호환';

@@ -138,7 +138,7 @@ export interface ImageProvider {
   generate(prompt: string, size: '1024x1024' | '1536x1024' | '1024x1536', call?: CallOptions): Promise<Blob>;
 }
 
-export type ProviderId = 'offline' | 'openai' | 'anthropic' | 'openai-compatible';
+export type ProviderId = 'offline' | 'gpt-proxy' | 'openai' | 'anthropic' | 'openai-compatible';
 
 export class AIError extends Error {
   constructor(

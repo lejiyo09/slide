@@ -34,6 +34,8 @@ const DOC = `# 재택근무 도입 제안
 ## 위험 요소
 소통 부족과 성과 관리가 어려워질 수 있다. 정기 화상 회의로 보완한다.`;
 
+const worker = (await import('../proxy/src/worker.js')).default;
+
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await context.newPage();
@@ -90,6 +92,33 @@ await context.route('https://api.openai.com/**', async (route) => {
   if (req.url().endsWith('/images/generations')) return route.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'application/json' }, body: JSON.stringify({ data: [{ b64_json: PNG }] }) });
   const deck = { title: 'GPT가 만든 발표', slides: [{ kind: 'title', title: 'GPT가 만든 발표', subtitle: '', bullets: [], left: [], right: [], notes: '' }, { kind: 'bullets', title: '요점', subtitle: '', bullets: ['하나', '둘'], left: [], right: [], notes: '' }] };
   return route.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'application/json' }, body: JSON.stringify({ choices: [{ message: { content: JSON.stringify(deck) }, finish_reason: 'stop' }] }) });
+});
+
+// AI 중계 서버: 실제 Worker 코드(proxy/src/worker.js)로 처리, OpenAI 호출만 가짜
+const PROXY = 'https://slidelab-ai-proxy.test.workers.dev';
+const PROXY_ENV = { OPENAI_API_KEY: 'sk-server-only', ACCESS_CODE: 'e2e-code', ALLOWED_ORIGINS: new URL(BASE).origin, ALLOWED_MODELS: 'gpt-5-mini,gpt-image-1' };
+const upstream = [];
+await context.route(`${PROXY}/**`, async (route) => {
+  const r = route.request();
+  const req = new Request(r.url(), { method: r.method(), headers: r.headers(), ...(r.method() === 'POST' ? { body: r.postData() ?? '' } : {}) });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    upstream.push({ url: String(url), auth: new Headers(init.headers).get('authorization'), body: JSON.parse(init.body) });
+    if (String(url).endsWith('/images/generations')) return new Response(JSON.stringify({ data: [{ b64_json: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    const props = Object.keys(JSON.parse(init.body).response_format?.json_schema?.schema?.properties ?? {});
+    const deck = props.includes('points')
+      ? { points: ['중계 서버 요약'] }
+      : { title: '중계 서버 발표', slides: [{ kind: 'title', title: '중계 서버 발표', subtitle: '', bullets: [], left: [], right: [], notes: '' }, { kind: 'bullets', title: '안전한 키', subtitle: '', bullets: ['키는 서버에만'], left: [], right: [], notes: '' }] };
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(deck) }, finish_reason: 'stop' }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const res = await worker.fetch(req, PROXY_ENV);
+    const headers = {};
+    res.headers.forEach((v, k) => (headers[k] = v));
+    await route.fulfill({ status: res.status, headers, body: Buffer.from(await res.arrayBuffer()) });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 try {
@@ -274,13 +303,41 @@ try {
   check('잘못된 키(401) → 안내', (await pane.locator('[data-ai="error"]').textContent()).includes('API 키가 올바르지 않습니다'));
   claudeMode = 'deck';
 
+  /* ───── GPT 중계 서버 (실제 Worker 코드) ───── */
+  await pane.locator('[data-ai="settings"]').click();
+  await page.locator('.ai-settings label', { hasText: 'GPT — 사이트 중계 서버' }).locator('input').check();
+  await page.locator('input[aria-label="중계 서버 주소"]').fill(PROXY);
+  await page.locator('input[aria-label="중계 서버 모델"]').fill('gpt-5-mini');
+  await page.locator('input[aria-label="접근 코드"]').fill('wrong-code');
+  await page.locator('[data-ai="test"]').click();
+  await page.waitForSelector('.ai-test .ai-ok, .ai-test .ai-err', { timeout: 10000 });
+  check('중계 서버: 틀린 접근 코드 거절', (await page.locator('.ai-test .ai-err').textContent()).includes('접근 코드가 올바르지 않습니다'));
+  await page.locator('input[aria-label="접근 코드"]').fill('e2e-code');
+  await page.locator('[data-ai="test"]').click();
+  await page.waitForFunction(() => document.querySelector('.ai-test .ai-ok'), null, { timeout: 10000 });
+  check('중계 서버: 연결 테스트', (await page.locator('.ai-test .ai-ok').textContent()).includes('연결됨'));
+  await page.locator('.dialog .btn.primary', { hasText: '저장' }).click();
+  check('제공자: GPT 중계 서버', (await pane.locator('[data-ai="provider"]').textContent()).includes('중계 서버'));
+  await tab('만들기');
+  await pane.locator('[data-ai="prompt"]').fill('중계 서버 발표');
+  upstream.length = 0;
+  await pane.locator('[data-ai="generate"]').click();
+  await waitIdle();
+  doc = await S();
+  titles = slideTitles(doc);
+  check('중계 서버 경유 GPT로 슬라이드 생성', titles.join('|') === '중계 서버 발표|안전한 키', titles.join('|'));
+  check('OpenAI에는 서버 키로만 호출 (브라우저는 키 모름)', upstream.length === 1 && upstream[0].url === 'https://api.openai.com/v1/chat/completions' && upstream[0].auth === 'Bearer sk-server-only' && upstream[0].body.model === 'gpt-5-mini');
+  const pageHasKey = await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }) + document.documentElement.outerHTML);
+  check('브라우저 저장소·화면 어디에도 OpenAI 키 없음', !pageHasKey.includes('sk-server-only'));
+  await page.screenshot({ path: `${OUT}/s12-05-proxy.png` });
+
   /* ───── GPT (OpenAI) 연결 + 이미지 생성 (가짜 API) ───── */
   await pane.locator('[data-ai="settings"]').click();
   await page.locator('.ai-settings label', { hasText: 'OpenAI (GPT)' }).locator('input').check();
   await page.locator('input[aria-label="OpenAI API 키"]').fill('sk-gpt-e2e-test-key');
   await page.locator('input[aria-label="GPT 모델"]').fill('gpt-5-mini');
   await page.locator('.ai-settings label', { hasText: '이미지 생성 사용' }).locator('input').check();
-  await page.locator('.ai-settings label', { hasText: 'OpenAI 이미지 API' }).locator('input').check();
+  await page.locator('.ai-settings label', { hasText: '위 GPT 키 사용' }).locator('input').check();
   await page.locator('.ai-settings label', { hasText: '이 브라우저에 API 키 기억' }).locator('input').check();
   await page.locator('.dialog .btn.primary', { hasText: '저장' }).click();
   check('제공자: GPT', (await pane.locator('[data-ai="provider"]').textContent()).includes('GPT (gpt-5-mini)'));

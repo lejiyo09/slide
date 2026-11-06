@@ -309,3 +309,46 @@ describe('OpenAI 호환 제공자 / 응답 검증', () => {
     expect(() => parseJSONText('없음')).toThrow();
   });
 });
+
+describe('GPT 중계 서버 제공자', () => {
+  it('중계 서버 주소로, 접근 코드 헤더만 보내고 OpenAI 키는 보내지 않음', async () => {
+    const { getProvider, getImageProvider, DEFAULT_AI_SETTINGS } = await import('./settings');
+    const calls: { url: string; headers: Record<string, string>; body: Record<string, unknown> }[] = [];
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async (u: string | URL | Request, init?: RequestInit) => {
+      const h: Record<string, string> = {};
+      new Headers(init?.headers).forEach((v, k) => (h[k] = v));
+      calls.push({ url: String(u), headers: h, body: JSON.parse(String(init?.body)) });
+      if (String(u).endsWith('/images/generations')) return new Response(JSON.stringify({ data: [{ b64_json: 'iVBORw0KGgo=' }] }), { status: 200 });
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"points":["가"]}' }, finish_reason: 'stop' }] }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const s = { ...DEFAULT_AI_SETTINGS, provider: 'gpt-proxy' as const, proxy: { url: 'https://proxy.example.workers.dev/', model: 'gpt-5-mini' }, image: { enabled: true, source: 'proxy' as const, baseUrl: '', model: 'gpt-image-1' } };
+      const p = await getProvider(s, { access: 'code123' });
+      expect(p.id).toBe('gpt-proxy');
+      expect(await p.summarize('글', 'short')).toBe('• 가');
+      expect(calls[0].url).toBe('https://proxy.example.workers.dev/v1/chat/completions');
+      expect(calls[0].headers['x-slidelab-access']).toBe('code123');
+      expect(calls[0].headers.authorization).toBeUndefined();
+      expect(calls[0].body.model).toBe('gpt-5-mini');
+      const img = await (await getImageProvider(s, { access: 'code123' })).generate('그림', '1024x1024');
+      expect(img.type).toBe('image/png');
+      expect(calls[1].url).toBe('https://proxy.example.workers.dev/v1/images/generations');
+      expect(calls[1].headers['x-slidelab-access']).toBe('code123');
+      await expect(getProvider({ ...s, proxy: { url: '', model: 'x' } }, {})).rejects.toThrow(/중계 서버 주소/);
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+
+  it('중계 서버의 401 안내 문구를 그대로 보여 줌', async () => {
+    const { OpenAICompatibleProvider } = await import('./openaiCompatible');
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ error: { message: '접근 코드가 올바르지 않습니다.' } }), { status: 401 })) as typeof fetch;
+    try {
+      await expect(new OpenAICompatibleProvider('https://p.example/v1', 'gpt-5', undefined, 'GPT', {}, 'gpt-proxy').summarize('x', 'short')).rejects.toThrow(/접근 코드가 올바르지 않습니다/);
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+});

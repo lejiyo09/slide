@@ -6,21 +6,28 @@
 import type { AIProvider, ImageProvider, ProviderId } from './types';
 import { AIError } from './types';
 import { OfflineProvider } from './offline/provider';
-import { DEFAULT_GPT_IMAGE_MODEL, DEFAULT_GPT_MODEL, OPENAI_BASE_URL, type Effort } from './models';
+import { AI_PROXY_MODEL, AI_PROXY_URL, DEFAULT_GPT_IMAGE_MODEL, DEFAULT_GPT_MODEL, OPENAI_BASE_URL, type Effort } from './models';
+
+const proxyHeaders = (keys: AIKeys): Record<string, string> => (keys.access ? { 'x-slidelab-access': keys.access } : {});
+const proxyBase = (url: string) => `${url.replace(/\/+$/, '')}/v1`;
 
 export interface AISettings {
   provider: ProviderId;
+  /** 사이트 중계 서버를 통한 GPT (키는 서버에만 있음) */
+  proxy: { url: string; model: string };
   /** OpenAI GPT (api.openai.com) */
   gpt: { model: string };
   anthropic: { model: string; effort: Effort };
   openai: { baseUrl: string; model: string };
   /** source 'gpt': GPT 키로 OpenAI 이미지 API 사용 / 'custom': 별도 엔드포인트 */
-  image: { enabled: boolean; source: 'gpt' | 'custom'; baseUrl: string; model: string };
+  image: { enabled: boolean; source: 'proxy' | 'gpt' | 'custom'; baseUrl: string; model: string };
   /** 키를 이 브라우저에 기억 (localStorage) */
   rememberKeys: boolean;
 }
 
 export interface AIKeys {
+  /** 중계 서버 접근 코드 */
+  access?: string;
   gpt?: string;
   anthropic?: string;
   openai?: string;
@@ -28,11 +35,13 @@ export interface AIKeys {
 }
 
 export const DEFAULT_AI_SETTINGS: AISettings = {
-  provider: 'offline',
+  // 사이트에 중계 서버가 설정되어 있으면 GPT(중계 서버)가 기본
+  provider: AI_PROXY_URL ? 'gpt-proxy' : 'offline',
+  proxy: { url: AI_PROXY_URL, model: AI_PROXY_MODEL },
   gpt: { model: DEFAULT_GPT_MODEL },
   anthropic: { model: 'claude-opus-5-5', effort: 'medium' },
   openai: { baseUrl: 'http://localhost:11434/v1', model: '' },
-  image: { enabled: false, source: 'gpt', baseUrl: '', model: DEFAULT_GPT_IMAGE_MODEL },
+  image: { enabled: !!AI_PROXY_URL, source: AI_PROXY_URL ? 'proxy' : 'gpt', baseUrl: '', model: DEFAULT_GPT_IMAGE_MODEL },
   rememberKeys: false,
 };
 
@@ -54,6 +63,7 @@ export function loadAISettings(): AISettings {
   return {
     ...DEFAULT_AI_SETTINGS,
     ...v,
+    proxy: { ...DEFAULT_AI_SETTINGS.proxy, ...v.proxy, url: v.proxy?.url || AI_PROXY_URL },
     gpt: { ...DEFAULT_AI_SETTINGS.gpt, ...v.gpt },
     anthropic: { ...DEFAULT_AI_SETTINGS.anthropic, ...v.anthropic },
     openai: { ...DEFAULT_AI_SETTINGS.openai, ...v.openai },
@@ -82,6 +92,11 @@ export const offlineProvider = () => offline;
 
 /** 설정된 제공자 (Claude SDK는 사용할 때만 불러옴) */
 export async function getProvider(s: AISettings = loadAISettings(), keys: AIKeys = loadAIKeys()): Promise<AIProvider> {
+  if (s.provider === 'gpt-proxy') {
+    if (!s.proxy.url) throw new AIError('AI 중계 서버 주소가 없습니다. AI 설정에서 입력하세요.', 'config');
+    const { OpenAICompatibleProvider } = await import('./openaiCompatible');
+    return new OpenAICompatibleProvider(proxyBase(s.proxy.url), s.proxy.model || DEFAULT_GPT_MODEL, undefined, 'GPT', proxyHeaders(keys), 'gpt-proxy');
+  }
   if (s.provider === 'openai') {
     if (!keys.gpt) throw new AIError('OpenAI API 키가 없습니다. AI 설정에서 입력하세요.', 'config');
     const { OpenAICompatibleProvider } = await import('./openaiCompatible');
@@ -101,6 +116,10 @@ export async function getProvider(s: AISettings = loadAISettings(), keys: AIKeys
 export async function getImageProvider(s: AISettings = loadAISettings(), keys: AIKeys = loadAIKeys()): Promise<ImageProvider> {
   if (!s.image.enabled) throw new AIError('이미지 생성 제공자가 설정되지 않았습니다. AI 설정 › 이미지 생성에서 연결하세요.', 'config');
   const { OpenAICompatibleImageProvider } = await import('./openaiCompatible');
+  if (s.image.source === 'proxy') {
+    if (!s.proxy.url) throw new AIError('AI 중계 서버 주소가 없습니다. AI 설정에서 입력하세요.', 'config');
+    return new OpenAICompatibleImageProvider(proxyBase(s.proxy.url), s.image.model || DEFAULT_GPT_IMAGE_MODEL, undefined, proxyHeaders(keys));
+  }
   if (s.image.source === 'gpt') {
     if (!keys.gpt) throw new AIError('이미지 생성에 쓸 OpenAI API 키가 없습니다. AI 설정에서 입력하세요.', 'config');
     return new OpenAICompatibleImageProvider(OPENAI_BASE_URL, s.image.model || DEFAULT_GPT_IMAGE_MODEL, keys.gpt);

@@ -13,3 +13,10 @@ export const OPENAI_BASE_URL = 'https://api.openai.com/v1';
 export const GPT_MODEL_SUGGESTIONS = ['gpt-5', 'gpt-5-mini', 'gpt-4.1', 'gpt-4o'];
 export const DEFAULT_GPT_MODEL = 'gpt-5';
 export const DEFAULT_GPT_IMAGE_MODEL = 'gpt-image-1';
+
+/**
+ * 사이트 관리자가 배포한 AI 중계 서버(Cloudflare Worker, proxy/) 주소.
+ * 배포 시 GitHub 저장소 변수 AI_PROXY_URL → VITE_AI_PROXY_URL로 들어온다 (주소일 뿐 비밀 값이 아님).
+ */
+export const AI_PROXY_URL: string = (import.meta.env.VITE_AI_PROXY_URL ?? '').replace(/\/+$/, '');
+export const AI_PROXY_MODEL: string = import.meta.env.VITE_AI_PROXY_MODEL || DEFAULT_GPT_MODEL;

@@ -22,6 +22,10 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+        env:
+          # AI 중계 서버 주소(비밀 값 아님). 저장소 Variables에 AI_PROXY_URL을 넣으면 앱이 GPT 중계 서버를 기본으로 사용
+          VITE_AI_PROXY_URL: ${{ vars.AI_PROXY_URL }}
+          VITE_AI_PROXY_MODEL: ${{ vars.AI_PROXY_MODEL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

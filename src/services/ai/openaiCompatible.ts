@@ -9,12 +9,12 @@ import { LLMProvider, SYSTEM_PROMPT, parseJSONText, type JSONRequest } from './l
 
 const trimSlash = (u: string) => u.replace(/\/+$/, '');
 
-async function http(url: string, body: unknown, key: string | undefined, call?: CallOptions): Promise<Response> {
+async function http(url: string, body: unknown, key: string | undefined, call?: CallOptions, extra: Record<string, string> = {}): Promise<Response> {
   let res: Response;
   try {
     res = await fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) },
+      headers: { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}), ...extra },
       body: JSON.stringify(body),
       signal: call?.signal,
     });
@@ -22,7 +22,10 @@ async function http(url: string, body: unknown, key: string | undefined, call?: 
     if (e instanceof DOMException && e.name === 'AbortError') throw new AIError('취소했습니다.', 'aborted');
     throw new AIError(`${new URL(url).host}에 연결할 수 없습니다. 주소와 CORS 허용 설정을 확인하세요.`, 'network');
   }
-  if (res.status === 401 || res.status === 403) throw new AIError(`인증 실패 (${res.status}). API 키를 확인하세요.`, 'auth');
+  if (res.status === 401 || res.status === 403) {
+    const msg = await errorText(res);
+    throw new AIError(`인증 실패 (${res.status})${msg ? `: ${msg}` : '. API 키를 확인하세요.'}`, 'auth');
+  }
   if (res.status === 429) throw new AIError('요청이 너무 많습니다 (429). 잠시 후 다시 시도하세요.', 'rate');
   return res;
 }
@@ -37,7 +40,7 @@ async function errorText(res: Response) {
 }
 
 export class OpenAICompatibleProvider extends LLMProvider {
-  readonly id: 'openai' | 'openai-compatible';
+  readonly id: 'gpt-proxy' | 'openai' | 'openai-compatible';
   readonly name: string;
   readonly readsPdf = false;
 
@@ -46,10 +49,12 @@ export class OpenAICompatibleProvider extends LLMProvider {
     private model: string,
     private apiKey?: string,
     label?: string,
+    private headers: Record<string, string> = {},
+    id?: 'gpt-proxy',
   ) {
     super();
     if (!baseUrl || !model) throw new AIError('OpenAI 호환 엔드포인트의 주소와 모델 이름을 AI 설정에서 입력하세요.', 'config');
-    this.id = label ? 'openai' : 'openai-compatible';
+    this.id = id ?? (label ? 'openai' : 'openai-compatible');
     this.name = label ? `${label} (${model})` : `${model} (${new URL(baseUrl).host})`;
   }
 
@@ -61,10 +66,10 @@ export class OpenAICompatibleProvider extends LLMProvider {
       { role: 'user', content: req.user },
     ];
     // JSON 스키마 응답 형식 → 지원하지 않는 서버(400)는 스키마를 지시문에 넣어 다시 요청
-    let res = await http(url, { model: this.model, messages, response_format: { type: 'json_schema', json_schema: { name: 'result', schema: req.schema, strict: true } } }, this.apiKey, call);
+    let res = await http(url, { model: this.model, messages, response_format: { type: 'json_schema', json_schema: { name: 'result', schema: req.schema, strict: true } } }, this.apiKey, call, this.headers);
     if (res.status === 400 || res.status === 422) {
       const withSchema = [messages[0], { role: 'user', content: `${req.user}\n\nRespond with a single JSON object that matches this JSON schema:\n${JSON.stringify(req.schema)}` }];
-      res = await http(url, { model: this.model, messages: withSchema }, this.apiKey, call);
+      res = await http(url, { model: this.model, messages: withSchema }, this.apiKey, call, this.headers);
     }
     if (!res.ok) throw new AIError(`AI 서버 오류 (${res.status}): ${await errorText(res)}`, 'other');
     const data = (await res.json()) as { choices?: { message?: { content?: string; refusal?: string }; finish_reason?: string }[] };
@@ -84,13 +89,14 @@ export class OpenAICompatibleImageProvider implements ImageProvider {
     private baseUrl: string,
     private model: string,
     private apiKey?: string,
+    private headers: Record<string, string> = {},
   ) {
     if (!baseUrl || !model) throw new AIError('이미지 생성 엔드포인트의 주소와 모델을 AI 설정에서 입력하세요.', 'config');
     this.name = `${model} (${new URL(baseUrl).host})`;
   }
 
   async generate(prompt: string, size: '1024x1024' | '1536x1024' | '1024x1536', call?: CallOptions): Promise<Blob> {
-    const res = await http(`${trimSlash(this.baseUrl)}/images/generations`, { model: this.model, prompt, size, n: 1 }, this.apiKey, call);
+    const res = await http(`${trimSlash(this.baseUrl)}/images/generations`, { model: this.model, prompt, size, n: 1 }, this.apiKey, call, this.headers);
     if (!res.ok) throw new AIError(`이미지 생성 오류 (${res.status}): ${await errorText(res)}`, 'other');
     const data = (await res.json()) as { data?: { b64_json?: string; url?: string }[] };
     const item = data.data?.[0];

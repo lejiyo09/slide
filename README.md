@@ -61,6 +61,8 @@ GitHub Codespaces에서도 동일하게 실행됩니다. `main`에 push하면 `.
 
 - **제공자 구조** (`src/services/ai/`): 편집기는 `AIProvider` 인터페이스만 사용하고 제공자는 설정에서 바꿉니다.
   - **기본 엔진(오프라인, 키 없음)**: 문서 구조 분석·추출 요약·발표 유형별 구성 틀·템플릿 대본·규칙 기반 추천. 새 사실을 지어내지 않으므로 주제만으로 만든 슬라이드는 "작성 안내" 수준의 초안입니다.
+  - **GPT — 사이트 중계 서버 (권장, 배포용)**: OpenAI 키는 Cloudflare Worker 중계 서버(`proxy/`)에만 두고, 앱은 중계 서버 주소와 접근 코드만 사용합니다.
+    키는 GitHub Secrets에 입력하면 `.github/workflows/ai-proxy.yml`이 Worker 비밀 값으로 배포하므로 공개 사이트 파일에는 들어가지 않습니다. 설치 방법: [`proxy/README.md`](proxy/README.md)
   - **OpenAI (GPT)**: 본인의 OpenAI API 키로 `api.openai.com/v1/chat/completions`를 브라우저에서 직접 호출(JSON 스키마 `strict` 응답). 이미지 생성(`/images/generations`, 기본 `gpt-image-1`)도 같은 키로 사용.
   - **Claude (Anthropic)**: 공식 `@anthropic-ai/sdk`(Apache-2.0, 사용할 때만 지연 로딩)로 구조화 출력 + 스트리밍, 안전 정책 거절 시 서버 측 대체 모델(`fallbacks: "default"`), PDF 문서 직접 읽기.
   - **OpenAI 호환 엔드포인트**: 로컬 Ollama·LM Studio 등 같은 형식의 서버 (JSON 스키마를 거부하면 지시문에 스키마를 넣어 재시도).
@@ -69,7 +71,8 @@ GitHub Codespaces에서도 동일하게 실행됩니다. `main`에 push하면 `.
 - **디자인**: 디자인 아이디어(템플릿·색·글꼴 조합 3개, 현재 슬라이드 미리 보기), 디자인 점검(12pt 미만 글자, 글 양, WCAG 명암 대비, 슬라이드 밖 개체, 텍스트 겹침, 글꼴 4종 이상, 빈 개체 틀, 어긋난 정렬, 제목 없음 → 고치기/모두 고치기), 구성 추천(슬라이드 나누기·2단 레이아웃·구역 머리글·차트 권장 → 적용)
 - **이미지**: 이미지 생성 인터페이스(`ImageProvider`) — 설정하지 않으면 안내만 표시
 - **키 보관**: API 키는 프레젠테이션·IndexedDB 문서에 넣지 않고 이 브라우저의 sessionStorage(기본) 또는 localStorage('키 기억')에만 둡니다. 서버가 없으므로 요청은 브라우저에서 제공자로 직접 갑니다.
-- **검증**: 실제 API 키가 없어 실제 GPT·Claude 호출은 하지 못했습니다. 단위 테스트(가짜 fetch/SSE)와 E2E(가짜 API 응답)로 요청 형식·응답 처리·오류(401, 거절, 잘림)를 확인했습니다.
+- **중계 서버 보호**: 정해진 두 경로(`/v1/chat/completions`, `/v1/images/generations`)만 전달, 허용 사이트(Origin)·접근 코드·허용 모델 확인, 2MB 넘는 요청 거절, `/health`는 키 설정 여부만 응답
+- **검증**: 실제 API 키가 없어 실제 GPT·Claude 호출은 하지 못했습니다. 중계 서버는 실제 Worker 코드를 단위 테스트와 E2E(브라우저 → Worker 코드 → 가짜 OpenAI)로 확인했습니다. 단위 테스트(가짜 fetch/SSE)와 E2E(가짜 API 응답)로 요청 형식·응답 처리·오류(401, 거절, 잘림)를 확인했습니다.
 
 ## 발표 도구 (11단계)
 

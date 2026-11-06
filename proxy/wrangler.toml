@@ -1,0 +1,5 @@
+# SlideLab AI 중계 서버 (Cloudflare Worker)
+# OpenAI API 키는 여기 적지 않습니다. GitHub Actions(ai-proxy.yml)가 GitHub Secrets의 값을 Worker 비밀 값으로 올립니다.
+name = "slidelab-ai-proxy"
+main = "src/worker.js"
+compatibility_date = "2026-10-01"
