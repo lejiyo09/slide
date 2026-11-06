@@ -1,6 +1,7 @@
 /** 백스테이지: 인쇄 페이지 + PDF/그림 내보내기 */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FileImage, FileText, Printer } from 'lucide-react';
+import { FileImage, FileText, FileVideo, Printer } from 'lucide-react';
+import { VIDEO_QUALITIES } from '../../services/export/videoPlan';
 import { useEditor } from '../../core/store/editorStore';
 import { downloadBlob } from '../../services/storage/files';
 import { LAYOUT_NAMES, PrintPages, PrintPortal, pageCount, pageSize, parseRange, slidesToPrint, type PrintLayout, type PrintSettings } from '../print/PrintView';
@@ -122,6 +123,83 @@ function PreviewPage({ doc, slides, settings, index }: { doc: Parameters<typeof 
 
 /* ───────────── PDF / 그림 내보내기 ───────────── */
 
+type RunJob = (label: string, job: (signal: AbortSignal, progress: (d: number, t: number, phase?: string) => void) => Promise<void>) => Promise<void>;
+
+/** 비디오 만들기 (PowerPoint: 내보내기 › 비디오 만들기) */
+function VideoExportForm({ busy, run }: { busy: boolean; run: RunJob }) {
+  const doc = useEditor((s) => s.doc);
+  const hasRecorded = doc.slides.some((s) => s.transition?.advanceAfter || s.objects.some((o) => o.type === 'media' && o.narration));
+  const [container, setContainer] = useState<'mp4' | 'webm'>('mp4');
+  const [quality, setQuality] = useState(1080);
+  const [fps, setFps] = useState(30);
+  const [useRecorded, setUseRecorded] = useState(true);
+  const [seconds, setSeconds] = useState(5);
+  const [result, setResult] = useState<string | null>(null);
+  const toast = useEditor.getState().toast;
+  return (
+    <div className="bs-export-item bs-form" data-export-video="">
+      <FileVideo size={28} />
+      <span>
+        <strong>비디오 만들기 (.mp4 / .webm)</strong>
+        <span className="muted">전환·애니메이션{hasRecorded ? '·기록된 시간·내레이션' : ''}을 포함한 동영상을 만듭니다. 숨긴 슬라이드는 넣지 않습니다.</span>
+        <span className="bs-form-row">
+          <select value={container} onChange={(e) => setContainer(e.target.value as 'mp4')} aria-label="비디오 형식">
+            <option value="mp4">MP4</option>
+            <option value="webm">WebM</option>
+          </select>
+          <select value={quality} onChange={(e) => setQuality(Number(e.target.value))} aria-label="비디오 품질">
+            {VIDEO_QUALITIES.map((q) => (
+              <option key={q.id} value={q.height}>
+                {q.name}
+              </option>
+            ))}
+          </select>
+          <select value={fps} onChange={(e) => setFps(Number(e.target.value))} aria-label="초당 프레임">
+            <option value={24}>24fps</option>
+            <option value={30}>30fps</option>
+            <option value={60}>60fps</option>
+          </select>
+        </span>
+        <span className="bs-form-row">
+          <label className="fm-check">
+            <input type="checkbox" checked={useRecorded} onChange={(e) => setUseRecorded(e.target.checked)} data-video-recorded="" /> 기록된 시간 및 내레이션 사용
+          </label>
+          <label className="fm-check">
+            각 슬라이드에 소요된 시간(초)
+            <input type="number" min={0.5} max={600} step={0.5} value={seconds} onChange={(e) => setSeconds(Math.max(0.5, Number(e.target.value) || 5))} onKeyDown={(e) => e.stopPropagation()} style={{ width: 64 }} data-video-seconds="" />
+          </label>
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={busy}
+            data-export-video-go=""
+            onClick={() =>
+              void run('비디오', async (signal, onProgress) => {
+                const { exportVideo } = await import('../../services/export/videoExport');
+                const t0 = performance.now();
+                const r = await exportVideo(doc, { container, height: quality, fps, useRecorded, secondsPerSlide: seconds, signal, onProgress });
+                const { safeName } = await import('../../services/export/imageExport');
+                downloadBlob(r.blob, `${safeName(doc.title)}.${container}`);
+                const info = `${r.width}×${r.height}, ${(r.durationMs / 1000).toFixed(1)}초, ${r.videoCodec.toUpperCase()}${r.audioCodec ? ` + ${r.audioCodec.toUpperCase()}` : ''}, ${(r.blob.size / 1048576).toFixed(1)}MB, ${((performance.now() - t0) / 1000).toFixed(1)}초 걸림`;
+                setResult(info);
+                toast(`비디오를 만들었습니다 (${info}).`, 'success');
+                if (container === 'mp4' && r.videoCodec !== 'avc') toast('이 브라우저는 H.264 인코딩을 지원하지 않아 MP4 안에 ' + r.videoCodec.toUpperCase() + ' 코덱을 썼습니다. 일부 플레이어에서는 재생되지 않을 수 있습니다.', 'warning');
+              })
+            }
+          >
+            비디오 만들기
+          </button>
+        </span>
+        {result && (
+          <span className="muted" data-video-result="">
+            마지막 결과: {result}
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
 export function PdfImageExport() {
   const doc = useEditor((s) => s.doc);
   const current = useEditor((s) => s.activeSlideId);
@@ -135,11 +213,11 @@ export function PdfImageExport() {
   useEffect(() => () => abort.current?.abort(), []);
   const toast = useEditor.getState().toast;
 
-  const run = async (label: string, job: (signal: AbortSignal, progress: (d: number, t: number) => void) => Promise<void>) => {
+  const run: RunJob = async (label, job) => {
     abort.current = new AbortController();
     setBusy(`${label} 준비 중…`);
     try {
-      await job(abort.current.signal, (d, t) => setBusy(`${label} ${d}/${t}`));
+      await job(abort.current.signal, (d, t, phase) => setBusy(`${label} ${phase ? `${phase} ` : ''}${d}/${t}`));
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
         console.error(e);
@@ -229,6 +307,7 @@ export function PdfImageExport() {
           </span>
         </span>
       </div>
+      <VideoExportForm busy={!!busy} run={run} />
       {busy && (
         <div className="bs-progress" role="status" data-export-busy="">
           {busy}

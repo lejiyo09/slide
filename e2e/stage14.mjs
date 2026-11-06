@@ -4,7 +4,7 @@
  *   (LANG 없이 실행하면 Chromium이 한글 파일 이름을 'download'로 바꿈 — 테스트 환경 문제)
  */
 import { createRequire } from 'node:module';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
@@ -214,6 +214,69 @@ try {
     check('인쇄(노트): A4 2쪽 + 노트 글자', /Pages:\s+2\n/.test(r.info) && /Page size:\s+595\.\d+ x 841\.\d+ pts \(A4\)/.test(r.info) && r.text.includes('첫 슬라이드의 발표자 노트입니다'), r.info.match(/Page size:.*/)?.[0]);
     r = await printTo('outline', 's14-print-outline.pdf');
     check('인쇄(개요): 제목·본문 글자', r.text.includes('1. Print Test') && r.text.includes('Subtitle line'), r.text.replace(/\s+/g, ' ').slice(0, 80));
+    await closeBackstage();
+  }
+
+  if (want('video')) {
+    /* ───── 비디오 만들기 ───── */
+    // 1: 부제목에 클릭 나타내기 + 기록된 시간 3초, 2: 밀어내기 전환 1초 + 내레이션 2.5초(440Hz), 3: 숨김
+    await page.evaluate(() => {
+      const sr = 48000, n = Math.round(sr * 2.5);
+      const buf = new ArrayBuffer(44 + n * 2);
+      const v = new DataView(buf);
+      const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+      w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+      for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.round(Math.sin((2 * Math.PI * 440 * i) / sr) * 12000), true);
+      let bin = '';
+      new Uint8Array(buf).forEach((b) => (bin += String.fromCharCode(b)));
+      const wav = `data:audio/wav;base64,${btoa(bin)}`;
+      window.__SLIDELAB__.getState().commit('비디오 준비', (d) => {
+        const [s1, s2] = d.slides;
+        const sub = s1.objects.find((o) => o.ph?.type === 'subTitle');
+        s1.animations = [{ id: 'an1', targetId: sub.id, effect: 'fade', category: 'entrance', start: 'onClick', delay: 0, duration: 500, repeat: 1 }];
+        s1.transition = { type: 'none', duration: 0, advanceAfter: 3000 };
+        s2.transition = { type: 'push', duration: 1000, direction: 'left' };
+        d.assets['narr'] = { id: 'narr', mime: 'audio/wav', dataUrl: wav, name: 'narration.wav' };
+        s2.objects.push({ id: 'narr-obj', type: 'media', name: '내레이션', kind: 'audio', assetId: 'narr', x: 1200, y: 640, width: 48, height: 48, rotation: 0, autoPlay: true, hideInShow: true, narration: true });
+      });
+    });
+    await openExport();
+    await page.locator('[data-video-seconds]').fill('2');
+    await page.locator('select[aria-label="비디오 형식"]').selectOption('webm');
+    await page.locator('select[aria-label="비디오 품질"]').selectOption('720');
+    const t0 = Date.now();
+    const webm = await download(() => page.locator('[data-export-video-go]').click(), 's14-video.webm');
+    const took = (Date.now() - t0) / 1000;
+    check('비디오 파일 이름', webm.name === '제목 없는 프레젠테이션.webm', webm.name);
+    const probe = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', webm.path], { encoding: 'utf8' }));
+    const vs = probe.streams.find((x) => x.codec_type === 'video');
+    const as = probe.streams.find((x) => x.codec_type === 'audio');
+    const dur = Number(probe.format.duration);
+    check('WebM: VP9 1280×720 + Opus 소리', vs?.codec_name === 'vp9' && vs.width === 1280 && vs.height === 720 && as?.codec_name === 'opus', `${vs?.codec_name} ${vs?.width}×${vs?.height} ${as?.codec_name}`);
+    check('길이 = 3초(기록) + 1초(전환) + 2.5초(내레이션이 2초보다 김)', Math.abs(dur - 6.5) < 0.15, `${dur}s, 만드는 데 ${took.toFixed(1)}초`);
+    const frameAt = (t, name) => (execFileSync('ffmpeg', ['-v', 'error', '-y', '-ss', String(t), '-i', webm.path, '-frames:v', '1', `${OUT}/${name}`]), `${OUT}/${name}`);
+    const before = await imageDiff(frameAt(0.3, 's14-v-0.3.png'), `${OUT}/s14-img-0.png`);
+    const after = await imageDiff(frameAt(2.8, 's14-v-2.8.png'), `${OUT}/s14-img-0.png`);
+    check('애니메이션: 클릭 전에는 부제목이 없고, 재생 뒤에는 그림 내보내기와 같음', before.diff > after.diff + 0.3 && after.diff < 6, `전 ${before.diff.toFixed(2)} / 후 ${after.diff.toFixed(2)}`);
+    const mid = await imageDiff(frameAt(3.5, 's14-v-3.5.png'), `${OUT}/s14-img-1.png`);
+    const hold = await imageDiff(frameAt(5.5, 's14-v-5.5.png'), `${OUT}/s14-img-1.png`);
+    check('전환(밀어내기) 중간 프레임은 다르고, 다음 슬라이드 표시 중에는 같음', mid.diff > 15 && hold.diff < 6, `전환 ${mid.diff.toFixed(2)} / 표시 ${hold.diff.toFixed(2)}`);
+    const volOf = (ss, t) => {
+      const r = spawnSync('ffmpeg', ['-v', 'info', '-ss', String(ss), '-t', String(t), '-i', webm.path, '-af', 'volumedetect', '-vn', '-f', 'null', '-'], { encoding: 'utf8' });
+      return Number(r.stderr.match(/mean_volume:\s*(-?[\d.]+|-inf)/)?.[1] ?? -99);
+    };
+    const quiet = volOf(0.2, 2.5), loud = volOf(4.3, 2.0);
+    check('내레이션은 2번 슬라이드(4초~)에서만 들림', quiet < -60 && loud > -30, `1번 ${quiet}dB / 2번 ${loud}dB`);
+    // MP4
+    await page.locator('select[aria-label="비디오 형식"]').selectOption('mp4');
+    await page.locator('select[aria-label="비디오 품질"]').selectOption('480');
+    await page.locator('[data-video-recorded]').uncheck();
+    const mp4 = await download(() => page.locator('[data-export-video-go]').click(), 's14-video.mp4');
+    const p2 = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', mp4.path], { encoding: 'utf8' }));
+    const v2 = p2.streams.find((x) => x.codec_type === 'video');
+    check('MP4: 854×480, 기록 무시 → 2초 + 1초 + 2초', p2.format.format_name.includes('mp4') && v2.width === 854 && v2.height === 480 && Math.abs(Number(p2.format.duration) - 5) < 0.15 && !p2.streams.some((x) => x.codec_type === 'audio'), `${p2.format.format_name} ${v2.codec_name} ${v2.width}×${v2.height} ${p2.format.duration}s`);
+    check('결과 안내', (await page.locator('[data-video-result]').textContent()).includes('854×480'));
     await closeBackstage();
   }
 

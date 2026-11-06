@@ -1,7 +1,7 @@
 /** 슬라이드 쇼 탭, 녹화 탭, 쇼 설정 / 재구성한 쇼 대화 상자, 화면 녹화 */
 import { useEffect, useState } from 'react';
-import { Play, PlayCircle, EyeOff, Settings2, Timer, Video, Presentation as PresentationIcon, ListVideo, Trash2, Mic, MonitorPlay, Film, Volume2, Square } from 'lucide-react';
-import { RibbonButton, DropdownButton, RibbonGroup, PlannedGroup, MenuItem, MenuSeparator, SplitButton } from '../common/Buttons';
+import { Play, PlayCircle, EyeOff, Settings2, Timer, Video, Presentation as PresentationIcon, ListVideo, Trash2, Mic, MonitorPlay, Film, Volume2, Square, FileVideo } from 'lucide-react';
+import { RibbonButton, DropdownButton, RibbonGroup, MenuItem, MenuSeparator, SplitButton } from '../common/Buttons';
 import { Dialog } from '../dialogs/Dialog';
 import { useEditor } from '../../core/store/editorStore';
 import * as A from '../../core/commands/actions';
@@ -118,7 +118,15 @@ export function RecordTab() {
         <RibbonButton size="large" icon={<Volume2 size={26} />} label="오디오" title="오디오 파일 삽입" onClick={() => void pickAndInsertMedia('audio')} />
         <RibbonButton size="large" icon={<Film size={26} />} label="비디오" title="비디오 파일 삽입" onClick={() => void pickAndInsertMedia('video')} />
       </RibbonGroup>
-      <PlannedGroup label="내보내기" stage="14단계" items={['비디오로 내보내기']} />
+      <RibbonGroup label="내보내기">
+        <RibbonButton
+          size="large"
+          icon={<FileVideo size={26} />}
+          label="비디오로 내보내기"
+          title="전환·애니메이션·기록된 시간·내레이션을 포함한 MP4/WebM 비디오 만들기"
+          onClick={() => useEditor.getState().set({ backstageOpen: true, backstagePage: 'export' })}
+        />
+      </RibbonGroup>
     </>
   );
 }
