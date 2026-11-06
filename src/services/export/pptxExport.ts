@@ -6,7 +6,7 @@
  * (향후 7단계에서 원본 XML 보존이 가능한 자체 OOXML 작성기로 확장 예정)
  */
 import PptxGenJS from 'pptxgenjs';
-import type { Asset, ChartObject, Fill, GroupObject, Paragraph, Presentation, ShapeKind, ShapeObject, SlideObject, Stroke, TableObject, TextBody } from '../../types/model';
+import type { Asset, ChartObject, EquationObject, Fill, GroupObject, Paragraph, Presentation, ShapeKind, ShapeObject, SlideObject, Stroke, TableObject, TextBody } from '../../types/model';
 import { isPristine, mediaPlaybackSignature } from '../../core/document/fingerprint';
 import { buildShowPrXml, customShowPlan } from './showXml';
 import { showSettingsOf } from '../../engines/show/showModel';
@@ -16,6 +16,7 @@ import { resolveTokensDeep } from '../../utils/themeColor';
 import { chartPalette } from '../../editors/chart/chart';
 import { KEEP_PREFIX, postProcessPptx, type SlidePlan } from './preserve';
 import { planEmbeddedFonts, type EmbedPlanFont } from '../fonts/embed';
+import { EQ_IMAGE_RID, equationShapeXml } from './equationXml';
 import { buildTransitionXml } from './animXml';
 import { OoxmlPackage } from '../import/ooxml';
 import { getBlob, getPackage } from '../storage/db';
@@ -111,6 +112,8 @@ interface BuildOptions {
   sourceAvailable?: boolean;
   /** 미디어 바이너리 → data URL (브라우저: IndexedDB) */
   loadMedia?: (asset: Asset) => Promise<string | null>;
+  /** 수식의 대체 그림(PNG) — 수식을 모르는 프로그램용 (브라우저: 래스터화) */
+  renderEquationPng?: (o: EquationObject) => Promise<Uint8Array | null>;
 }
 
 type TextRunProps = PptxGenJS.TextProps;
@@ -392,6 +395,25 @@ export async function buildPptx(source: Presentation, opts: BuildOptions = {}): 
           emit();
           break;
         }
+        case 'equation': {
+          // 자리 표시 도형 → 후처리에서 mc:AlternateContent(a14:m OMML + 대체 그림)로 교체
+          const marker = `${KEEP_PREFIX}${o.id}`;
+          let png: Uint8Array | null = null;
+          try {
+            png = opts.renderEquationPng ? await opts.renderEquationPng(o) : null;
+          } catch {
+            png = null;
+          }
+          try {
+            plan.markers.set(marker, { xml: equationShapeXml(o, { id: 0, withImage: !!png }), part: '', label: '수식', generated: { images: png ? { [EQ_IMAGE_RID]: png } : {} } });
+          } catch (e) {
+            warn(`수식을 저장하지 못했습니다: ${(e as Error).message}`);
+            break;
+          }
+          slide.addShape('rect' as PptxGenJS.ShapeType, { ...pos, flipH: undefined, flipV: undefined, objectName: marker });
+          emit();
+          break;
+        }
         case 'unsupported': {
           // 자리 표시 도형: 후처리에서 원본 XML로 교체된다 (위치/크기/회전은 이 도형에서 읽음)
           const marker = `${KEEP_PREFIX}${o.id}`;
@@ -528,7 +550,16 @@ export async function exportPptxBlob(doc: Presentation): Promise<{ blob: Blob; w
       if (plan.fonts.length) fontWarnings.push(`글꼴 ${plan.fonts.length}개(${plan.fonts.map((f) => f.typeface).join(', ')})를 파일에 포함했습니다 (${(plan.bytes / 1024 / 1024).toFixed(1)}MB).`);
     }
   }
-  const { bytes, warnings } = await exportPptxBytes(doc, { rasterizeGradient: browserGradientRasterizer, cropImage: browserImageCropper, sourcePackage, loadMedia, embeddedFonts });
+  // 수식의 대체 그림 (수식을 모르는 프로그램용)
+  const hasEquations = doc.slides.some((s) => s.objects.some((o) => o.type === 'equation'));
+  const eqRenderer = hasEquations ? (await import('./rasterize')).createObjectRenderer(doc) : null;
+  let result: { bytes: Uint8Array; warnings: string[] };
+  try {
+    result = await exportPptxBytes(doc, { rasterizeGradient: browserGradientRasterizer, cropImage: browserImageCropper, sourcePackage, loadMedia, embeddedFonts, renderEquationPng: eqRenderer ? (o) => eqRenderer.png(o) : undefined });
+  } finally {
+    eqRenderer?.destroy();
+  }
+  const { bytes, warnings } = result;
   warnings.push(...fontWarnings);
   const blob = new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
   return { blob, warnings };

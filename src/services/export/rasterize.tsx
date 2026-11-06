@@ -6,9 +6,10 @@
 import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { domToCanvas, waitUntilLoad } from 'modern-screenshot';
-import type { Presentation, Slide } from '../../types/model';
+import type { Presentation, Slide, SlideObject } from '../../types/model';
 import type { Frame } from '../../engines/animation/effects';
 import { SlideView } from '../../engines/rendering/SlideView';
+import { ObjectView } from '../../engines/rendering/ObjectView';
 import { loadAssetUrl } from '../../hooks/useAssetUrl';
 import { FontEmbedder } from './fontEmbed';
 import type { ReactNode } from 'react';
@@ -18,7 +19,8 @@ const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()
 export interface CaptureOptions {
   /** 슬라이드 원본 크기 대비 배율 (1 = 슬라이드 크기 px) */
   scale?: number;
-  background?: string;
+  /** 배경색 (null = 투명) */
+  background?: string | null;
 }
 
 export class SlideRasterizer {
@@ -27,7 +29,7 @@ export class SlideRasterizer {
   readonly fonts = new FontEmbedder();
   private fontCss = new Map<string, string>();
 
-  constructor(private doc: Presentation) {
+  constructor(private doc: Pick<Presentation, 'size' | 'theme' | 'assets' | 'layouts' | 'master'>) {
     this.host = document.createElement('div');
     this.host.className = 'sl-raster-host';
     this.host.setAttribute('aria-hidden', 'true');
@@ -67,7 +69,7 @@ export class SlideRasterizer {
   }
 
   /** 지금 그려진 내용을 canvas로 */
-  async capture(opts: CaptureOptions = {}, fontKey?: string): Promise<HTMLCanvasElement> {
+  async capture(opts: CaptureOptions = {}, fontKey?: string, size?: { width: number; height: number }): Promise<HTMLCanvasElement> {
     const node = this.node;
     let css = fontKey ? this.fontCss.get(fontKey) : undefined;
     if (css === undefined) {
@@ -75,10 +77,10 @@ export class SlideRasterizer {
       if (fontKey) this.fontCss.set(fontKey, css);
     }
     return domToCanvas(node, {
-      width: this.doc.size.width,
-      height: this.doc.size.height,
+      width: size?.width ?? this.doc.size.width,
+      height: size?.height ?? this.doc.size.height,
       scale: opts.scale ?? 1,
-      backgroundColor: opts.background ?? '#ffffff',
+      backgroundColor: opts.background === undefined ? '#ffffff' : opts.background,
       font: { cssText: css },
       timeout: 15000,
     });
@@ -92,4 +94,27 @@ export class SlideRasterizer {
 
 export function canvasToBlob(canvas: HTMLCanvasElement, type: 'image/png' | 'image/jpeg', quality = 0.92): Promise<Blob> {
   return new Promise((ok, bad) => canvas.toBlob((b) => (b ? ok(b) : bad(new Error('그림을 만들지 못했습니다.'))), type, quality));
+}
+
+/** 개체 하나만 투명 배경 그림으로 (PPTX 수식의 대체 그림 등). 여러 개를 그릴 때 하나로 재사용 */
+export function createObjectRenderer(doc: Presentation) {
+  let r: SlideRasterizer | null = null;
+  return {
+    async png(o: SlideObject, scale = 2): Promise<Uint8Array> {
+      r ??= new SlideRasterizer(doc);
+      const local = { ...o, x: 0, y: 0, rotation: 0 } as SlideObject;
+      const content = (
+        <div style={{ position: 'relative', width: o.width, height: o.height }}>
+          <ObjectView obj={local} assets={doc.assets} theme={doc.theme} mode="thumb" />
+        </div>
+      );
+      await r.render({ id: 'object', objects: [local], notes: '', layout: '' } as unknown as Slide, undefined, content);
+      const canvas = await r.capture({ scale, background: null }, undefined, { width: Math.ceil(o.width), height: Math.ceil(o.height) });
+      return new Uint8Array(await (await canvasToBlob(canvas, 'image/png')).arrayBuffer());
+    },
+    destroy() {
+      r?.destroy();
+      r = null;
+    },
+  };
 }

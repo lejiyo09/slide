@@ -16,7 +16,7 @@ import { fillToCss } from '../../engines/rendering/ObjectView';
 const pxToCm = (px: number) => round((px / 96) * 2.54, 2);
 const cmToPx = (cm: number) => (cm / 2.54) * 96;
 
-const TYPE_NAMES: Record<SlideObject['type'], string> = { text: '텍스트 상자', shape: '도형', line: '선', image: '그림', group: '그룹', table: '표', chart: '차트', media: '미디어', unsupported: '보존된 개체' };
+const TYPE_NAMES: Record<SlideObject['type'], string> = { text: '텍스트 상자', shape: '도형', line: '선', image: '그림', group: '그룹', table: '표', chart: '차트', media: '미디어', equation: '수식', unsupported: '보존된 개체' };
 
 /** 선택된 개체에 적용 (하나의 실행 취소 단계) */
 function edit(label: string, fn: (o: SlideObject) => void) {
@@ -157,6 +157,28 @@ function ObjectProps({ objs }: { objs: SlideObject[] }) {
         </Section>
       )}
       {single && o.type === 'image' && <ImageSection obj={o} />}
+      {single && o.type === 'equation' && (
+        <Section title="수식">
+          <Row label="LaTeX">
+            <button type="button" className="btn btn-sm" onClick={() => useEditor.getState().set({ equationEditorId: o.id })} data-eq-edit="">
+              수식 편집…
+            </button>
+          </Row>
+          <Row label="크기(pt)">
+            <input className="pp-input" type="number" min={8} max={200} key={`${o.id}-${o.fontSize}`} defaultValue={o.fontSize} onKeyDown={(e) => e.stopPropagation()} onBlur={(e) => Number(e.target.value) !== o.fontSize && edit('수식 크기', (x) => x.type === 'equation' && void (x.fontSize = Math.max(8, Math.min(200, Number(e.target.value) || x.fontSize))))} />
+          </Row>
+          <Row label="색">
+            <input type="color" value={o.color} onChange={(e) => edit('수식 색', (x) => x.type === 'equation' && void (x.color = e.target.value))} />
+          </Row>
+          <Row label="맞춤">
+            <select className="pp-select" value={o.align} onChange={(e) => edit('수식 맞춤', (x) => x.type === 'equation' && void (x.align = e.target.value as 'left'))}>
+              <option value="left">왼쪽</option>
+              <option value="center">가운데</option>
+              <option value="right">오른쪽</option>
+            </select>
+          </Row>
+        </Section>
+      )}
       <Section title="크기 및 위치">
         <div className="pp-grid2">
           <NumberField label="너비" unit="cm" step={0.1} value={pxToCm(o.width)} onChange={(v) => edit('크기', (x) => C.resizeGroup(x, Math.max(1, cmToPx(v)), x.height))} />

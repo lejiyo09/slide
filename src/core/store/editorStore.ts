@@ -73,6 +73,8 @@ export interface EditorState {
   aiPane: null | 'create' | 'refine' | 'design' | 'image';
   /** 글꼴 대화 상자: 관리 / 추가(파일 선택 바로 열기) / 글꼴 바꾸기 */
   fontDialog: null | 'manage' | 'add' | 'replace';
+  /** 수식 편집 창: 개체 ID 또는 'new' */
+  equationEditorId: string | null;
   /** 현재 리본 탭 (애니메이션 번호 배지 표시 판단) */
   ribbonTab: string;
   /** 애니메이션 창에서 선택한 효과 */
@@ -161,6 +163,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
   animPaneOpen: false,
   aiPane: null,
   fontDialog: null,
+  equationEditorId: null,
   ribbonTab: 'home',
   selectedAnimIds: [],
   preview: null,

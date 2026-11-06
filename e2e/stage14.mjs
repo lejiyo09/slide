@@ -51,10 +51,10 @@ const download = async (trigger, name) => {
 };
 
 /** 두 그림(파일 경로)의 평균 픽셀 차이 (0~255) — 브라우저에서 계산 */
-async function imageDiff(a, b) {
+async function imageDiff(a, b, crop = null) {
   const toUrl = (p) => `data:image/png;base64,${readFileSync(p).toString('base64')}`;
   return page.evaluate(
-    async ([u1, u2]) => {
+    async ([u1, u2, crop]) => {
       const load = (u) => new Promise((ok, bad) => Object.assign(new Image(), { onload() { ok(this); }, onerror: bad, src: u }));
       const [i1, i2] = await Promise.all([load(u1), load(u2)]);
       const w = 320, h = Math.round((320 * i1.height) / i1.width);
@@ -63,7 +63,10 @@ async function imageDiff(a, b) {
         c.width = w;
         c.height = h;
         const g = c.getContext('2d');
-        g.drawImage(img, 0, 0, w, h);
+        if (crop) {
+          const k = img.width / 1280; // 슬라이드 px → 그림 px
+          g.drawImage(img, crop.x * k, crop.y * k, crop.w * k, crop.h * k, 0, 0, w, h);
+        } else g.drawImage(img, 0, 0, w, h);
         return g.getImageData(0, 0, w, h).data;
       };
       const p1 = px(i1), p2 = px(i2);
@@ -71,7 +74,7 @@ async function imageDiff(a, b) {
       for (let i = 0; i < p1.length; i += 4) sum += (Math.abs(p1[i] - p2[i]) + Math.abs(p1[i + 1] - p2[i + 1]) + Math.abs(p1[i + 2] - p2[i + 2])) / 3;
       return { diff: sum / (w * h), size: [i1.width, i1.height, i2.width, i2.height] };
     },
-    [toUrl(a), toUrl(b)],
+    [toUrl(a), toUrl(b), crop],
   );
 }
 
@@ -278,6 +281,102 @@ try {
     check('MP4: 854×480, 기록 무시 → 2초 + 1초 + 2초', p2.format.format_name.includes('mp4') && v2.width === 854 && v2.height === 480 && Math.abs(Number(p2.format.duration) - 5) < 0.15 && !p2.streams.some((x) => x.codec_type === 'audio'), `${p2.format.format_name} ${v2.codec_name} ${v2.width}×${v2.height} ${p2.format.duration}s`);
     check('결과 안내', (await page.locator('[data-video-result]').textContent()).includes('854×480'));
     await closeBackstage();
+  }
+
+  if (want('equation')) {
+    /* ───── 수식 ───── */
+    await closeBackstage();
+    await page.evaluate(() => {
+      const st = window.__SLIDELAB__.getState();
+      // 앞 단계(비디오)의 나타내기 애니메이션은 쇼 화면 비교에 방해 → 제거
+      st.commit('애니메이션 제거', (d) => void (d.slides[0].animations = []));
+      st.set({ activeSlideId: st.doc.slides[0].id, selectedSlideIds: [st.doc.slides[0].id] });
+    });
+    await page.locator('.tab', { hasText: '삽입' }).click();
+    await page.locator('.rb', { hasText: '수식' }).click();
+    await page.waitForSelector('[data-eq-preview] math');
+    await page.locator('[data-eq-gallery]').selectOption({ label: '근의 공식' });
+    await page.waitForFunction(() => !!document.querySelector('[data-eq-preview] math mfrac msqrt'));
+    check('수식 창: 갤러리 → 미리 보기(MathML)', true);
+    await page.locator('[data-eq-latex]').fill('\\frac{a}{');
+    await page.waitForSelector('[data-eq-error]');
+    check('잘못된 LaTeX → 오류 표시', (await page.locator('[data-eq-error]').textContent()).length > 5);
+    await page.locator('[data-eq-latex]').fill('E=mc^{2}+\\sum_{i=1}^{n} \\frac{a_i}{\\sqrt{b}}');
+    await page.locator('[data-eq-size]').fill('36');
+    await page.waitForFunction(() => !!document.querySelector('[data-eq-preview] math munderover'));
+    await page.locator('.dialog .btn.primary', { hasText: '확인' }).click();
+    const eqObj = () => page.evaluate(() => window.__SLIDELAB__.getState().doc.slides[0].objects.find((o) => o.type === 'equation'));
+    let eq = await eqObj();
+    check('수식 삽입 (LaTeX·MathML·크기 36pt, 내용에 맞춘 상자)', eq && eq.latex.startsWith('E=mc^{2}') && eq.mathml.includes('<munderover>') && eq.fontSize === 36 && eq.width > 150 && eq.height > 40, eq && `${Math.round(eq.width)}×${Math.round(eq.height)}`);
+    await page.waitForFunction((id) => !!document.querySelector(`[data-testid="slide-stage"] [data-obj-id="${id}"] math`), eq.id);
+    check('편집 화면에 수식 표시 + 수식 글꼴(STIX Two Math)', await page.evaluate(() => document.fonts.check('20px "STIX Two Math"') && [...document.fonts].some((f) => f.family === 'STIX Two Math' && f.status === 'loaded')));
+    // 더블클릭 → 편집
+    const box = await page.locator(`[data-testid="slide-stage"] [data-obj-id="${eq.id}"]`).boundingBox();
+    await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForSelector('[data-equation-dialog]');
+    check('더블클릭 → 수식 편집 (기존 LaTeX)', (await page.locator('[data-eq-latex]').inputValue()).startsWith('E=mc^{2}'));
+    await page.locator('[data-eq-latex]').fill('E=mc^{2}');
+    await page.locator('[data-eq-latex]').press('Control+Enter');
+    eq = await eqObj();
+    check('Ctrl+Enter로 편집 적용', eq.latex === 'E=mc^{2}' && !eq.mathml.includes('munderover'));
+    await page.keyboard.press('Control+z');
+    eq = await eqObj();
+    check('실행 취소 → 이전 수식', eq.latex.startsWith('E=mc^{2}+\\sum'));
+    await page.screenshot({ path: `${OUT}/s14-equation.png` });
+    // 그림 내보내기 = 화면 (MathML도 그림으로)
+    await page.keyboard.press('Shift+F5');
+    await page.waitForSelector('.slideshow .show-stage');
+    await page.waitForTimeout(800);
+    const sbox = await page.locator('.show-stage').first().boundingBox();
+    await page.screenshot({ path: `${OUT}/s14-ref-eq.png`, clip: sbox });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !window.__SLIDELAB__.getState().slideshow);
+    await openExport();
+    await page.locator('[data-export-image] select[aria-label="내보낼 슬라이드"]').selectOption('current');
+    await page.locator('[data-export-image] select[aria-label="그림 형식"]').selectOption('png');
+    await page.locator('[data-export-image] select[aria-label="해상도"]').selectOption('1');
+    const eqPng = await download(() => page.locator('[data-export-image-go]').click(), 's14-img-eq.png');
+    // 수식 영역만 비교: 화면과는 같고, 수식이 없는 같은 슬라이드 그림과는 달라야 함
+    const crop = { x: eq.x, y: eq.y, w: eq.width, h: eq.height };
+    const d = await imageDiff(eqPng.path, `${OUT}/s14-ref-eq.png`, crop);
+    const without = await imageDiff(eqPng.path, `${OUT}/s14-img-0.png`, crop);
+    check('그림 내보내기에 수식이 화면과 같게 그려짐', d.diff < 8 && without.diff > d.diff * 3, `화면과 ${d.diff.toFixed(2)} / 수식 없는 그림과 ${without.diff.toFixed(2)}`);
+    // PPTX: a14:m + 대체 그림
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('.bs-export-item', { hasText: 'PowerPoint' }).click()]);
+    await dl.saveAs(`${OUT}/s14-equation.pptx`);
+    const z = await JSZip.loadAsync(readFileSync(`${OUT}/s14-equation.pptx`));
+    const sx = await z.file('ppt/slides/slide1.xml').async('string');
+    check('PPTX: a14:m(OMML) + 대체 그림', /<a14:m><m:oMathPara[\s\S]*<m:nary>[\s\S]*<m:f>[\s\S]*<m:rad>/.test(sx) && /<mc:Fallback><p:sp>[\s\S]*<a:blip r:embed=/.test(sx));
+    const media = Object.keys(z.files).find((n) => /ppt\/media\/slGen\d+\.png$/.test(n));
+    const pngBytes = await z.file(media).async('nodebuffer');
+    writeFileSync(`${OUT}/s14-eq-fallback.png`, pngBytes);
+    const alpha = await page.evaluate(async (b64) => {
+      const img = await new Promise((ok) => Object.assign(new Image(), { onload() { ok(this); }, src: `data:image/png;base64,${b64}` }));
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0);
+      const px = g.getImageData(0, 0, c.width, c.height).data;
+      let ink = 0, clear = 0;
+      for (let i = 3; i < px.length; i += 4) px[i] > 128 ? ink++ : px[i] === 0 && clear++;
+      return { w: img.width, h: img.height, ink, clear };
+    }, pngBytes.toString('base64'));
+    check('대체 그림: 2배 해상도, 투명 배경 위 수식', alpha.w >= eq.width * 2 - 2 && alpha.ink > 300 && alpha.clear > alpha.ink, JSON.stringify(alpha));
+    await closeBackstage();
+    // LibreOffice가 만든 수식 PPTX 가져오기
+    const lo = readFileSync('src/services/math/__fixtures__/lo-equations.pptx').toString('base64');
+    await page.evaluate(async (b) => {
+      const bin = Uint8Array.from(atob(b), (c) => c.charCodeAt(0));
+      const dt = new DataTransfer();
+      dt.items.add(new File([bin], 'lo-equations.pptx', { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }));
+      document.querySelector('.app').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    }, lo);
+    await page.waitForFunction(() => window.__SLIDELAB__.getState().doc.title === 'lo-equations', null, { timeout: 15000 });
+    await page.locator('.dialog .btn.primary').click().catch(() => {});
+    const n = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides.filter((s) => s.objects[0]?.type === 'equation').length);
+    await page.waitForFunction(() => !!document.querySelector('[data-testid="slide-stage"] math mfrac'));
+    check('LibreOffice PPTX의 수식 12개 → 편집 가능한 수식', n === 12);
   }
 
   check('콘솔/페이지 오류 없음', errors.length === 0, errors.slice(0, 3).join(' | '));

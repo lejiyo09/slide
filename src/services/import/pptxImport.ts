@@ -12,7 +12,7 @@
 import type {
   BulletType, CustomGeometry, Fill, GroupObject, HAlign, ImageObject, LayoutDef, LineObject, Paragraph, PathCommand, Presentation,
   Section, ShapeKind, ShapeObject, Slide, SlideObject, Stroke, TextBody, TextObject, TextRun, Theme, UnsupportedKind, UnsupportedObject, VAlign,
-  TableObject, TableCell, CellBorders, ChartObject, ChartType, MediaObject, MasterSlide, PlaceholderType, SlideTransition, Animation,
+  TableObject, TableCell, CellBorders, ChartObject, ChartType, MediaObject, MasterSlide, PlaceholderType, SlideTransition, Animation, EquationObject,
 } from '../../types/model';
 import type { Rel } from './ooxml';
 import { contentFingerprint, mediaPlaybackSignature } from '../../core/document/fingerprint';
@@ -29,6 +29,8 @@ export { summarizeReport } from './report';
 export type { ImportReport } from './report';
 import type { ImportReport } from './report';
 import { decodeEmbeddedFont, FONT_SLOTS, type ImportedEmbeddedFont } from '../fonts/embed';
+import { ommlToLatex, tidyLatex } from '../math/omml';
+import { latexToMathml } from '../math/equation';
 
 export interface ImportResult {
   doc: Presentation;
@@ -927,6 +929,10 @@ async function parseSpTree(tree: Element | null, ctx: ShapeCtx, skipPlaceholders
 async function parseElement(el: Element, ctx: ShapeCtx, skipPlaceholders: boolean, tf: Xform, groupFill?: Fill): Promise<SlideObject | null> {
   switch (el.localName) {
     case 'sp':
+      if (descendants(el, 'oMath').length && !path(el, 'nvSpPr', 'nvPr', 'ph')) {
+        const eq = parseEquation(el, ctx, tf);
+        if (eq) return eq;
+      }
       return parseSp(el, ctx, skipPlaceholders, tf, groupFill);
     case 'cxnSp':
       return parseConnector(el, ctx, tf);
@@ -937,6 +943,14 @@ async function parseElement(el: Element, ctx: ShapeCtx, skipPlaceholders: boolea
     case 'graphicFrame':
       return parseGraphicFrame(el, ctx, tf);
     case 'AlternateContent': {
+      // 수식(a14:m)은 Choice에서 편집할 수 있는 수식으로
+      const choice = kid(el, 'Choice');
+      if (choice && descendants(choice, 'oMath').length) {
+        for (const c of kids(choice)) {
+          const eq = c.localName === 'sp' ? parseEquation(c, ctx, tf) : null;
+          if (eq) return eq;
+        }
+      }
       // 호환 대체 콘텐츠: Fallback(가장 호환성 높은 표현)을 사용
       const fb = kid(el, 'Fallback') ?? kid(el, 'Choice');
       for (const c of kids(fb)) {
@@ -955,6 +969,68 @@ async function parseElement(el: Element, ctx: ShapeCtx, skipPlaceholders: boolea
       ctx.report.warnings.push(`알 수 없는 요소 '${el.localName}'를 원본 그대로 보존했습니다.`);
       return unsupported(el, 'other', el.localName, ctx, tf, null);
   }
+}
+
+/** 수식이 든 텍스트 상자 → 수식 개체 (문단 안의 보통 글자는 \text{}로) */
+function parseEquation(sp: Element, ctx: ShapeCtx, tf: Xform): EquationObject | null {
+  const geo = readXfrm(path(sp, 'spPr', 'xfrm'), tf);
+  if (!geo) return null;
+  const base = baseProps(sp, 'nvSpPr', ctx);
+  const paras = descendants(sp, 'p').filter((p) => p.namespaceURI === NS.a);
+  const lines: string[] = [];
+  const mathEls: Element[] = [];
+  let plainText = false;
+  let align: EquationObject['align'] = 'center';
+  for (const p of paras) {
+    let line = '';
+    const algn = path(p, 'pPr')?.getAttribute('algn');
+    if (algn === 'l') align = 'left';
+    else if (algn === 'r') align = 'right';
+    for (const c of kids(p)) {
+      if (c.localName === 'r') {
+        const t = kid(c, 't')?.textContent ?? '';
+        if (t.trim()) {
+          line += `\\text{${t.replace(/[\\{}]/g, (x) => `\\${x}`)}}`;
+          plainText = true;
+        }
+      } else if (c.localName === 'm') {
+        for (const m of kids(c)) {
+          if (m.localName !== 'oMathPara' && m.localName !== 'oMath') continue;
+          mathEls.push(m);
+          const jc = path(m, 'oMathParaPr', 'jc')?.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/math', 'val');
+          if (jc === 'left') align = 'left';
+          else if (jc === 'right') align = 'right';
+          line += ommlToLatex(m);
+        }
+      }
+    }
+    if (line.trim()) lines.push(line);
+  }
+  if (!mathEls.length) return null;
+  const latex = tidyLatex(lines.join(' \\\\ '));
+  const { mathml, error } = latexToMathml(latex);
+  if (error) ctx.report.warnings.push(`수식 일부를 해석하지 못했습니다 (${base.name || '수식'}): ${error}`);
+  const firstRun = descendants(sp, 'rPr').find((r) => r.namespaceURI === NS.a) ?? descendants(sp, 'endParaRPr')[0];
+  const sz = numAttr(firstRun ?? null, 'sz');
+  const color = resolveColor(kid(firstRun ?? null, 'solidFill'), ctx.color)?.hex ?? '#000000';
+  return {
+    id: newId(),
+    type: 'equation',
+    name: base.name || '수식',
+    sourceId: base.sourceId,
+    x: geo.x,
+    y: geo.y,
+    width: Math.max(1, geo.width),
+    height: Math.max(1, geo.height),
+    rotation: geo.rotation,
+    latex,
+    mathml,
+    fontSize: sz ? sz / 100 : 18,
+    color,
+    align,
+    // 수식 하나만 있으면 원본 OMML을 보관 (바꾸지 않으면 그대로 저장)
+    ...(mathEls.length === 1 && !plainText ? { sourceOmml: { xml: new XMLSerializer().serializeToString(mathEls[0]), latex } } : {}),
+  };
 }
 
 function baseProps(el: Element, nvName: string, ctx?: ShapeCtx) {

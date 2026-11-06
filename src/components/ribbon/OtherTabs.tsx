@@ -2,6 +2,7 @@ import {
   Image as ImageIcon, Type, Plus, FileImage, Monitor, LayoutGrid, Square, Grid3x3, Ruler, Magnet,
   NotebookPen, ZoomIn, ZoomOut, Maximize, Moon, Sun, Ratio, Palette, PaintBucket, History, Save, Shapes,
   Table2, BarChart3, Smile, Link2, Film, Volume2, LayoutTemplate, Type as TypeIcon, Settings2, PanelsTopLeft, Sparkles,
+  Sigma,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import * as M from '../../core/commands/masterActions';
@@ -93,7 +94,10 @@ export function InsertTab() {
       <RibbonGroup label="텍스트">
         <RibbonButton size="large" icon={<Type size={26} />} label="텍스트 상자" title="텍스트 상자 그리기 (클릭 또는 드래그)" onClick={() => set({ insertTool: { kind: 'text' } })} />
       </RibbonGroup>
-      <PlannedGroup label="기호 · 3D" stage="14단계" items={['수식', '3D 모델(확장 인터페이스)']} />
+      <RibbonGroup label="기호">
+        <RibbonButton size="large" icon={<Sigma size={26} />} label="수식" title="수식 삽입 (LaTeX 입력, PowerPoint 수식으로 저장)" onClick={() => set({ equationEditorId: 'new' })} />
+      </RibbonGroup>
+      <PlannedGroup label="3D" stage="14단계" items={['3D 모델(확장 인터페이스)']} />
       <RibbonGroup label="미디어">
         <RibbonButton size="large" icon={<Film size={26} />} label="비디오" title="이 디바이스의 비디오 삽입 (MP4, WebM)" onClick={() => void pickAndInsertMedia('video')} />
         <RibbonButton size="large" icon={<Volume2 size={26} />} label="오디오" title="이 디바이스의 오디오 삽입 (MP3, M4A, WAV)" onClick={() => void pickAndInsertMedia('audio')} />

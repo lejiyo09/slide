@@ -4068,3 +4068,89 @@ button.bs-export-item:hover:not(:disabled) {
     break-after: auto;
   }
 }
+
+/* ───────────── 수식 ───────────── */
+.sl-eq {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  line-height: normal;
+  white-space: nowrap;
+}
+.sl-eq math {
+  font-family: inherit;
+  font-size: 1em;
+}
+.sl-eq math[display='block'] {
+  display: math;
+  margin: 0;
+}
+.eq-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(720px, 86vw);
+}
+.eq-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+}
+.eq-group {
+  display: inline-flex;
+  gap: 2px;
+}
+.eq-symbols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.eq-sym {
+  min-width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  border-radius: 3px;
+  font-family: 'STIX Two Math', 'Cambria Math', serif;
+  font-size: 15px;
+}
+.eq-sym:hover {
+  border-color: var(--accent);
+}
+.eq-input {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+.eq-input textarea {
+  font: 13px/1.5 ui-monospace, Consolas, monospace;
+  resize: vertical;
+}
+.eq-preview {
+  display: flex;
+  align-items: center;
+  min-height: 90px;
+  max-height: 300px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  padding: 8px;
+}
+.eq-measure math {
+  display: math;
+  font-family: inherit;
+}
+.eq-format {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12.5px;
+  align-items: center;
+}
+.eq-format input[type='number'] {
+  width: 64px;
+}

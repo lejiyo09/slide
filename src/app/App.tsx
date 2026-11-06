@@ -8,6 +8,7 @@ import { MasterPanel } from '../components/sidebar/MasterPanel';
 import { AIPane } from '../components/ai/AIPane';
 import { useDocFonts } from '../hooks/useDocFonts';
 import { FontDialogs, addFontsFromFiles } from '../components/dialogs/FontDialogs';
+import { EquationDialogHost } from '../components/dialogs/EquationDialog';
 import { AnimationPane } from '../components/properties/AnimationPane';
 import { EditorCanvas } from '../components/canvas/EditorCanvas';
 import { PropertiesPanel } from '../components/properties/PropertiesPanel';
@@ -132,6 +133,7 @@ export function App() {
       <ChartDataEditor />
       {linkDialog && <LinkDialog onClose={() => setLinkDialog(false)} />}
       <FontDialogs />
+      <EquationDialogHost />
       <Toasts />
       <PwaPrompt />
     </div>

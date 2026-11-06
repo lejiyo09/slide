@@ -8,6 +8,10 @@
  */
 import { isWebFont, webFontByFamily, webFontCssUrl } from '../fonts/catalog';
 import { fontStatus, selfHostedWebFonts, userFontRecords } from '../fonts/library';
+import { MATH_FONT_FAMILY, MATH_FONT_URL } from '../../engines/rendering/mathFont';
+
+/** 앱에 들어 있는 글꼴 (수식 글꼴) */
+const APP_FONTS: Record<string, string> = { [MATH_FONT_FAMILY.toLowerCase()]: MATH_FONT_URL };
 
 const GENERIC = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'emoji', 'math', 'fangsong', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'inherit', 'initial']);
 
@@ -19,6 +23,13 @@ export function familyList(css: string): string[] {
     .filter((s) => s && !GENERIC.has(s.toLowerCase()));
 }
 
+/** 문서에 등록된(스타일시트 또는 FontFace) 글꼴인지 */
+function registered(family: string): boolean {
+  const low = family.toLowerCase();
+  for (const f of document.fonts) if (f.family.replace(/^["']|["']$/g, '').toLowerCase() === low) return true;
+  return false;
+}
+
 /**
  * 대체 글꼴 목록에서 실제로 그려질 글꼴: 내 글꼴·웹 글꼴이면 그것을 넣고 멈춤,
  * 이 컴퓨터에 설치된 글꼴이면(그림 안에서도 그대로 쓰임) 멈춤, 없으면 다음 후보
@@ -26,10 +37,22 @@ export function familyList(css: string): string[] {
 export function effectiveFamilies(families: string[]): string[] {
   const out: string[] = [];
   for (const f of families) {
-    const st = fontStatus(f);
-    if (st.source === 'user' || (st.source === 'web' && st.available)) {
+    if (APP_FONTS[f.toLowerCase()]) {
       out.push(f);
       break;
+    }
+    const st = fontStatus(f);
+    if (st.source === 'user') {
+      out.push(f);
+      break;
+    }
+    // 웹 글꼴은 화면에서 실제로 불러온 경우에만 (안 불러온 대체 글꼴 후보는 화면에서도 건너뜀)
+    if (st.source === 'web') {
+      if (registered(f)) {
+        out.push(f);
+        break;
+      }
+      continue;
     }
     if (st.available) break;
   }
@@ -143,6 +166,11 @@ export class FontEmbedder {
     const used = collectText(root);
     if (!used.size) return '';
     const parts: string[] = [];
+    // 앱 글꼴 (수식)
+    for (const low of used.keys()) {
+      const url = APP_FONTS[low];
+      if (url) parts.push(`@font-face{font-family:"${MATH_FONT_FAMILY}";src:url("${await this.fetchDataUrl(new URL(url, location.href).href)}") format("woff2");}`);
+    }
     // 내 글꼴
     const recs = await userFontRecords([...used.keys()]);
     const covered = new Set<string>();

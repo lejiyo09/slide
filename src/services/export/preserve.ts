@@ -16,6 +16,8 @@ export interface PreservedXml {
   xml: string;
   part: string;
   label: string;
+  /** SlideLab이 만든 XML (원본 패키지 없이 씀): 그림 자리(r:embed 값) → PNG 바이트 */
+  generated?: { images: Record<string, Uint8Array> };
 }
 import { NS, OoxmlPackage, kid, kids, path, relativePath, relsPathFor } from '../import/ooxml';
 
@@ -66,6 +68,14 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
     o.setAttribute('PartName', `/${newPath}`);
     o.setAttribute('ContentType', ct);
     ctRoot.appendChild(o);
+  };
+
+  const ensureDefault = (ext: string, type: string) => {
+    if (kids(ctRoot).some((c) => c.localName === 'Default' && c.getAttribute('Extension')?.toLowerCase() === ext)) return;
+    const d = ctDoc.createElementNS(NS.ct, 'Default');
+    d.setAttribute('Extension', ext);
+    d.setAttribute('ContentType', type);
+    ctRoot.insertBefore(d, kids(ctRoot).find((x) => x.localName === 'Override') ?? null);
   };
 
   /** 원본 파트를 새 패키지로 복사(관계 포함, 재귀). 새 경로 반환 */
@@ -166,6 +176,33 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
       const name = c?.getAttribute('name') ?? '';
       if (!name.startsWith(KEEP_PREFIX)) continue;
       const obj = plan.markers.get(name);
+      if (obj?.generated) {
+        // 수식 등 직접 만든 XML: 위치·크기는 XML에 이미 들어 있음, 그림만 새 미디어 파트로
+        const node = sdoc.importNode(parse(obj.xml).documentElement, true) as Element;
+        const id = c?.getAttribute('id') ?? String(freshId++);
+        // Choice와 Fallback의 도형은 같은 도형이므로 같은 ID (PowerPoint·LibreOffice와 같음)
+        for (const n of Array.from(node.getElementsByTagNameNS(NS.p, 'cNvPr'))) n.setAttribute('id', id);
+        for (const blip of Array.from(node.getElementsByTagNameNS(NS.a, 'blip'))) {
+          const key = blip.getAttributeNS(NS.r, 'embed') ?? '';
+          const png = obj.generated.images[key];
+          if (!png) continue;
+          let media: string;
+          do media = `ppt/media/slGen${++counter}.png`;
+          while (out.file(media));
+          out.file(media, png);
+          const rid = `rIdSL${++relSeq}`;
+          const relEl = rdoc.createElementNS(NS.pr, 'Relationship');
+          relEl.setAttribute('Id', rid);
+          relEl.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
+          relEl.setAttribute('Target', relativePath(slidePath, media));
+          rdoc.documentElement.appendChild(relEl);
+          blip.setAttributeNS(NS.r, 'r:embed', rid);
+          ensureDefault('png', 'image/png');
+        }
+        spTree.replaceChild(node, marker);
+        if (elementAt) elementAt[elementAt.indexOf(marker)] = node;
+        continue;
+      }
       if (!obj || !source) {
         warn('원본 PPTX 패키지를 찾을 수 없어 보존된 개체(표·차트 등)를 저장하지 못했습니다. 원본 파일을 다시 가져오세요.');
         spTree.removeChild(marker);

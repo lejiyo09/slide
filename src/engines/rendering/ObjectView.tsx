@@ -1,5 +1,5 @@
-import { createContext, memo, useContext, type CSSProperties, type ReactNode } from 'react';
-import type { Asset, Fill, ImageObject, LineObject, MediaObject, Paragraph, ShapeObject, SlideObject, Stroke, TableObject, TextBody, TextObject, Theme, UnsupportedObject } from '../../types/model';
+import { createContext, memo, useContext, useMemo, type CSSProperties, type ReactNode } from 'react';
+import type { Asset, EquationObject, Fill, ImageObject, LineObject, MediaObject, Paragraph, ShapeObject, SlideObject, Stroke, TableObject, TextBody, TextObject, Theme, UnsupportedObject } from '../../types/model';
 import { ChartView } from './ChartView';
 import { useAssetUrl } from '../../hooks/useAssetUrl';
 import { DEFAULT_THEME } from '../../themes/themes';
@@ -11,6 +11,8 @@ import { resolveTokensDeep } from '../../utils/themeColor';
 import { patternDataUrl } from './patterns';
 import { frameToCss } from '../animation/timeline';
 import type { Frame } from '../animation/effects';
+import { sanitizeMathml } from '../../services/math/omml';
+import { ensureMathFont, MATH_FONT_STACK } from './mathFont';
 
 export type Assets = Record<string, Asset>;
 
@@ -250,6 +252,9 @@ export const ObjectView = memo(function ObjectView({ obj: raw, assets, theme, ed
     case 'media':
       content = <MediaContent obj={obj} assets={assets} mode={mode ?? (interactive ? 'edit' : 'thumb')} />;
       break;
+    case 'equation':
+      content = <EquationContent obj={obj} />;
+      break;
     case 'unsupported':
       content = <UnsupportedContent obj={obj} />;
       break;
@@ -258,6 +263,19 @@ export const ObjectView = memo(function ObjectView({ obj: raw, assets, theme, ed
     <div className={`sl-obj sl-obj-${obj.type}`} style={style} data-obj-id={interactive || tagId ? obj.id : undefined} data-link={obj.link || undefined}>
       {content}
     </div>
+  );
+});
+
+/** 수식: 저장된 MathML을 정화해 표시 (글꼴은 STIX Two Math) */
+const EquationContent = memo(function EquationContent({ obj }: { obj: EquationObject }) {
+  ensureMathFont();
+  const html = useMemo(() => sanitizeMathml(obj.mathml), [obj.mathml]);
+  return (
+    <div
+      className="sl-eq"
+      style={{ justifyContent: obj.align === 'left' ? 'flex-start' : obj.align === 'right' ? 'flex-end' : 'center', fontSize: `${ptToPx(obj.fontSize)}px`, color: obj.color, fontFamily: MATH_FONT_STACK }}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
   );
 });
 

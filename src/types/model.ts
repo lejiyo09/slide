@@ -297,7 +297,23 @@ export interface UnsupportedObject extends BaseObject {
   preview?: TablePreview;
 }
 
-export type SlideObject = TextObject | ShapeObject | LineObject | ImageObject | GroupObject | TableObject | ChartObject | MediaObject | UnsupportedObject;
+/* ───────────── 수식 ───────────── */
+
+/** 수식 (PowerPoint: 삽입 › 수식). LaTeX가 원본, MathML은 화면 표시용, OMML은 PPTX에서 가져온 원본(바꾸지 않았으면 그대로 저장) */
+export interface EquationObject extends BaseObject {
+  type: 'equation';
+  latex: string;
+  /** Temml이 만든 MathML (표시용, 저장 전 정화) */
+  mathml: string;
+  /** 글자 크기 pt */
+  fontSize: number;
+  color: Color;
+  align: 'left' | 'center' | 'right';
+  /** 가져온 PPTX의 원본 OMML (m:oMath / m:oMathPara)과 그때의 LaTeX — LaTeX가 같으면 원본을 그대로 저장 */
+  sourceOmml?: { xml: string; latex: string };
+}
+
+export type SlideObject = TextObject | ShapeObject | LineObject | ImageObject | GroupObject | TableObject | ChartObject | MediaObject | EquationObject | UnsupportedObject;
 export type ObjectType = SlideObject['type'];
 
 export interface SlideBackground {

@@ -1,4 +1,5 @@
 /** 청중 화면, 발표자 보기, 예행 연습/녹화 도구 모음, 별도 청중 창 */
+import { ensureMathFont } from '../../engines/rendering/mathFont';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Pause, Play, RotateCcw, Minus, Plus, MonitorUp, Mic, MicOff, Circle, Square, ArrowRight, X } from 'lucide-react';
@@ -360,6 +361,7 @@ export function AudienceWindow({ win, onClosed, children }: { win: Window; onClo
   // 글꼴은 문서마다 따로 등록되므로 청중 창에도 내 글꼴을 등록 (웹 글꼴 스타일시트는 위에서 복사됨)
   useEffect(() => {
     void import('../../services/fonts/library').then((m) => m.registerFontsIn(win.document));
+    ensureMathFont(win.document);
   }, [win]);
   useEffect(() => {
     const closed = () => onClosed();

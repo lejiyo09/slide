@@ -446,6 +446,8 @@ export function EditorCanvas() {
       }
     } else if (o.type === 'chart') {
       useEditor.getState().set({ chartEditorId: o.id });
+    } else if (o.type === 'equation') {
+      useEditor.getState().set({ equationEditorId: o.id });
     } else if (o.type === 'text' || o.type === 'shape') {
       setPendingCaretPoint({ x: e.clientX, y: e.clientY });
       useEditor.getState().setEditingText(o.id);
