@@ -251,7 +251,7 @@ function ExportPage() {
             <span className="muted">모든 편집 정보를 손실 없이 저장하는 백업 형식입니다.</span>
           </span>
         </button>
-        <div className="bs-export-item is-disabled" title="13단계에서 구현 예정">
+        <div className="bs-export-item is-disabled" title="14단계에서 구현 예정">
           <Download size={28} />
           <span>
             <strong>PDF / 이미지 — 준비 중</strong>

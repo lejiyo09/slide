@@ -1,7 +1,7 @@
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, Clipboard, Copy, Eraser, Highlighter, IndentDecrease, IndentIncrease,
   Italic, LayoutTemplate, Shapes, List, ListOrdered, Paintbrush, PaintBucket, Plus, Scissors, Strikethrough, Underline, Trash2,
-  CopyPlus, Rows3, MousePointer2, Baseline, PenLine, ArrowUpDown, AArrowUp, AArrowDown, TextCursorInput,
+  CopyPlus, Rows3, MousePointer2, Baseline, PenLine, ArrowUpDown, AArrowUp, AArrowDown, TextCursorInput, Sparkles,
 } from 'lucide-react';
 import { RibbonButton, DropdownButton, SplitButton, RibbonGroup, MenuItem, MenuSeparator } from '../common/Buttons';
 import { ColorBarIcon, ColorPanel } from '../common/ColorPicker';
@@ -23,6 +23,7 @@ export function HomeTab() {
   const editing = useEditor((s) => !!s.editingTextId);
   const hasClip = useEditor((s) => !!s.clipboard);
   const fp = useEditor((s) => s.formatPainter);
+  const aiPane = useEditor((s) => s.aiPane);
   const [lastColor, setLastColor] = useState('#C00000');
   const [lastHighlight, setLastHighlight] = useState('#FFFF00');
   const [lastFill, setLastFill] = useState<string>('#4472C4');
@@ -255,6 +256,16 @@ export function HomeTab() {
         <div className="rb-col">
           <RibbonButton icon={<MousePointer2 size={15} />} label="모두 선택" title="모두 선택" shortcut="Ctrl+A" onClick={A.selectAll} />
         </div>
+      </RibbonGroup>
+      <RibbonGroup label="AI">
+        <RibbonButton
+          size="large"
+          icon={<Sparkles size={26} />}
+          label="AI 도우미"
+          title="AI 도우미: 프레젠테이션 만들기, 요약, 발표 대본, 디자인 추천 (API 키 없이도 기본 엔진으로 동작)"
+          active={!!aiPane}
+          onClick={() => useEditor.getState().set({ aiPane: aiPane ? null : 'create' })}
+        />
       </RibbonGroup>
     </>
   );

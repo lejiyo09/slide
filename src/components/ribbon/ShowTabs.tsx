@@ -118,7 +118,7 @@ export function RecordTab() {
         <RibbonButton size="large" icon={<Volume2 size={26} />} label="오디오" title="오디오 파일 삽입" onClick={() => void pickAndInsertMedia('audio')} />
         <RibbonButton size="large" icon={<Film size={26} />} label="비디오" title="비디오 파일 삽입" onClick={() => void pickAndInsertMedia('video')} />
       </RibbonGroup>
-      <PlannedGroup label="내보내기" stage="13단계" items={['비디오로 내보내기']} />
+      <PlannedGroup label="내보내기" stage="14단계" items={['비디오로 내보내기']} />
     </>
   );
 }

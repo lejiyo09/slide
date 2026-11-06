@@ -11,10 +11,11 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "node e2e/smoke.mjs && node e2e/stage8.mjs && node e2e/stage9.mjs && node e2e/stage10.mjs && node e2e/stage11.mjs",
+    "test:e2e": "node e2e/smoke.mjs && node e2e/stage8.mjs && node e2e/stage9.mjs && node e2e/stage10.mjs && node e2e/stage11.mjs && node e2e/stage12.mjs",
     "verify:pptx": "python3 scripts/verify_pptx.py"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.1.0",
     "idb": "^8.0.4",
     "immer": "^11.2.9",
     "jszip": "^3.10.2",

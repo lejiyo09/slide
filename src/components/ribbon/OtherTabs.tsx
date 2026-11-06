@@ -1,7 +1,7 @@
 import {
   Image as ImageIcon, Type, Plus, FileImage, Monitor, LayoutGrid, Square, Grid3x3, Ruler, Magnet,
   NotebookPen, ZoomIn, ZoomOut, Maximize, Moon, Sun, Ratio, Palette, PaintBucket, History, Save, Shapes,
-  Table2, BarChart3, Smile, Link2, Film, Volume2, LayoutTemplate, Type as TypeIcon, Settings2, PanelsTopLeft,
+  Table2, BarChart3, Smile, Link2, Film, Volume2, LayoutTemplate, Type as TypeIcon, Settings2, PanelsTopLeft, Sparkles,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import * as M from '../../core/commands/masterActions';
@@ -93,7 +93,7 @@ export function InsertTab() {
       <RibbonGroup label="텍스트">
         <RibbonButton size="large" icon={<Type size={26} />} label="텍스트 상자" title="텍스트 상자 그리기 (클릭 또는 드래그)" onClick={() => set({ insertTool: { kind: 'text' } })} />
       </RibbonGroup>
-      <PlannedGroup label="기호 · 3D" stage="13단계" items={['수식', '3D 모델(확장 인터페이스)']} />
+      <PlannedGroup label="기호 · 3D" stage="14단계" items={['수식', '3D 모델(확장 인터페이스)']} />
       <RibbonGroup label="미디어">
         <RibbonButton size="large" icon={<Film size={26} />} label="비디오" title="이 디바이스의 비디오 삽입 (MP4, WebM)" onClick={() => void pickAndInsertMedia('video')} />
         <RibbonButton size="large" icon={<Volume2 size={26} />} label="오디오" title="이 디바이스의 오디오 삽입 (MP3, M4A, WAV)" onClick={() => void pickAndInsertMedia('audio')} />
@@ -311,6 +311,7 @@ export function DesignTab({ onCustomSize }: { onCustomSize: () => void }) {
             </div>
           )}
         </DropdownButton>
+        <RibbonButton size="large" icon={<Sparkles size={26} />} label="디자인 아이디어" title="AI 도우미의 디자인 추천: 내용에 맞는 템플릿·색·글꼴, 디자인 점검" onClick={() => useEditor.getState().set({ aiPane: 'design' })} />
         <RibbonButton size="large" icon={<PanelsTopLeft size={26} />} label="슬라이드 마스터" title="슬라이드 마스터 편집 (모든 슬라이드의 공통 디자인·서식)" active={masterView} onClick={() => (masterView ? M.closeMasterView() : M.openMasterView())} />
       </RibbonGroup>
       {themeDialog && <ThemeDialog onClose={() => setThemeDialog(false)} />}
@@ -360,7 +361,7 @@ export function ReviewTab() {
           }}
         />
       </RibbonGroup>
-      <PlannedGroup label="언어 교정 · 메모 · 비교" stage="13단계" items={['맞춤법 검사', '메모', '비교']} />
+      <PlannedGroup label="언어 교정 · 메모 · 비교" stage="14단계" items={['맞춤법 검사', '메모', '비교']} />
     </>
   );
 }

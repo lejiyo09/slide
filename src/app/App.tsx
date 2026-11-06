@@ -5,6 +5,7 @@ import { Ribbon } from '../components/ribbon/Ribbon';
 import { Backstage } from '../components/ribbon/Backstage';
 import { SlidePanel, SorterView } from '../components/sidebar/SlidePanel';
 import { MasterPanel } from '../components/sidebar/MasterPanel';
+import { AIPane } from '../components/ai/AIPane';
 import { AnimationPane } from '../components/properties/AnimationPane';
 import { EditorCanvas } from '../components/canvas/EditorCanvas';
 import { PropertiesPanel } from '../components/properties/PropertiesPanel';
@@ -39,6 +40,7 @@ export function App() {
   const showProps = useEditor((s) => s.showProperties);
   const masterView = useEditor((s) => s.masterView);
   const animPane = useEditor((s) => s.animPaneOpen);
+  const aiPane = useEditor((s) => s.aiPane);
   useShortcuts();
 
   useEffect(() => {
@@ -95,7 +97,9 @@ export function App() {
               <EditorCanvas />
               {showNotes && !masterView && <NotesPane />}
             </main>
-            {animPane && !masterView ? (
+            {aiPane && !masterView ? (
+              <AIPane />
+            ) : animPane && !masterView ? (
               <AnimationPane onClose={() => useEditor.getState().set({ animPaneOpen: false })} />
             ) : showProps ? (
               <PropertiesPanel onClose={() => setProps(false)} />

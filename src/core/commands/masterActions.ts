@@ -172,35 +172,38 @@ export function applyFullTheme(theme: Theme) {
 /** 디자인 템플릿 적용: 테마 + 마스터 디자인 + 레이아웃 배경/디자인 */
 export function applyTemplate(t: DesignTemplate) {
   const s = st();
-  const design = t.build(s.doc.size);
-  s.commit(`템플릿: ${t.name}`, (d) => {
-    tokenize(d as Presentation);
-    d.theme = deepClone(t.theme);
-    if (d.master) {
-      const phs = d.master.objects.filter((o) => o.type === 'text' && o.ph);
-      d.master.objects = [...design.master, ...phs];
-      d.master.background = design.masterBackground ? { fill: design.masterBackground } : null;
-      // 마스터 개체 틀 서식(제목 색 등)
-      for (const o of d.master.objects) {
-        if (o.type !== 'text' || !o.ph) continue;
-        const style = design.placeholderStyle?.[o.ph.type];
-        if (style) for (const p of o.text.paragraphs) for (const r of p.runs) Object.assign(r, style);
-      }
+  s.commit(`템플릿: ${t.name}`, (d) => applyTemplateDraft(d as Presentation, t));
+}
+
+/** 템플릿 적용 (draft 대상 — 미리 보기·AI 디자인 아이디어에서도 사용) */
+export function applyTemplateDraft(d: Presentation, t: DesignTemplate) {
+  const design = t.build(d.size);
+  tokenize(d);
+  d.theme = deepClone(t.theme);
+  if (d.master) {
+    const phs = d.master.objects.filter((o) => o.type === 'text' && o.ph);
+    d.master.objects = [...design.master, ...phs];
+    d.master.background = design.masterBackground ? { fill: design.masterBackground } : null;
+    // 마스터 개체 틀 서식(제목 색 등)
+    for (const o of d.master.objects) {
+      if (o.type !== 'text' || !o.ph) continue;
+      const style = design.placeholderStyle?.[o.ph.type];
+      if (style) for (const p of o.text.paragraphs) for (const r of p.runs) Object.assign(r, style);
     }
-    for (const [lid, lay] of Object.entries(design.layouts ?? {})) {
-      const target = d.layouts?.[lid];
-      if (!target) continue;
-      const phs = target.objects.filter((o) => o.type === 'text' && o.ph);
-      target.objects = [...(lay.objects ?? []), ...phs];
-      target.background = lay.background ? { fill: lay.background } : null;
-      target.showMasterShapes = lay.hideMaster ? false : undefined;
-      for (const o of target.objects) {
-        if (o.type !== 'text' || !o.ph) continue;
-        const style = lay.placeholderStyle?.[o.ph.type];
-        if (style) for (const p of o.text.paragraphs) for (const r of p.runs) Object.assign(r, style);
-      }
+  }
+  for (const [lid, lay] of Object.entries(design.layouts ?? {})) {
+    const target = d.layouts?.[lid];
+    if (!target) continue;
+    const phs = target.objects.filter((o) => o.type === 'text' && o.ph);
+    target.objects = [...(lay.objects ?? []), ...phs];
+    target.background = lay.background ? { fill: lay.background } : null;
+    target.showMasterShapes = lay.hideMaster ? false : undefined;
+    for (const o of target.objects) {
+      if (o.type !== 'text' || !o.ph) continue;
+      const style = lay.placeholderStyle?.[o.ph.type];
+      if (style) for (const p of o.text.paragraphs) for (const r of p.runs) Object.assign(r, style);
     }
-  });
+  }
 }
 
 /** 현재 문서의 디자인(테마+마스터+레이아웃)을 사용자 템플릿 데이터로 */
