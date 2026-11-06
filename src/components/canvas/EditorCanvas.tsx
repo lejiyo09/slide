@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { CommentMarkers } from '../comments/CommentsPane';
 import { useEditor, useActiveSlide } from '../../core/store/editorStore';
 import { SlideView } from '../../engines/rendering/SlideView';
 import { TextEditor } from '../../editors/text/TextEditor';
@@ -544,6 +545,7 @@ export function EditorCanvas() {
             <PreviewOverlay slide={slide} doc={doc} />
           </div>
           <AnimBadges slide={slide} zoom={zoom} />
+          <CommentMarkers zoom={zoom} />
           <SelectionOverlay
             objects={selectedObjs}
             zoom={zoom}

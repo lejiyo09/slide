@@ -2,8 +2,10 @@ import {
   Image as ImageIcon, Type, Plus, FileImage, Monitor, LayoutGrid, Square, Grid3x3, Ruler, Magnet,
   NotebookPen, ZoomIn, ZoomOut, Maximize, Moon, Sun, Ratio, Palette, PaintBucket, History, Save, Shapes,
   Table2, BarChart3, Smile, Link2, Film, Volume2, LayoutTemplate, Type as TypeIcon, Settings2, PanelsTopLeft, Sparkles,
-  Sigma,
+  Sigma, MessageSquarePlus, MessagesSquare, ChevronLeft, ChevronRight, Trash2, Eye, EyeOff,
 } from 'lucide-react';
+import { goToComment, startNewComment } from '../comments/CommentsPane';
+import { deleteAllComments } from '../../core/comments/comments';
 import { useMemo, useState } from 'react';
 import * as M from '../../core/commands/masterActions';
 import { TEMPLATES, type DesignTemplate } from '../../themes/templates';
@@ -347,6 +349,50 @@ function TemplateThumb({ template }: { template: DesignTemplate }) {
 
 /* ───────────── 검토 ───────────── */
 
+function CommentsGroup() {
+  const pane = useEditor((s) => s.commentsPane);
+  const show = useEditor((s) => s.showComments);
+  return (
+    <RibbonGroup label="메모">
+      <RibbonButton size="large" icon={<MessageSquarePlus size={26} />} label="새 메모" title="새 메모 (선택한 개체에 연결)" onClick={startNewComment} />
+      <div className="rb-col">
+        <RibbonButton icon={<ChevronLeft size={16} />} label="이전" title="이전 메모" onClick={() => goToComment(-1)} />
+        <RibbonButton icon={<ChevronRight size={16} />} label="다음" title="다음 메모" onClick={() => goToComment(1)} />
+        <DropdownButton icon={<Trash2 size={16} />} label="삭제" title="메모 삭제">
+          {(close) => (
+            <>
+              <MenuItem
+                label="이 슬라이드의 모든 메모 삭제"
+                onClick={() => {
+                  close();
+                  const st = useEditor.getState();
+                  let n = 0;
+                  st.commit('슬라이드 메모 삭제', (d) => void (n = deleteAllComments(d, st.activeSlideId)));
+                  st.toast(`메모 ${n}개를 삭제했습니다.`, 'success');
+                }}
+              />
+              <MenuItem
+                label="이 프레젠테이션의 모든 메모 삭제"
+                onClick={() => {
+                  close();
+                  const st = useEditor.getState();
+                  let n = 0;
+                  st.commit('모든 메모 삭제', (d) => void (n = deleteAllComments(d)));
+                  st.toast(`메모 ${n}개를 삭제했습니다.`, 'success');
+                }}
+              />
+            </>
+          )}
+        </DropdownButton>
+      </div>
+      <div className="rb-col">
+        <RibbonButton icon={<MessagesSquare size={16} />} label="메모 창" title="메모 창 표시" active={pane} onClick={() => useEditor.getState().set({ commentsPane: !pane })} />
+        <RibbonButton icon={show ? <Eye size={16} /> : <EyeOff size={16} />} label="메모 표시" title="슬라이드에 메모 표시" active={show} onClick={() => useEditor.getState().set({ showComments: !show })} />
+      </div>
+    </RibbonGroup>
+  );
+}
+
 export function ReviewTab() {
   return (
     <>
@@ -365,7 +411,8 @@ export function ReviewTab() {
           }}
         />
       </RibbonGroup>
-      <PlannedGroup label="언어 교정 · 메모 · 비교" stage="14단계" items={['맞춤법 검사', '메모', '비교']} />
+      <PlannedGroup label="언어 교정 · 비교" stage="14단계" items={['맞춤법 검사', '비교']} />
+      <CommentsGroup />
     </>
   );
 }

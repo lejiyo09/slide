@@ -297,6 +297,29 @@ export interface UnsupportedObject extends BaseObject {
   preview?: TablePreview;
 }
 
+/* ───────────── 메모 ───────────── */
+
+export interface CommentReply {
+  id: ID;
+  author: string;
+  initials: string;
+  text: string;
+  /** ISO 8601 */
+  created: string;
+}
+
+/** 슬라이드 메모 (PPTX: 기존 메모 p:cm / 최신 메모 p188:cm) */
+export interface SlideComment extends CommentReply {
+  /** 메모 표시 위치 (슬라이드 px) */
+  x: number;
+  y: number;
+  /** 개체에 단 메모 */
+  objectId?: ID;
+  /** 해결됨 (최신 메모 status="resolved") */
+  resolved?: boolean;
+  replies: CommentReply[];
+}
+
 /* ───────────── 수식 ───────────── */
 
 /** 수식 (PowerPoint: 삽입 › 수식). LaTeX가 원본, MathML은 화면 표시용, OMML은 PPTX에서 가져온 원본(바꾸지 않았으면 그대로 저장) */
@@ -333,6 +356,8 @@ export interface Slide {
   transition?: SlideTransition;
   /** 애니메이션 (배열 순서 = 재생 순서) */
   animations?: Animation[];
+  /** 메모 (검토 › 메모) */
+  comments?: SlideComment[];
   /** PPTX에서 가져온 슬라이드의 원본 XML 조각 (전환·애니메이션 보존) */
   source?: {
     part: string;

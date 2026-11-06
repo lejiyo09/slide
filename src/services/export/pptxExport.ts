@@ -17,6 +17,7 @@ import { chartPalette } from '../../editors/chart/chart';
 import { KEEP_PREFIX, postProcessPptx, type SlidePlan } from './preserve';
 import { planEmbeddedFonts, type EmbedPlanFont } from '../fonts/embed';
 import { EQ_IMAGE_RID, equationShapeXml } from './equationXml';
+import { buildLegacyComments } from './commentsXml';
 import { buildTransitionXml } from './animXml';
 import { OoxmlPackage } from '../import/ooxml';
 import { getBlob, getPackage } from '../storage/db';
@@ -519,6 +520,7 @@ export async function exportPptxBytes(
     customShows: customShowPlan(doc),
     themeEastAsian: { major: koreanCapable(doc.theme.fonts.heading) ? doc.theme.fonts.heading : null, minor: koreanCapable(doc.theme.fonts.body) ? doc.theme.fonts.body : null },
     embeddedFonts: opts.embeddedFonts,
+    comments: buildLegacyComments(doc.slides),
   };
   const bytes = await postProcessPptx(raw, plans, source, (m) => extra.push(m), pres);
   return { bytes, warnings: [...new Set([...warnings, ...extra])] };

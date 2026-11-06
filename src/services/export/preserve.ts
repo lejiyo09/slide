@@ -11,6 +11,7 @@ import JSZip from 'jszip';
 import type { Animation, Fill } from '../../types/model';
 import { buildTimingXml } from './animXml';
 import { FONT_SLOTS, type EmbedPlanFont } from '../fonts/embed';
+import { CT_COMMENT_AUTHORS, CT_COMMENTS, REL_COMMENT_AUTHORS, REL_COMMENTS, type LegacyCommentsXml } from './commentsXml';
 
 export interface PreservedXml {
   xml: string;
@@ -350,6 +351,8 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
   if (pres) await writePresentationSettings(out, pres);
   // 6) 포함 글꼴 (ppt/fonts/*.fntdata + p:embeddedFontLst)
   if (pres?.embeddedFonts?.length) await writeEmbeddedFonts(out, ctDoc, pres.embeddedFonts);
+  // 7) 메모 (ppt/commentAuthors.xml + ppt/comments/commentN.xml)
+  if (pres?.comments) await writeComments(out, ctDoc, pres.comments);
 
   out.file('[Content_Types].xml', serialize(ctDoc));
   return out.generateAsync({ type: 'uint8array', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
@@ -364,6 +367,44 @@ export interface PresentationPlan {
   themeEastAsian?: { major: string | null; minor: string | null };
   /** 포함 글꼴 (EOT) */
   embeddedFonts?: EmbedPlanFont[];
+  /** 메모 (기존 메모 형식) */
+  comments?: LegacyCommentsXml | null;
+}
+
+async function addRel(out: JSZip, part: string, type: string, target: string) {
+  const relsPath = relsPathFor(part);
+  const rdoc = parse(out.file(relsPath) ? await out.file(relsPath)!.async('string') : `<Relationships xmlns="${NS.pr}"/>`);
+  const used = new Set(Array.from(rdoc.documentElement.children).map((n) => n.getAttribute('Id')));
+  let i = 1;
+  while (used.has(`rIdCm${i}`)) i++;
+  const el = rdoc.createElementNS(NS.pr, 'Relationship');
+  el.setAttribute('Id', `rIdCm${i}`);
+  el.setAttribute('Type', type);
+  el.setAttribute('Target', relativePath(part, target));
+  rdoc.documentElement.appendChild(el);
+  out.file(relsPath, serialize(rdoc));
+}
+
+function addOverride(ctDoc: Document, part: string, type: string) {
+  const o = ctDoc.createElementNS(NS.ct, 'Override');
+  o.setAttribute('PartName', `/${part}`);
+  o.setAttribute('ContentType', type);
+  ctDoc.documentElement.appendChild(o);
+}
+
+async function writeComments(out: JSZip, ctDoc: Document, c: LegacyCommentsXml) {
+  out.file('ppt/commentAuthors.xml', c.authorsXml);
+  await addRel(out, 'ppt/presentation.xml', REL_COMMENT_AUTHORS, 'ppt/commentAuthors.xml');
+  addOverride(ctDoc, 'ppt/commentAuthors.xml', CT_COMMENT_AUTHORS);
+  for (let i = 0; i < c.slides.length; i++) {
+    const xml = c.slides[i];
+    const slidePath = `ppt/slides/slide${i + 1}.xml`;
+    if (!xml || !out.file(slidePath)) continue;
+    const part = `ppt/comments/comment${i + 1}.xml`;
+    out.file(part, xml);
+    await addRel(out, slidePath, REL_COMMENTS, part);
+    addOverride(ctDoc, part, CT_COMMENTS);
+  }
 }
 
 const FONT_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/font';

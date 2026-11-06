@@ -4154,3 +4154,130 @@ button.bs-export-item:hover:not(:disabled) {
 .eq-format input[type='number'] {
   width: 64px;
 }
+
+/* ───────────── 메모 ───────────── */
+.comments-pane {
+  width: 300px;
+}
+.comments-pane .pp-head .icon-btn {
+  flex: none;
+}
+.cm-body {
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cm-user {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.cm-user label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cm-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+.cm-toolbar .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cm-empty {
+  font-size: 12.5px;
+}
+.cm-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--bg-app, var(--bg-panel));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.cm-card.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.cm-card.is-resolved {
+  opacity: 0.7;
+}
+.cm-card textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  resize: vertical;
+}
+.cm-entry + .cm-entry {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  margin-left: 14px;
+}
+.cm-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cm-head .muted {
+  font-size: 11px;
+}
+.cm-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.cm-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cm-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cm-actions .btn,
+.cm-actions .muted {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.cm-marker {
+  position: absolute;
+  z-index: 6;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 4px;
+  transform: translate(0, -100%);
+  border: 1px solid #b07d00;
+  border-radius: 6px 6px 6px 0;
+  background: #ffd75e;
+  color: #3d2c00;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.cm-marker.is-active {
+  background: #ffb700;
+  box-shadow: 0 0 0 2px rgba(196, 62, 28, 0.5);
+}
+.cm-marker.is-resolved {
+  opacity: 0.45;
+}

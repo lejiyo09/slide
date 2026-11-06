@@ -12,7 +12,7 @@
 import type {
   BulletType, CustomGeometry, Fill, GroupObject, HAlign, ImageObject, LayoutDef, LineObject, Paragraph, PathCommand, Presentation,
   Section, ShapeKind, ShapeObject, Slide, SlideObject, Stroke, TextBody, TextObject, TextRun, Theme, UnsupportedKind, UnsupportedObject, VAlign,
-  TableObject, TableCell, CellBorders, ChartObject, ChartType, MediaObject, MasterSlide, PlaceholderType, SlideTransition, Animation, EquationObject,
+  TableObject, TableCell, CellBorders, ChartObject, ChartType, MediaObject, MasterSlide, PlaceholderType, SlideTransition, Animation, EquationObject, SlideComment,
 } from '../../types/model';
 import type { Rel } from './ooxml';
 import { contentFingerprint, mediaPlaybackSignature } from '../../core/document/fingerprint';
@@ -30,6 +30,7 @@ export type { ImportReport } from './report';
 import type { ImportReport } from './report';
 import { decodeEmbeddedFont, FONT_SLOTS, type ImportedEmbeddedFont } from '../fonts/embed';
 import { ommlToLatex, tidyLatex } from '../math/omml';
+import { parseLegacyAuthors, parseLegacyComments, parseModernAuthors, parseModernComments, REL_COMMENT_AUTHORS, REL_COMMENTS, REL_MODERN_AUTHORS, REL_MODERN_COMMENTS } from '../export/commentsXml';
 import { latexToMathml } from '../math/equation';
 
 export interface ImportResult {
@@ -284,6 +285,13 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
   let firstTheme: ThemeInfo | null = null;
   let firstMaster: MasterInfo | null = null;
 
+  // 메모 작성자 (기존 메모: commentAuthors.xml, 최신 메모: authors.xml)
+  const legacyAuthorsRel = [...presRels.values()].find((r) => r.type === REL_COMMENT_AUTHORS);
+  const modernAuthorsRel = [...presRels.values()].find((r) => r.type === REL_MODERN_AUTHORS);
+  const legacyAuthors = parseLegacyAuthors(legacyAuthorsRel ? await pkg.xml(legacyAuthorsRel.target) : null);
+  const modernAuthors = parseModernAuthors(modernAuthorsRel ? await pkg.xml(modernAuthorsRel.target) : null);
+  let commentCount = 0;
+
   for (const sid of sldIds) {
     const rel = presRels.get(rAttr(sid, 'id') ?? '');
     if (!rel) continue;
@@ -363,6 +371,19 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
       ...(root.getAttribute('show') === '0' ? { hidden: true } : {}),
       ...(root.getAttribute('showMasterSp') === '0' ? { showMasterShapes: false } : {}),
     };
+    // 메모
+    const comments: SlideComment[] = [];
+    for (const r of (await pkg.rels(slidePath)).values()) {
+      if (r.type !== REL_COMMENTS && r.type !== REL_MODERN_COMMENTS) continue;
+      const cdoc = await pkg.xml(r.target);
+      if (!cdoc) continue;
+      if (r.type === REL_COMMENTS) comments.push(...parseLegacyComments(cdoc, legacyAuthors));
+      else comments.push(...parseModernComments(cdoc, modernAuthors, (id) => objects.find((o) => String(o.sourceId) === id)?.id));
+    }
+    if (comments.length) {
+      slide.comments = comments;
+      commentCount += comments.length;
+    }
     slides.push(slide);
     idToSlide.set(sid.getAttribute('id') ?? '', slide.id);
     ridToSlide.set(rAttr(sid, 'id') ?? '', slide.id);
@@ -454,6 +475,7 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
   if (fonts.length) doc.embedFonts = true;
   else if (pres.getAttribute('embedTrueTypeFonts') === '1') doc.embedFonts = true;
   report.embeddedFonts = [...new Set(fonts.map((f) => f.typeface))];
+  if (commentCount) report.comments = commentCount;
   report.approximated = [...new Set(report.approximated)];
   report.warnings = [...new Set(report.warnings)];
   return { doc, report, blobs, fonts };

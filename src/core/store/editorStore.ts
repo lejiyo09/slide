@@ -75,6 +75,10 @@ export interface EditorState {
   fontDialog: null | 'manage' | 'add' | 'replace';
   /** 수식 편집 창: 개체 ID 또는 'new' */
   equationEditorId: string | null;
+  /** 메모 창 / 선택한 메모 ('new' = 새 메모 작성 중) / 편집 화면에 메모 표시 */
+  commentsPane: boolean;
+  activeCommentId: string | null;
+  showComments: boolean;
   /** 현재 리본 탭 (애니메이션 번호 배지 표시 판단) */
   ribbonTab: string;
   /** 애니메이션 창에서 선택한 효과 */
@@ -164,6 +168,9 @@ export const useEditor = create<EditorState>()((set, get) => ({
   aiPane: null,
   fontDialog: null,
   equationEditorId: null,
+  commentsPane: false,
+  activeCommentId: null,
+  showComments: true,
   ribbonTab: 'home',
   selectedAnimIds: [],
   preview: null,

@@ -379,6 +379,71 @@ try {
     check('LibreOffice PPTX의 수식 12개 → 편집 가능한 수식', n === 12);
   }
 
+  if (want('comments')) {
+    /* ───── 메모 ───── */
+    await closeBackstage();
+    await page.evaluate(() => {
+      const st = window.__SLIDELAB__.getState();
+      st.set({ activeSlideId: st.doc.slides[0].id, selectedSlideIds: [st.doc.slides[0].id], selectedIds: [] });
+    });
+    await page.locator('.tab', { hasText: '검토' }).click();
+    await page.locator('.rb', { hasText: '새 메모' }).click();
+    await page.waitForSelector('[data-cm-username]');
+    await page.locator('[data-cm-username]').fill('김민지');
+    await page.keyboard.press('Enter');
+    await page.locator('[data-cm-new]').click();
+    await page.locator('[data-cm-input]').fill('제목 색을 바꿔 주세요');
+    await page.locator('[data-cm-input]').press('Control+Enter');
+    const comments = () => page.evaluate(() => JSON.parse(JSON.stringify(window.__SLIDELAB__.getState().doc.slides.map((s) => s.comments ?? []))));
+    let cm = await comments();
+    check('새 메모: 이름·이니셜·내용·위치', cm[0].length === 1 && cm[0][0].author === '김민지' && cm[0][0].initials === '김민' && cm[0][0].text === '제목 색을 바꿔 주세요' && cm[0][0].x === 10, JSON.stringify(cm[0][0]).slice(0, 120));
+    check('슬라이드에 메모 표시(말풍선)', (await page.locator('[data-cm-marker]').count()) === 1 && (await page.locator('[data-cm-marker]').textContent()) === '김민');
+    // 개체에 단 메모
+    const titleId = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides[0].objects[0].id);
+    await page.evaluate((id) => window.__SLIDELAB__.getState().select([id]), titleId);
+    await page.locator('[data-cm-new]').click();
+    await page.locator('[data-cm-input]').fill('이 개체 위치 확인');
+    await page.locator('[data-cm-post]').click();
+    cm = await comments();
+    const t = await page.evaluate((id) => window.__SLIDELAB__.getState().doc.slides[0].objects.find((o) => o.id === id), titleId);
+    check('선택한 개체에 연결된 메모 (개체 오른쪽 위)', cm[0][1].objectId === titleId && Math.round(cm[0][1].x) === Math.round(t.x + t.width) && Math.round(cm[0][1].y) === Math.round(t.y));
+    // 답글·해결·다시 열기
+    const card = page.locator(`[data-cm-id="${cm[0][0].id}"]`);
+    await card.click();
+    await card.locator('[data-cm-reply]').fill('네, 남색으로 바꿀게요');
+    await card.locator('[data-cm-reply-send]').click();
+    await card.locator('[data-cm-resolve]').click();
+    cm = await comments();
+    check('답글 + 해결', cm[0][0].replies.length === 1 && cm[0][0].replies[0].text === '네, 남색으로 바꿀게요' && cm[0][0].resolved === true);
+    await card.locator('[data-cm-reopen]').click();
+    check('다시 열기', (await comments())[0][0].resolved === false);
+    await page.keyboard.press('Control+z');
+    check('실행 취소 (다시 열기 취소 → 해결됨)', (await comments())[0][0].resolved === true);
+    // 다른 슬라이드 메모 + 이전/다음
+    await page.evaluate(() => {
+      const st = window.__SLIDELAB__.getState();
+      st.commit('메모', (d) => (d.slides[1].comments = [{ id: 'c-s2', author: 'Alex', initials: 'AK', text: '두 번째 슬라이드', created: new Date().toISOString(), x: 300, y: 200, replies: [] }]));
+      st.set({ activeCommentId: st.doc.slides[0].comments[1].id });
+    });
+    await page.locator('.rb', { hasText: '다음' }).click();
+    const st1 = await page.evaluate(() => ({ slide: window.__SLIDELAB__.getState().doc.slides.findIndex((s) => s.id === window.__SLIDELAB__.getState().activeSlideId), c: window.__SLIDELAB__.getState().activeCommentId }));
+    check('다음 메모 → 다음 슬라이드로 이동', st1.slide === 1 && st1.c === 'c-s2', JSON.stringify(st1));
+    await page.screenshot({ path: `${OUT}/s14-comments.png` });
+    // PPTX에 메모
+    await openExport();
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('.bs-export-item', { hasText: 'PowerPoint' }).click()]);
+    await dl.saveAs(`${OUT}/s14-comments.pptx`);
+    const z = await JSZip.loadAsync(readFileSync(`${OUT}/s14-comments.pptx`));
+    const c1 = await z.file('ppt/comments/comment1.xml')?.async('string');
+    check('PPTX: 메모 3개(답글 포함) + 작성자', !!c1 && (c1.match(/<p:cm /g) ?? []).length === 3 && c1.includes('p15:parentCm') && (await z.file('ppt/commentAuthors.xml').async('string')).includes('name="김민지"') && !!z.file('ppt/comments/comment2.xml'));
+    await closeBackstage();
+    // 모든 메모 삭제
+    await page.locator('.tab', { hasText: '검토' }).click();
+    await page.locator('.rb', { hasText: '삭제' }).click();
+    await page.locator('.menu-item', { hasText: '프레젠테이션의 모든 메모' }).click();
+    check('모든 메모 삭제', (await comments()).every((c) => c.length === 0) && (await page.locator('[data-cm-marker]').count()) === 0);
+  }
+
   check('콘솔/페이지 오류 없음', errors.length === 0, errors.slice(0, 3).join(' | '));
 } catch (e) {
   check('스크립트 실행', false, String(e).split('\n')[0]);

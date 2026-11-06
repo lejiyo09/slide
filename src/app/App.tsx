@@ -6,6 +6,7 @@ import { Backstage } from '../components/ribbon/Backstage';
 import { SlidePanel, SorterView } from '../components/sidebar/SlidePanel';
 import { MasterPanel } from '../components/sidebar/MasterPanel';
 import { AIPane } from '../components/ai/AIPane';
+import { CommentsPane } from '../components/comments/CommentsPane';
 import { useDocFonts } from '../hooks/useDocFonts';
 import { FontDialogs, addFontsFromFiles } from '../components/dialogs/FontDialogs';
 import { EquationDialogHost } from '../components/dialogs/EquationDialog';
@@ -44,6 +45,7 @@ export function App() {
   const masterView = useEditor((s) => s.masterView);
   const animPane = useEditor((s) => s.animPaneOpen);
   const aiPane = useEditor((s) => s.aiPane);
+  const commentsPane = useEditor((s) => s.commentsPane);
   useShortcuts();
   useDocFonts();
 
@@ -109,7 +111,9 @@ export function App() {
               <EditorCanvas />
               {showNotes && !masterView && <NotesPane />}
             </main>
-            {aiPane && !masterView ? (
+            {commentsPane && !masterView ? (
+              <CommentsPane />
+            ) : aiPane && !masterView ? (
               <AIPane />
             ) : animPane && !masterView ? (
               <AnimationPane onClose={() => useEditor.getState().set({ animPaneOpen: false })} />
