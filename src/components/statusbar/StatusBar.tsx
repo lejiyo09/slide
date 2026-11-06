@@ -1,4 +1,5 @@
-import { NotebookPen, Square, LayoutGrid, Play, Minus, Plus, Maximize } from 'lucide-react';
+import { NotebookPen, Square, LayoutGrid, Play, Minus, Plus, Maximize, TriangleAlert } from 'lucide-react';
+import { useFonts } from '../../services/fonts/library';
 import { useEditor } from '../../core/store/editorStore';
 import * as A from '../../core/commands/actions';
 
@@ -10,6 +11,7 @@ export function StatusBar() {
   const fit = useEditor((s) => s.fitMode);
   const viewMode = useEditor((s) => s.viewMode);
   const showNotes = useEditor((s) => s.showNotes);
+  const missingFonts = useFonts((s) => s.missing);
   const selCount = useEditor((s) => s.selectedIds.length);
   const masterView = useEditor((s) => s.masterView);
   const set = useEditor((s) => s.set);
@@ -43,6 +45,11 @@ export function StatusBar() {
       >
         <NotebookPen size={14} /> 노트
       </button>
+      {missingFonts.length > 0 && (
+        <button type="button" className="sb-btn sb-missing-fonts" data-missing-fonts="" title={`이 브라우저에 없는 글꼴: ${missingFonts.join(', ')} — 다른 글꼴로 표시됩니다. 눌러서 글꼴을 바꾸거나 추가하세요.`} onClick={() => set({ fontDialog: 'replace' })}>
+          <TriangleAlert size={13} /> 글꼴 {missingFonts.length}개 없음
+        </button>
+      )}
       <span className="sb-sep" />
       <button type="button" className={`sb-btn ${viewMode === 'normal' ? 'is-active' : ''}`} title="기본" onClick={() => set({ viewMode: 'normal' })}>
         <Square size={14} />

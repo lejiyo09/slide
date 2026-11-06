@@ -248,6 +248,7 @@ function applyWhole(action: FormatAction): boolean {
  */
 function wrapSelectionStyle(style: TextRunStyle) {
   const sess = getEditorSession()!;
+  if (style.fontFamily && !style.fontSize) return wrapSelectionFont(sess, style.fontFamily);
   document.execCommand('styleWithCSS', false, 'false');
   document.execCommand('fontSize', false, '7');
   const marks = Array.from(sess.root.querySelectorAll<HTMLElement>('font[size="7"]'));
@@ -267,6 +268,29 @@ function wrapSelectionStyle(style: TextRunStyle) {
   sess.root.querySelectorAll<HTMLElement>('span').forEach((sp) => {
     if (sp.style.fontSize === 'xxx-large' && style.fontSize) sp.style.fontSize = `${ptToPx(style.fontSize)}px`;
   });
+  const sel = document.getSelection();
+  if (sel && sel.rangeCount) sess.savedRange = sel.getRangeAt(0).cloneRange();
+  document.execCommand('styleWithCSS', false, 'true');
+}
+
+/**
+ * 글꼴만 바꾸기: execCommand('fontName')의 표식(<font face>)으로 감싼 뒤 span으로 교체.
+ * 크기 명령(fontSize)을 표식으로 쓰면 기존 글자 크기가 지워지므로 글꼴은 따로 처리한다.
+ */
+const FONT_MARK = 'slidelab-font-mark';
+function wrapSelectionFont(sess: NonNullable<ReturnType<typeof getEditorSession>>, family: string) {
+  document.execCommand('styleWithCSS', false, 'false');
+  document.execCommand('fontName', false, FONT_MARK);
+  for (const f of Array.from(sess.root.querySelectorAll<HTMLElement>(`font[face="${FONT_MARK}"]`))) {
+    const span = document.createElement('span');
+    span.style.fontFamily = cssFontStack(family);
+    while (f.firstChild) span.appendChild(f.firstChild);
+    f.replaceWith(span);
+    span.querySelectorAll<HTMLElement>('span, font').forEach((inner) => {
+      inner.style.fontFamily = '';
+      if (inner.tagName === 'FONT') inner.removeAttribute('face');
+    });
+  }
   const sel = document.getSelection();
   if (sel && sel.rangeCount) sess.savedRange = sel.getRangeAt(0).cloneRange();
   document.execCommand('styleWithCSS', false, 'true');

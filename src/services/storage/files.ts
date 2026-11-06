@@ -52,15 +52,37 @@ export async function fileToAsset(file: File): Promise<{ asset: Asset; width: nu
 
 export const safeFileName = (title: string) => (title.trim() || 'presentation').replace(/[\\/:*?"<>|]+/g, '_');
 
-/** SlideLab 고유 형식 (.slidelab = JSON). 가져온 PPTX의 원본 패키지도 함께 포함해 보존 개체를 유지한다 */
-export async function exportNative(doc: Presentation) {
+/** .slidelab에 함께 넣는 사용자 글꼴 */
+export interface NativeFont {
+  family: string;
+  aliases?: string[];
+  weight: number;
+  italic: boolean;
+  fileName: string;
+  format: string;
+  dataUrl: string;
+}
+
+/**
+ * SlideLab 고유 형식 (.slidelab = JSON). 가져온 PPTX의 원본 패키지도 함께 포함해 보존 개체를 유지한다.
+ * 문서에 쓴 '내 글꼴'도 포함해 다른 브라우저에서 열어도 같은 모양이 되게 한다 (제작사가 포함을 제한한 글꼴은 제외).
+ */
+export async function exportNative(doc: Presentation): Promise<{ skippedFonts: string[] }> {
   let sourcePackage: string | undefined;
   if (doc.source) {
     const pkg = await getPackage(doc.source.packageId);
     if (pkg) sourcePackage = await readAsDataUrl(pkg);
   }
-  const blob = new Blob([JSON.stringify({ format: 'slidelab', version: 1, doc, sourcePackage })], { type: 'application/json' });
+  const { fontsUsed } = await import('../fonts/docFonts');
+  const { userFontRecords } = await import('../fonts/library');
+  const recs = await userFontRecords([...fontsUsed(doc).keys()]);
+  const skippedFonts = [...new Set(recs.filter((r) => r.embedding === 'restricted').map((r) => r.family))];
+  const fonts: NativeFont[] = [];
+  for (const r of recs.filter((x) => x.embedding !== 'restricted'))
+    fonts.push({ family: r.family, aliases: r.aliases, weight: r.weight, italic: r.italic, fileName: r.fileName, format: r.format, dataUrl: await readAsDataUrl(r.data) });
+  const blob = new Blob([JSON.stringify({ format: 'slidelab', version: 1, doc, sourcePackage, ...(fonts.length ? { fonts } : {}) })], { type: 'application/json' });
   downloadBlob(blob, `${safeFileName(doc.title)}.slidelab`);
+  return { skippedFonts };
 }
 
 export async function importNative(file: File): Promise<Presentation> {
@@ -73,6 +95,16 @@ export async function importNative(file: File): Promise<Presentation> {
     const packageId = newId();
     await savePackage(packageId, await (await fetch(data.sourcePackage)).blob());
     doc.source = { ...doc.source, packageId };
+  }
+  // 함께 들어 있던 글꼴을 내 글꼴에 추가
+  if (Array.isArray(data.fonts) && data.fonts.length) {
+    const { importEmbeddedFonts } = await import('../fonts/library');
+    const items = [];
+    for (const f of data.fonts as NativeFont[]) {
+      if (!f?.family || typeof f.dataUrl !== 'string' || !f.dataUrl.startsWith('data:')) continue;
+      items.push({ ...f, data: await (await fetch(f.dataUrl)).blob() });
+    }
+    await importEmbeddedFonts(items);
   }
   return doc;
 }

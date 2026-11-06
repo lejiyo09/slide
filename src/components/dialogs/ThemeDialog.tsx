@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Dialog } from './Dialog';
 import { useEditor } from '../../core/store/editorStore';
 import { THEME_COLOR_KEYS, THEME_COLOR_NAMES } from '../../utils/themeColor';
-import { FONT_FAMILIES } from '../../editors/text/fonts';
+import { FontPicker } from '../common/FontPicker';
 import type { Theme } from '../../types/model';
 import { applyFullTheme } from '../../core/commands/masterActions';
 import { saveCustomTheme } from '../../services/storage/designLibrary';
@@ -38,12 +38,7 @@ export function ThemeDialog({ onClose }: { onClose: () => void }) {
           {(['heading', 'body'] as const).map((k) => (
             <label key={k} className="field">
               <span>{k === 'heading' ? '제목 글꼴' : '본문 글꼴'}</span>
-              <select className="pp-select" value={t.fonts[k]} onChange={(e) => setT({ ...t, fonts: { ...t.fonts, [k]: e.target.value } })}>
-                {!FONT_FAMILIES.includes(t.fonts[k]) && <option>{t.fonts[k]}</option>}
-                {FONT_FAMILIES.map((f) => (
-                  <option key={f}>{f}</option>
-                ))}
-              </select>
+              <FontPicker className="pp-font" value={t.fonts[k]} lock={false} ariaLabel={k === 'heading' ? '제목 글꼴' : '본문 글꼴'} onChange={(f) => setT({ ...t, fonts: { ...t.fonts, [k]: f } })} />
             </label>
           ))}
         </div>

@@ -1,7 +1,7 @@
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, Clipboard, Copy, Eraser, Highlighter, IndentDecrease, IndentIncrease,
   Italic, LayoutTemplate, Shapes, List, ListOrdered, Paintbrush, PaintBucket, Plus, Scissors, Strikethrough, Underline, Trash2,
-  CopyPlus, Rows3, MousePointer2, Baseline, PenLine, ArrowUpDown, AArrowUp, AArrowDown, TextCursorInput, Sparkles,
+  CopyPlus, Rows3, MousePointer2, Baseline, PenLine, ArrowUpDown, AArrowUp, AArrowDown, TextCursorInput, Sparkles, Replace, Type,
 } from 'lucide-react';
 import { RibbonButton, DropdownButton, SplitButton, RibbonGroup, MenuItem, MenuSeparator } from '../common/Buttons';
 import { ColorBarIcon, ColorPanel } from '../common/ColorPicker';
@@ -10,7 +10,8 @@ import * as A from '../../core/commands/actions';
 import * as C from '../../core/commands/commands';
 import { applyFormat } from '../../editors/text/formatting';
 import { useCurrentTextStyle } from '../../hooks/useCurrentTextStyle';
-import { FONT_FAMILIES, FONT_SIZES } from '../../editors/text/fonts';
+import { FONT_SIZES } from '../../editors/text/fonts';
+import { FontPicker } from '../common/FontPicker';
 import { ShapeGalleryPanel } from './ShapeGallery';
 import { ArrangeMenu } from './ArrangeMenu';
 import { LayoutGallery } from './LayoutGallery';
@@ -85,21 +86,7 @@ export function HomeTab() {
       <RibbonGroup label="글꼴" className="rg-font">
         <div className="rb-col rb-col-tight">
           <div className="rb-row">
-            <select
-              className="rb-select font-family"
-              title="글꼴"
-              disabled={!textOn}
-              value={ts.fontFamily ?? ''}
-              onChange={(e) => applyFormat({ type: 'fontFamily', value: e.target.value })}
-            >
-              {ts.fontFamily && !FONT_FAMILIES.includes(ts.fontFamily) && <option value={ts.fontFamily}>{ts.fontFamily}</option>}
-              {!ts.fontFamily && <option value="">글꼴</option>}
-              {FONT_FAMILIES.map((f) => (
-                <option key={f} value={f} style={{ fontFamily: f }}>
-                  {f}
-                </option>
-              ))}
-            </select>
+            <FontPicker className="rb-font" value={ts.fontFamily} disabled={!textOn} allowTokens onChange={(f) => applyFormat({ type: 'fontFamily', value: f })} />
             <FontSizeInput value={ts.fontSize} disabled={!textOn} />
             <RibbonButton icon={<AArrowUp size={16} />} title="글꼴 크기 크게" shortcut="Ctrl+]" disabled={!textOn} onClick={() => applyFormat({ type: 'growFont' })} />
             <RibbonButton icon={<AArrowDown size={16} />} title="글꼴 크기 작게" shortcut="Ctrl+[" disabled={!textOn} onClick={() => applyFormat({ type: 'shrinkFont' })} />
@@ -254,6 +241,14 @@ export function HomeTab() {
 
       <RibbonGroup label="편집">
         <div className="rb-col">
+          <DropdownButton icon={<Replace size={15} />} label="바꾸기" title="바꾸기">
+            {(close) => (
+              <div className="menu">
+                <MenuItem icon={<Type size={14} />} label="글꼴 바꾸기..." onClick={() => (close(), useEditor.getState().set({ fontDialog: 'replace' }))} />
+                <MenuItem label="글꼴 관리..." onClick={() => (close(), useEditor.getState().set({ fontDialog: 'manage' }))} />
+              </div>
+            )}
+          </DropdownButton>
           <RibbonButton icon={<MousePointer2 size={15} />} label="모두 선택" title="모두 선택" shortcut="Ctrl+A" onClick={A.selectAll} />
         </div>
       </RibbonGroup>

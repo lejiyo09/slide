@@ -7,7 +7,7 @@ import { ColorField, NumberField, Row, Section, Segmented, SliderField } from '.
 import { round } from '../../utils/units';
 import { applyFormat } from '../../editors/text/formatting';
 import { useCurrentTextStyle } from '../../hooks/useCurrentTextStyle';
-import { FONT_FAMILIES } from '../../editors/text/fonts';
+import { FontPicker } from '../common/FontPicker';
 import { SHAPE_NAMES } from '../../core/document/factory';
 import { fileToAsset, pickFiles } from '../../services/storage/files';
 import { PATTERNS } from '../../engines/rendering/patterns';
@@ -353,10 +353,7 @@ function TextSection({ obj }: { obj: SlideObject }) {
   return (
     <Section title="텍스트">
       <Row label="글꼴">
-        <select className="pp-select" value={ts.fontFamily ?? ''} onChange={(e) => applyFormat({ type: 'fontFamily', value: e.target.value })}>
-          {ts.fontFamily && !FONT_FAMILIES.includes(ts.fontFamily) && <option>{ts.fontFamily}</option>}
-          {FONT_FAMILIES.map((f) => <option key={f}>{f}</option>)}
-        </select>
+        <FontPicker className="pp-font" value={ts.fontFamily} allowTokens onChange={(f) => applyFormat({ type: 'fontFamily', value: f })} />
       </Row>
       <Row label="크기">
         <NumberField label="" unit="pt" step={1} min={1} max={400} value={ts.fontSize ?? 18} onChange={(v) => applyFormat({ type: 'fontSize', value: v })} />

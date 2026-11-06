@@ -16,6 +16,7 @@ const isEditable = (t: EventTarget | null) => {
 /** 전역 키보드 단축키 (PowerPoint 기본 단축키 기준) */
 export function useShortcuts() {
   useEffect(() => {
+    let nudging = false;
     const onKey = (e: KeyboardEvent) => {
       const s = useEditor.getState();
       if (s.slideshow || s.backstageOpen) {
@@ -213,10 +214,14 @@ export function useShortcuts() {
           const dy = k === 'ArrowUp' ? -step : k === 'ArrowDown' ? step : 0;
           // 연속 키 입력은 하나의 실행 취소 단계로 묶는다
           if (e.repeat) {
+            if (!s.gestureBase) nudging = true;
             s.beginGesture('이동');
             s.updateGesture((d) => C.nudgeObjects(d, getActiveSlide().id, s.selectedIds, dx, dy));
           } else {
-            s.endGesture();
+            if (nudging) {
+              nudging = false;
+              s.endGesture();
+            }
             A.nudge(dx, dy);
           }
           return;
@@ -224,8 +229,12 @@ export function useShortcuts() {
       }
     };
 
+    // 키보드 이동(방향키 누르고 있기)이 시작한 단위만 닫음 — 텍스트 편집 중 방향키는 편집기의 실행 취소 단위를 건드리지 않음
     const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key.startsWith('Arrow')) useEditor.getState().endGesture();
+      if (e.key.startsWith('Arrow') && nudging) {
+        nudging = false;
+        useEditor.getState().endGesture();
+      }
     };
 
     const onPaste = (e: ClipboardEvent) => {

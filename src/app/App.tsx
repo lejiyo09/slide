@@ -6,6 +6,8 @@ import { Backstage } from '../components/ribbon/Backstage';
 import { SlidePanel, SorterView } from '../components/sidebar/SlidePanel';
 import { MasterPanel } from '../components/sidebar/MasterPanel';
 import { AIPane } from '../components/ai/AIPane';
+import { useDocFonts } from '../hooks/useDocFonts';
+import { FontDialogs, addFontsFromFiles } from '../components/dialogs/FontDialogs';
 import { AnimationPane } from '../components/properties/AnimationPane';
 import { EditorCanvas } from '../components/canvas/EditorCanvas';
 import { PropertiesPanel } from '../components/properties/PropertiesPanel';
@@ -42,6 +44,7 @@ export function App() {
   const animPane = useEditor((s) => s.animPaneOpen);
   const aiPane = useEditor((s) => s.aiPane);
   useShortcuts();
+  useDocFonts();
 
   useEffect(() => {
     void bootstrap().finally(() => {
@@ -80,6 +83,14 @@ export function App() {
         if (e.dataTransfer.types.includes('Files')) e.preventDefault();
       }}
       onDrop={(e) => {
+        const fontFiles = Array.from(e.dataTransfer.files).filter((x) => /\.(ttf|otf|woff2?)$/i.test(x.name));
+        if (fontFiles.length) {
+          // 글꼴 파일을 창에 놓으면 내 글꼴에 추가
+          e.preventDefault();
+          e.stopPropagation();
+          void addFontsFromFiles(fontFiles);
+          return;
+        }
         const f = Array.from(e.dataTransfer.files).find(isOpenableFile);
         if (f) {
           e.preventDefault();
@@ -120,6 +131,7 @@ export function App() {
       <ImportReportDialog />
       <ChartDataEditor />
       {linkDialog && <LinkDialog onClose={() => setLinkDialog(false)} />}
+      <FontDialogs />
       <Toasts />
       <PwaPrompt />
     </div>

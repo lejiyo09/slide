@@ -303,7 +303,10 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
     out.file(relsPath, serialize(rdoc));
   }
   // 4) 원본 테마 복원: 보존된 표·차트·SmartArt가 참조하는 테마 색(accent1 등)을 원본과 같게 유지
-  if (source && copied.size + plans.reduce((n, p) => n + p.markers.size, 0) > 0) await restoreTheme(out, source, copyPart);
+  const themeRestored = !!source && copied.size + plans.reduce((n, p) => n + p.markers.size, 0) > 0;
+  if (themeRestored) await restoreTheme(out, source!, copyPart);
+  // 테마의 한글 글꼴: 원본 테마를 복원하지 않았으면 SlideLab 테마 글꼴을 동아시아(ea)·한글(Hang) 글꼴에도 기록
+  else if (pres?.themeEastAsian) await patchThemeEastAsian(out, pres.themeEastAsian);
 
   // 5) 쇼 설정(presProps.xml) / 재구성한 쇼(presentation.xml)
   if (pres) await writePresentationSettings(out, pres);
@@ -317,6 +320,27 @@ export interface PresentationPlan {
   showPrXml: string;
   /** 재구성한 쇼: 슬라이드 인덱스(내보낸 순서) 목록 */
   customShows: { name: string; slides: number[] }[];
+  /** 테마 제목/본문 글꼴 중 한글을 표시할 수 있는 것 (없으면 null → PowerPoint 기본 '맑은 고딕') */
+  themeEastAsian?: { major: string | null; minor: string | null };
+}
+
+/** pptxgenjs 테마는 a:ea가 비어 있고 Hang이 '맑은 고딕'으로 고정 → 테마 글꼴이 한글 글꼴이면 그 글꼴로 */
+async function patchThemeEastAsian(out: JSZip, fonts: { major: string | null; minor: string | null }) {
+  const path = 'ppt/theme/theme1.xml';
+  const f = out.file(path);
+  if (!f) return;
+  const doc = parse(await f.async('string'));
+  const fontScheme = doc.getElementsByTagNameNS(NS.a, 'fontScheme')[0];
+  for (const [tagName, font] of [['majorFont', fonts.major], ['minorFont', fonts.minor]] as const) {
+    if (!font) continue;
+    const el = fontScheme ? kids(fontScheme).find((c) => c.localName === tagName) : undefined;
+    if (!el) continue;
+    const ea = kids(el).find((c) => c.localName === 'ea');
+    if (ea) ea.setAttribute('typeface', font);
+    const hang = kids(el).find((c) => c.localName === 'font' && c.getAttribute('script') === 'Hang');
+    if (hang) hang.setAttribute('typeface', font);
+  }
+  out.file(path, serialize(doc));
 }
 
 async function writePresentationSettings(out: JSZip, pres: PresentationPlan) {

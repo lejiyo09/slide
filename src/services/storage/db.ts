@@ -32,10 +32,27 @@ interface SlideLabDB extends DBSchema {
   packages: { key: string; value: Blob };
   /** 동영상/오디오 등 큰 바이너리 자산 */
   blobs: { key: string; value: Blob };
+  /** 사용자가 추가한 글꼴 파일 */
+  fonts: { key: string; value: UserFontRecord };
+}
+
+export interface UserFontRecord {
+  id: string;
+  family: string;
+  /** 같은 글꼴의 다른 이름 (한국어 이름 등) — 이 이름으로 쓴 문서도 표시 */
+  aliases: string[];
+  weight: number;
+  italic: boolean;
+  fileName: string;
+  format: string;
+  size: number;
+  embedding: string;
+  addedAt: number;
+  data: Blob;
 }
 
 const DB_NAME = 'slidelab';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const MAX_VERSIONS = 20;
 
 let dbPromise: Promise<IDBPDatabase<SlideLabDB>> | null = null;
@@ -54,6 +71,7 @@ export function getDB() {
         }
         if (oldVersion < 2) db.createObjectStore('packages');
         if (oldVersion < 3) db.createObjectStore('blobs');
+        if (oldVersion < 4) db.createObjectStore('fonts', { keyPath: 'id' });
       },
     });
   }
@@ -131,4 +149,18 @@ export async function saveBlob(key: string, data: Blob) {
 
 export async function getBlob(key: string): Promise<Blob | undefined> {
   return (await getDB()).get('blobs', key);
+}
+
+/* ───────────── 사용자 글꼴 ───────────── */
+
+export async function listUserFonts(): Promise<UserFontRecord[]> {
+  return (await getDB()).getAll('fonts');
+}
+
+export async function putUserFont(rec: UserFontRecord) {
+  await (await getDB()).put('fonts', rec);
+}
+
+export async function deleteUserFont(id: string) {
+  await (await getDB()).delete('fonts', id);
 }

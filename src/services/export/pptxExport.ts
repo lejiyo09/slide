@@ -10,6 +10,7 @@ import type { Asset, ChartObject, Fill, GroupObject, Paragraph, Presentation, Sh
 import { isPristine, mediaPlaybackSignature } from '../../core/document/fingerprint';
 import { buildShowPrXml, customShowPlan } from './showXml';
 import { showSettingsOf } from '../../engines/show/showModel';
+import { koreanCapable } from '../fonts/catalog';
 import { designLayers } from '../../engines/rendering/SlideView';
 import { resolveTokensDeep } from '../../utils/themeColor';
 import { chartPalette } from '../../editors/chart/chart';
@@ -490,7 +491,11 @@ export async function exportPptxBytes(
   const raw = (await pptx.write({ outputType: 'uint8array', compression: true })) as Uint8Array;
   const extra: string[] = [];
   const source = opts.sourcePackage ? await OoxmlPackage.load(opts.sourcePackage) : null;
-  const pres = { showPrXml: buildShowPrXml(showSettingsOf(doc), doc.customShows), customShows: customShowPlan(doc) };
+  const pres = {
+    showPrXml: buildShowPrXml(showSettingsOf(doc), doc.customShows),
+    customShows: customShowPlan(doc),
+    themeEastAsian: { major: koreanCapable(doc.theme.fonts.heading) ? doc.theme.fonts.heading : null, minor: koreanCapable(doc.theme.fonts.body) ? doc.theme.fonts.body : null },
+  };
   const bytes = await postProcessPptx(raw, plans, source, (m) => extra.push(m), pres);
   return { bytes, warnings: [...new Set([...warnings, ...extra])] };
 }

@@ -244,7 +244,7 @@ function ExportPage() {
             <span className="muted">Microsoft PowerPoint, Keynote, Google 슬라이드에서 열 수 있습니다.</span>
           </span>
         </button>
-        <button type="button" className="bs-export-item" onClick={() => void exportNative(doc)}>
+        <button type="button" className="bs-export-item" onClick={() => void exportNative(doc).then((r) => r.skippedFonts.length && useEditor.getState().toast(`포함이 제한된 글꼴은 파일에 넣지 않았습니다: ${r.skippedFonts.join(', ')}`, 'warning'))}>
           <FileJson size={28} />
           <span>
             <strong>SlideLab 문서 (.slidelab)</strong>

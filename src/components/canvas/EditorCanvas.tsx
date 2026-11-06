@@ -41,6 +41,8 @@ export function EditorCanvas() {
   const viewportRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<Drag | null>(null);
+  /** 캔버스가 시작한 실행 취소 단위(이동·크기 조정 등)가 있는지 — 텍스트 편집기의 단위를 대신 닫지 않도록 */
+  const canvasGesture = useRef(false);
   const [guides, setGuides] = useState<Guide[]>([]);
   const [marquee, setMarquee] = useState<Rect | null>(null);
   const [drawRect, setDrawRect] = useState<{ a: Point; b: Point } | null>(null);
@@ -199,6 +201,7 @@ export function EditorCanvas() {
       dragRef.current = { kind: 'resize', handle, start: p, origin, box: { x: box.x, y: box.y, width: box.width, height: box.height, rotation: single ? objs[0].rotation : 0 }, single };
     }
     s.beginGesture(handle === 'rotate' ? '회전' : s.cropId ? '자르기' : '크기 조정');
+    canvasGesture.current = true;
     // 포인터 캡처 후 이벤트는 뷰포트의 onPointerMove/onPointerUp으로 버블링된다
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
@@ -222,6 +225,7 @@ export function EditorCanvas() {
           // Ctrl+드래그: 복제 후 이동 (PowerPoint와 동일)
           if (e.ctrlKey || e.metaKey) {
             s.beginGesture('복제');
+            canvasGesture.current = true;
             let newIds: string[] = [];
             s.updateGesture((doc) => void (newIds = C.duplicateObjects(doc, slide.id, [...d.origin.keys()], 0)));
             const map = new Map<string, { x: number; y: number }>();
@@ -229,7 +233,10 @@ export function EditorCanvas() {
             d.origin = map;
             d.duplicate = true;
             useEditor.setState({ selectedIds: newIds });
-          } else s.beginGesture('이동');
+          } else {
+            s.beginGesture('이동');
+            canvasGesture.current = true;
+          }
         }
         if (e.shiftKey) {
           if (Math.abs(dx) > Math.abs(dy)) dy = 0;
@@ -418,7 +425,10 @@ export function EditorCanvas() {
       // 클릭만: 이미 선택된 텍스트 개체를 다시 클릭하면 편집 모드 (PowerPoint와 동일)
       return;
     }
-    s.endGesture();
+    if (canvasGesture.current) {
+      canvasGesture.current = false;
+      s.endGesture();
+    }
     void e;
   };
 

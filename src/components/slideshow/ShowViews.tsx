@@ -357,6 +357,10 @@ export function AudienceWindow({ win, onClosed, children }: { win: Window; onClo
     d.body.appendChild(el);
     return el;
   });
+  // 글꼴은 문서마다 따로 등록되므로 청중 창에도 내 글꼴을 등록 (웹 글꼴 스타일시트는 위에서 복사됨)
+  useEffect(() => {
+    void import('../../services/fonts/library').then((m) => m.registerFontsIn(win.document));
+  }, [win]);
   useEffect(() => {
     const closed = () => onClosed();
     win.addEventListener('pagehide', closed);
