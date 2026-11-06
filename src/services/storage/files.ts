@@ -78,7 +78,8 @@ export async function exportNative(doc: Presentation): Promise<{ skippedFonts: s
   const recs = await userFontRecords([...fontsUsed(doc).keys()]);
   const skippedFonts = [...new Set(recs.filter((r) => r.embedding === 'restricted').map((r) => r.family))];
   const fonts: NativeFont[] = [];
-  for (const r of recs.filter((x) => x.embedding !== 'restricted'))
+  // 오프라인 보관한 웹 글꼴은 SlideLab 기본 웹 글꼴이라 받는 쪽에서도 쓸 수 있으므로 넣지 않음 (파일 크기 절약)
+  for (const r of recs.filter((x) => x.embedding !== 'restricted' && x.origin !== 'web'))
     fonts.push({ family: r.family, aliases: r.aliases, weight: r.weight, italic: r.italic, fileName: r.fileName, format: r.format, dataUrl: await readAsDataUrl(r.data) });
   const blob = new Blob([JSON.stringify({ format: 'slidelab', version: 1, doc, sourcePackage, ...(fonts.length ? { fonts } : {}) })], { type: 'application/json' });
   downloadBlob(blob, `${safeFileName(doc.title)}.slidelab`);

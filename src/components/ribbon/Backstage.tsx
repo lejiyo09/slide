@@ -244,6 +244,16 @@ function ExportPage() {
             <span className="muted">Microsoft PowerPoint, Keynote, Google 슬라이드에서 열 수 있습니다.</span>
           </span>
         </button>
+        <label className="bs-export-option">
+          <input
+            type="checkbox"
+            checked={doc.embedFonts !== false}
+            onChange={(e) => useEditor.getState().commit('글꼴 포함 설정', (d) => void (d.embedFonts = e.target.checked))}
+          />
+          <span>
+            파일의 글꼴 포함 <span className="muted">— 이 문서에 쓴 '내 글꼴'(직접 추가·오프라인 보관한 글꼴)을 PPTX에 넣어, 글꼴이 없는 컴퓨터에서도 같은 모양으로 보이게 합니다. 포함이 제한된 글꼴은 넣지 않습니다.</span>
+          </span>
+        </label>
         <button type="button" className="bs-export-item" onClick={() => void exportNative(doc).then((r) => r.skippedFonts.length && useEditor.getState().toast(`포함이 제한된 글꼴은 파일에 넣지 않았습니다: ${r.skippedFonts.join(', ')}`, 'warning'))}>
           <FileJson size={28} />
           <span>

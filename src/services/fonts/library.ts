@@ -5,13 +5,14 @@
  */
 import { create } from 'zustand';
 import { deleteUserFont, listUserFonts, putUserFont, type UserFontRecord } from '../storage/db';
-import { readFontInfo } from './sfnt';
-import { isWebFont, koreanUserFamilies, SYSTEM_FONTS, webFontCssUrl, WEB_FONTS } from './catalog';
+import { detectFormat, readFontInfo, sfntInfo, splitCollection, toSfntFaces, type FontFormat, type FontInfo } from './sfnt';
+import { isWebFont, koreanUserFamilies, pickerLabel, SYSTEM_FONTS, webFontByFamily, webFontCssUrl, WEB_FONTS } from './catalog';
 import { newId } from '../../utils/id';
 
 export type UserFontMeta = Omit<UserFontRecord, 'data'>;
 
 const MAX_FONT_BYTES = 30 * 1024 * 1024;
+const MIME: Record<FontFormat, string> = { truetype: 'font/ttf', opentype: 'font/otf', woff: 'font/woff', woff2: 'font/woff2', collection: 'font/collection' };
 const PREF_KEY = 'slidelab.fonts';
 
 interface Prefs {
@@ -39,9 +40,11 @@ interface FontState extends Prefs {
   ready: boolean;
   /** 열린 문서에 쓰였지만 이 브라우저에 없는 글꼴 (알려진 시스템 글꼴 제외) */
   missing: string[];
+  /** 웹 글꼴을 받는 곳: 이 사이트(배포 시 자체 호스팅) / Google Fonts */
+  webSource: 'self' | 'google' | null;
 }
 
-export const useFonts = create<FontState>()(() => ({ ...loadPrefs(), userFonts: [], installed: {}, web: {}, ready: false, missing: [] }));
+export const useFonts = create<FontState>()(() => ({ ...loadPrefs(), userFonts: [], installed: {}, web: {}, ready: false, missing: [], webSource: null }));
 
 function savePrefs() {
   const { webFonts, recent, local } = useFonts.getState();
@@ -86,7 +89,8 @@ async function registerRecord(doc: Document, rec: UserFontRecord) {
   const buf = await rec.data.arrayBuffer();
   const faces: FontFace[] = [];
   for (const name of [rec.family, ...rec.aliases]) {
-    const face = new Ctor(name, buf.slice(0), { weight: String(rec.weight), style: rec.italic ? 'italic' : 'normal', display: 'swap' });
+    const weight = rec.weightRange ? `${rec.weightRange[0]} ${rec.weightRange[1]}` : String(rec.weight);
+    const face = new Ctor(name, buf.slice(0), { weight, style: rec.italic ? 'italic' : 'normal', display: 'swap' });
     try {
       await face.load();
       doc.fonts.add(face);
@@ -141,36 +145,50 @@ export async function addFontFiles(files: File[]): Promise<AddResult> {
     try {
       if (file.size > MAX_FONT_BYTES) throw new Error(`${file.name}: 30MB보다 큰 글꼴 파일은 추가할 수 없습니다.`);
       const buf = await file.arrayBuffer();
-      const info = await readFontInfo(buf, file.name);
-      // 브라우저가 실제로 읽을 수 있는지 확인
-      if (typeof FontFace !== 'undefined') {
-        try {
-          await new FontFace('__slidelab_probe__', buf.slice(0)).load();
-        } catch {
-          throw new Error(`${file.name}: 브라우저가 이 글꼴 파일을 읽지 못했습니다 (손상되었거나 지원하지 않는 형식).`);
+      const format = detectFormat(buf);
+      if (!format) throw new Error(`${file.name}: 글꼴 파일(.ttf, .otf, .ttc, .woff, .woff2)이 아닙니다.`);
+      // 글꼴 모음(TTC)은 글꼴마다 따로 저장 (브라우저 FontFace는 모음 파일을 읽지 못함)
+      const parts: { info: FontInfo; data: ArrayBuffer; fileName: string }[] = [];
+      if (format === 'collection') {
+        const faces = splitCollection(buf);
+        faces.forEach((f, i) => {
+          const info = sfntInfo(f, file.name);
+          parts.push({ info, data: f.slice().buffer as ArrayBuffer, fileName: `${file.name.replace(/\.ttc$/i, '')}#${i + 1}.${info.format === 'opentype' ? 'otf' : 'ttf'}` });
+        });
+      } else parts.push({ info: await readFontInfo(buf, file.name), data: buf, fileName: file.name });
+      for (const part of parts) {
+        const { info } = part;
+        // 브라우저가 실제로 읽을 수 있는지 확인
+        if (typeof FontFace !== 'undefined') {
+          try {
+            await new FontFace('__slidelab_probe__', part.data.slice(0)).load();
+          } catch {
+            throw new Error(`${part.fileName}: 브라우저가 이 글꼴 파일을 읽지 못했습니다 (손상되었거나 지원하지 않는 형식).`);
+          }
         }
+        if (info.embedding === 'restricted') res.warnings.push(`${info.family}: 글꼴 제작사가 문서 포함을 제한한 글꼴입니다. 이 컴퓨터에서 편집·발표하는 데는 쓸 수 있지만, 파일에 포함되지 않습니다.`);
+        if (info.guessed) res.warnings.push(`${part.fileName}: 글꼴 이름 정보가 없어 파일 이름에서 추정했습니다(${info.family}). 다르면 글꼴 관리에서 이름을 고치세요.`);
+        const same = existing.find((e) => e.family.toLowerCase() === info.family.toLowerCase() && e.weight === info.weight && e.italic === info.italic);
+        const rec: UserFontRecord = {
+          id: same?.id ?? newId(),
+          family: info.family,
+          aliases: info.localNames,
+          weight: info.weight,
+          italic: info.italic,
+          fileName: part.fileName,
+          format: info.format,
+          size: part.data.byteLength,
+          embedding: info.embedding,
+          addedAt: Date.now(),
+          data: new Blob([part.data], { type: MIME[info.format] }),
+          origin: 'file',
+        };
+        await putUserFont(rec);
+        await registerRecord(document, rec);
+        if (same) res.replaced++;
+        else existing.push(rec);
+        res.added.push(strip(rec));
       }
-      if (info.embedding === 'restricted') res.warnings.push(`${info.family}: 글꼴 제작사가 문서 포함을 제한한 글꼴입니다. 이 컴퓨터에서 편집·발표하는 데는 쓸 수 있지만, 파일과 함께 배포하려면 라이선스를 확인하세요.`);
-      if (info.guessed) res.warnings.push(`${file.name}: 글꼴 이름을 파일 이름에서 추정했습니다(${info.family}). 다르면 글꼴 관리에서 이름을 고치세요.`);
-      const same = existing.find((e) => e.family.toLowerCase() === info.family.toLowerCase() && e.weight === info.weight && e.italic === info.italic);
-      const rec: UserFontRecord = {
-        id: same?.id ?? newId(),
-        family: info.family,
-        aliases: info.localNames,
-        weight: info.weight,
-        italic: info.italic,
-        fileName: file.name,
-        format: info.format,
-        size: file.size,
-        embedding: info.embedding,
-        addedAt: Date.now(),
-        data: new Blob([buf], { type: file.type || 'font/' + (info.format === 'woff2' ? 'woff2' : info.format === 'woff' ? 'woff' : 'ttf') }),
-      };
-      await putUserFont(rec);
-      await registerRecord(document, rec);
-      if (same) res.replaced++;
-      else existing.push(rec);
-      res.added.push(strip(rec));
     } catch (e) {
       res.errors.push(e instanceof Error ? e.message : String(e));
     }
@@ -218,12 +236,19 @@ export async function userFontRecords(families: string[]): Promise<UserFontRecor
 }
 
 /** .slidelab 파일에 들어 있던 글꼴을 라이브러리에 추가 (같은 글꼴이 있으면 건너뜀) */
-export async function importEmbeddedFonts(items: { family: string; aliases?: string[]; weight: number; italic: boolean; fileName: string; format: string; data: Blob }[]): Promise<number> {
+export async function importEmbeddedFonts(items: { family: string; aliases?: string[]; weight: number; italic: boolean; fileName: string; format: string; data: Blob }[], origin: 'pptx' | 'slidelab' = 'slidelab'): Promise<number> {
   const existing = await listUserFonts();
   let n = 0;
   for (const it of items) {
     if (existing.some((e) => e.family.toLowerCase() === it.family.toLowerCase() && e.weight === it.weight && e.italic === it.italic)) continue;
-    const rec: UserFontRecord = { id: newId(), family: it.family, aliases: it.aliases ?? [], weight: it.weight, italic: it.italic, fileName: it.fileName, format: it.format, size: it.data.size, embedding: 'unknown', addedAt: Date.now(), data: it.data };
+    let embedding = 'unknown';
+    try {
+      const faces = await toSfntFaces(await it.data.arrayBuffer());
+      embedding = sfntInfo(faces[0], it.fileName).embedding;
+    } catch {
+      /* 정보를 못 읽어도 등록은 시도 */
+    }
+    const rec: UserFontRecord = { id: newId(), family: it.family, aliases: it.aliases ?? [], weight: it.weight, italic: it.italic, fileName: it.fileName, format: it.format, size: it.data.size, embedding, addedAt: Date.now(), data: it.data, origin };
     await putUserFont(rec);
     await registerRecord(document, rec);
     n++;
@@ -255,6 +280,111 @@ function addStylesheet(doc: Document, href: string, key: string): Promise<void> 
   return p;
 }
 
+/* ───────────── 웹 글꼴 오프라인 보관 ───────────── */
+
+interface GoogleFileEntry {
+  path: string;
+  files: { file: string; italic: boolean; weight: number; range?: [number, number]; size: number }[];
+}
+let googleFiles: Promise<{ commit: string; fonts: Record<string, GoogleFileEntry> }> | null = null;
+const loadGoogleFiles = () => (googleFiles ??= import('./googleFiles.json').then((m) => m.default as unknown as { commit: string; fonts: Record<string, GoogleFileEntry> }));
+
+/** 오프라인 보관할 때 받을 크기 (바이트) */
+export async function offlineSize(family: string): Promise<number> {
+  const e = (await loadGoogleFiles()).fonts[webFontByFamily.get(family.toLowerCase())?.family ?? family];
+  return e ? e.files.reduce((n, f) => n + f.size, 0) : 0;
+}
+
+/**
+ * 웹 글꼴 오프라인 보관: google/fonts 저장소(고정 커밋)에서 전체 TTF를 받아 '내 글꼴'에 저장.
+ * 저장된 글꼴은 인터넷 없이 쓰고, PPTX에 포함할 수도 있다 (OFL/Apache 라이선스는 포함 허용).
+ */
+export async function keepWebFontOffline(family: string, onProgress?: (done: number, total: number) => void): Promise<UserFontMeta[]> {
+  const cat = webFontByFamily.get(family.toLowerCase());
+  const { commit, fonts } = await loadGoogleFiles();
+  const entry = cat ? fonts[cat.family] : undefined;
+  if (!cat || !entry) throw new Error(`${family}: 오프라인 보관 정보가 없습니다.`);
+  const total = entry.files.reduce((n, f) => n + f.size, 0);
+  let done = 0;
+  const recs: UserFontRecord[] = [];
+  for (const f of entry.files) {
+    const url = `https://raw.githubusercontent.com/google/fonts/${commit}/${entry.path}/${encodeURIComponent(f.file)}`;
+    const res = await fetch(url);
+    if (!res.ok || !res.body) throw new Error(`${cat.family}: 글꼴 파일을 받지 못했습니다 (HTTP ${res.status}).`);
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    for (;;) {
+      const { done: end, value } = await reader.read();
+      if (end) break;
+      chunks.push(value);
+      done += value.length;
+      onProgress?.(Math.min(done, total), total);
+    }
+    const blob = new Blob(chunks as BlobPart[], { type: 'font/ttf' });
+    const info = sfntInfo(new Uint8Array(await blob.arrayBuffer()), f.file);
+    recs.push({
+      id: newId(),
+      family: cat.family,
+      aliases: [...new Set([info.family, ...info.localNames].filter((n) => n && n !== cat.family))],
+      weight: f.weight,
+      italic: f.italic,
+      fileName: f.file,
+      format: 'truetype',
+      size: blob.size,
+      embedding: info.embedding,
+      addedAt: Date.now(),
+      data: blob,
+      origin: 'web',
+      license: entry.path.startsWith('apache/') ? 'Apache License 2.0' : entry.path.startsWith('ufl/') ? 'Ubuntu Font Licence' : 'SIL Open Font License 1.1',
+      ...(f.range ? { weightRange: f.range } : {}),
+    });
+  }
+  // 같은 패밀리의 이전 보관본은 교체
+  for (const old of await listUserFonts()) {
+    if (old.family === cat.family && old.origin === 'web') {
+      await deleteUserFont(old.id);
+      unregisterRecord(document, old.id);
+    }
+  }
+  for (const r of recs) {
+    await putUserFont(r);
+    await registerRecord(document, r);
+  }
+  await refreshList();
+  return recs.map(strip);
+}
+
+/* 자체 호스팅: 배포 시 scripts/webfonts.mjs가 만든 같은 출처의 webfonts/ (없으면 Google Fonts) */
+interface SelfHostManifest {
+  families: Record<string, { css: string; hash: string; preview?: string }>;
+}
+let manifestPromise: Promise<SelfHostManifest | null> | null = null;
+const WEBFONT_BASE = `${import.meta.env.BASE_URL ?? '/'}webfonts/`;
+
+export function selfHostedWebFonts(): Promise<SelfHostManifest | null> {
+  manifestPromise ??= fetch(`${WEBFONT_BASE}manifest.json`, { cache: 'no-cache' })
+    .then((r) => (r.ok && (r.headers.get('content-type') ?? '').includes('json') ? (r.json() as Promise<SelfHostManifest>) : null))
+    .then((m) => {
+      useFonts.setState({ webSource: m && Object.keys(m.families ?? {}).length ? 'self' : 'google' });
+      return m;
+    })
+    .catch(() => {
+      useFonts.setState({ webSource: 'google' });
+      return null;
+    });
+  return manifestPromise;
+}
+
+/** 웹 글꼴 스타일시트 주소: 이 사이트에 있으면 그것, 없으면 Google Fonts. preview: 글꼴 이름 글자만 담은 작은 파일 */
+async function webFontHref(family: string, preview = false): Promise<string> {
+  const m = await selfHostedWebFonts();
+  const f = webFontByFamily.get(family.toLowerCase());
+  const entry = f ? m?.families[f.family] : undefined;
+  const css = preview ? entry?.preview : entry?.css;
+  if (css) return new URL(`${WEBFONT_BASE}${css}?v=${entry!.hash}`, location.href).href;
+  return webFontCssUrl(family, preview && f ? pickerLabel(f) : undefined);
+}
+
 /** 웹 글꼴 쓰기: 스타일시트를 넣고 글꼴 파일까지 받아 둠 */
 export async function ensureWebFont(family: string, doc: Document = document): Promise<boolean> {
   if (!isWebFont(family) || !useFonts.getState().webFonts) return false;
@@ -262,7 +392,7 @@ export async function ensureWebFont(family: string, doc: Document = document): P
   if (doc === document && st.web[family] === 'ready') return true;
   if (doc === document) useFonts.setState({ web: { ...st.web, [family]: 'loading' } });
   try {
-    await addStylesheet(doc, webFontCssUrl(family), family);
+    await addStylesheet(doc, await webFontHref(family), family);
     await Promise.all([doc.fonts.load(`16px "${family}"`, '가A'), doc.fonts.load(`bold 16px "${family}"`, '가A')]);
     if (doc === document) useFonts.setState({ web: { ...useFonts.getState().web, [family]: 'ready' } });
     return true;
@@ -272,10 +402,12 @@ export async function ensureWebFont(family: string, doc: Document = document): P
   }
 }
 
-/** 목록 미리 보기: 이름 글자만 담은 작은 파일 */
-export function previewWebFont(family: string, label: string) {
+/** 목록 미리 보기: 글꼴 이름 글자만 담은 작은 파일 (자체 호스팅이면 이 사이트의 미리 보기 파일) */
+export function previewWebFont(family: string) {
   if (!useFonts.getState().webFonts) return;
-  void addStylesheet(document, webFontCssUrl(family, `${family}${label}`), `preview:${family}`).catch(() => {});
+  void webFontHref(family, true)
+    .then((href) => addStylesheet(document, href, `preview:${family}`))
+    .catch(() => {});
 }
 
 /* ───────────── 이 컴퓨터의 글꼴 ───────────── */

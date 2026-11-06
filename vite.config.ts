@@ -40,10 +40,22 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        // 자체 호스팅 웹 글꼴(scripts/webfonts.mjs, 약 66MB)은 미리 받지 않고 쓸 때만 캐시
+        globIgnores: ['webfonts/**'],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         navigateFallback: 'index.html',
         // 무료 웹 글꼴: 한 번 받으면 오프라인에서도 사용 (Workbox 권장 Google Fonts 설정)
         runtimeCaching: [
+          {
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && /\/webfonts\/.+\.woff2$/.test(url.pathname),
+            handler: 'CacheFirst',
+            options: { cacheName: 'slidelab-webfonts', expiration: { maxEntries: 1500, maxAgeSeconds: 60 * 60 * 24 * 365 } },
+          },
+          {
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && /\/webfonts\/[^/]+\.(css|json)$/.test(url.pathname),
+            handler: 'StaleWhileRevalidate',
+            options: { cacheName: 'slidelab-webfont-css' },
+          },
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: 'StaleWhileRevalidate',

@@ -1648,6 +1648,17 @@ button.bs-export-item:hover:not(:disabled) {
   border-color: var(--accent);
   background: var(--bg-hover);
 }
+.bs-export-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 16px 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.bs-export-option input {
+  margin-top: 3px;
+}
 .bs-export-item.is-disabled {
   opacity: 0.55;
 }
@@ -3809,6 +3820,24 @@ button.bs-export-item:hover:not(:disabled) {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+.fm-keep {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 8px;
+}
+.fm-keep select {
+  max-width: 220px;
+}
+.fm-keep small {
+  flex-basis: 100%;
+}
+.chip.chip-sm {
+  font-size: 10.5px;
+  padding: 0 6px;
+  margin-left: 6px;
 }
 .fm-check {
   display: flex;

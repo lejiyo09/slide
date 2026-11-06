@@ -452,6 +452,8 @@ export interface Presentation {
   showSettings?: ShowSettings;
   /** 재구성한 쇼 (PPTX presentation.xml p:custShowLst) */
   customShows?: CustomShow[];
+  /** PPTX로 저장할 때 내 글꼴을 파일에 포함 (presentation.xml embedTrueTypeFonts, 기본 켬) */
+  embedFonts?: boolean;
   createdAt: number;
   updatedAt: number;
   version: 1;

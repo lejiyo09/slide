@@ -28,12 +28,15 @@ const EMU_PER_PX = 9525;
 export { summarizeReport } from './report';
 export type { ImportReport } from './report';
 import type { ImportReport } from './report';
+import { decodeEmbeddedFont, FONT_SLOTS, type ImportedEmbeddedFont } from '../fonts/embed';
 
 export interface ImportResult {
   doc: Presentation;
   report: ImportReport;
   /** 동영상/오디오 바이너리 (호출자가 IndexedDB blobs에 저장) */
   blobs: { key: string; data: Uint8Array; mime: string }[];
+  /** 포함 글꼴 (호출자가 내 글꼴에 추가) */
+  fonts: ImportedEmbeddedFont[];
 }
 
 /* ───────────── 텍스트 스타일 캐스케이드 ───────────── */
@@ -429,9 +432,29 @@ export async function importPptx(data: ArrayBuffer | Uint8Array | Blob, fileName
     updatedAt: now,
     version: 1,
   };
+  // 포함 글꼴 (p:embeddedFontLst → ppt/fonts/*.fntdata)
+  const fonts: ImportedEmbeddedFont[] = [];
+  for (const ef of kids(kid(pres, 'embeddedFontLst'), 'embeddedFont')) {
+    const typeface = kid(ef, 'font')?.getAttribute('typeface');
+    if (!typeface) continue;
+    for (const slot of FONT_SLOTS) {
+      const rid = kid(ef, slot)?.getAttributeNS(NS.r, 'id');
+      const rel = rid ? presRels.get(rid) : undefined;
+      const bytes = rel ? await pkg.bytes(rel.target) : null;
+      if (!bytes) continue;
+      try {
+        fonts.push(decodeEmbeddedFont(typeface, slot, bytes));
+      } catch (e) {
+        report.warnings.push(`포함 글꼴 '${typeface}'(${slot})을 읽지 못했습니다: ${(e as Error).message}`);
+      }
+    }
+  }
+  if (fonts.length) doc.embedFonts = true;
+  else if (pres.getAttribute('embedTrueTypeFonts') === '1') doc.embedFonts = true;
+  report.embeddedFonts = [...new Set(fonts.map((f) => f.typeface))];
   report.approximated = [...new Set(report.approximated)];
   report.warnings = [...new Set(report.warnings)];
-  return { doc, report, blobs };
+  return { doc, report, blobs, fonts };
 }
 
 function countObjects(objs: SlideObject[]): number {

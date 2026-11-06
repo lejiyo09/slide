@@ -137,6 +137,9 @@ export const SYSTEM_FONTS: CatalogFont[] = [
 export const webFontByFamily = new Map(WEB_FONTS.map((f) => [f.family.toLowerCase(), f]));
 export const isWebFont = (family: string) => webFontByFamily.has(family.toLowerCase());
 
+/** 글꼴 선택 상자에 보이는 이름 (미리 보기 파일에 담을 글자) */
+export const pickerLabel = (f: CatalogFont) => (f.label && f.label !== f.family ? `${f.family} · ${f.label}` : f.family);
+
 /** Google Fonts CSS2 주소 (text: 그 글자만 담은 작은 미리 보기용 파일) */
 export function webFontCssUrl(family: string, text?: string): string {
   const f = webFontByFamily.get(family.toLowerCase());

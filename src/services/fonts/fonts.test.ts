@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { produce } from 'immer';
-import { detectFormat, guessFromFileName, readFontInfo } from './sfnt';
+import { detectFormat, guessFromFileName, hasTrueTypeOutlines, readFontInfo, sfntInfo, toSfntFaces } from './sfnt';
 import { WEB_FONTS, SYSTEM_FONTS, webFontCssUrl, isWebFont } from './catalog';
 import { fontsUsed, replaceFontInDoc } from './docFonts';
 import { createPresentation, createTextBox } from '../../core/document/factory';
@@ -22,11 +22,52 @@ describe('글꼴 파일 정보 읽기', () => {
     expect(b).toMatchObject({ family: 'SlideLab Test Serif', weight: 700, italic: true });
   });
 
-  it('WOFF(zlib 압축 표)도 읽고, WOFF2는 파일 이름으로 추정', async () => {
+  it('WOFF·WOFF2도 실제 name 표를 읽음 (파일 이름과 무관)', async () => {
     const w = await readFontInfo(fx('TestSerif-Regular.woff'), 'a.woff');
     expect(w).toMatchObject({ format: 'woff', family: 'SlideLab Test Serif', weight: 400, guessed: false });
     const w2 = await readFontInfo(fx('TestSerif-Regular.woff2'), 'NanumGothic-ExtraBold.woff2');
-    expect(w2).toMatchObject({ format: 'woff2', family: 'Nanum Gothic', weight: 800, italic: false, guessed: true });
+    expect(w2).toMatchObject({ format: 'woff2', family: 'SlideLab Test Serif', weight: 400, italic: false, guessed: false });
+    expect(w2.localNames).toEqual(['슬라이드랩 테스트 명조']);
+  });
+
+  it('WOFF/WOFF2 → TTF 변환: 원본 TTF와 표 내용이 같음', async () => {
+    const orig = new Uint8Array(fx('TestSerif-Regular.ttf'));
+    const tablesOf = (b: Uint8Array) => {
+      const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+      const m = new Map<string, string>();
+      for (let i = 0; i < v.getUint16(4); i++) {
+        const o = 12 + i * 16;
+        const t = String.fromCharCode(...b.subarray(o, o + 4));
+        const d = b.subarray(v.getUint32(o + 8), v.getUint32(o + 8) + v.getUint32(o + 12));
+        m.set(t, t === 'head' ? [...d.subarray(0, 8), ...d.subarray(12)].join() : d.join());
+      }
+      return m;
+    };
+    const fromWoff = (await toSfntFaces(fx('TestSerif-Regular.woff')))[0];
+    expect(tablesOf(fromWoff)).toEqual(tablesOf(orig));
+    const fromWoff2 = (await toSfntFaces(fx('TestSerif-Regular.woff2')))[0];
+    // WOFF2는 glyf/loca를 변환 저장하므로 다시 만들어진 glyf/loca는 바이트가 다를 수 있음 → 나머지 표 비교
+    const a = tablesOf(fromWoff2), b = tablesOf(orig);
+    expect([...a.keys()].sort()).toEqual([...b.keys()].sort());
+    // head.flags 11번 비트: WOFF2 명세상 복원기가 켬 (변환된 글꼴 표시)
+    const headFlags = (h: string) => h.split(',').map((x, i) => (i === 12 ? String(Number(x) & ~0x08) : x)).join();
+    for (const k of a.keys()) if (k !== 'glyf' && k !== 'loca') expect(k === 'head' ? headFlags(a.get(k)!) : a.get(k), k).toBe(k === 'head' ? headFlags(b.get(k)!) : b.get(k));
+    // 브라우저 없이도 결과가 올바른 sfnt인지: 체크섬 합 = 0xB1B0AFBA
+    expect(hasTrueTypeOutlines(fromWoff2)).toBe(true);
+  });
+
+  it('TTC(글꼴 모음) → 글꼴마다 독립된 TTF', async () => {
+    const buf = fx('TestSerif.ttc');
+    expect(detectFormat(buf)).toBe('collection');
+    const faces = await toSfntFaces(buf);
+    expect(faces).toHaveLength(2);
+    expect(sfntInfo(faces[0], 'x.ttc')).toMatchObject({ family: 'SlideLab Test Serif', weight: 400, italic: false });
+    expect(sfntInfo(faces[1], 'x.ttc')).toMatchObject({ family: 'SlideLab Test Serif', weight: 700, italic: true });
+    // 독립 파일의 checkSumAdjustment가 올바른지
+    let sum = 0;
+    const f = faces[1];
+    for (let i = 0; i < f.length; i += 4) sum = (sum + (((f[i] << 24) | (f[i + 1] << 16) | (f[i + 2] << 8) | f[i + 3]) >>> 0)) >>> 0;
+    expect(sum).toBe(0xb1b0afba);
   });
 
   it('형식 판별과 파일 이름 추정', async () => {

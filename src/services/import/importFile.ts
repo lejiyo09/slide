@@ -43,8 +43,13 @@ export async function openPresentationFile(file: File): Promise<boolean> {
     const progress = s.toast(`'${file.name}' 가져오는 중…`);
     const { importPptx } = await import('./pptxImport');
     const buf = await file.arrayBuffer();
-    const { doc, report, blobs } = await importPptx(buf, file.name);
+    const { doc, report, blobs, fonts } = await importPptx(buf, file.name);
     for (const b of blobs) await saveBlob(b.key, new Blob([b.data as BlobPart], { type: b.mime }));
+    if (fonts.length) {
+      // 포함 글꼴 → 내 글꼴 (같은 이름·스타일이 이미 있으면 건너뜀)
+      const { importEmbeddedFonts } = await import('../fonts/library');
+      await importEmbeddedFonts(fonts.map((f) => ({ family: f.family, aliases: f.aliases, weight: f.weight, italic: f.italic, fileName: `${f.typeface}-${f.weight}${f.italic ? 'i' : ''}.ttf`, format: 'truetype', data: new Blob([f.ttf as BlobPart], { type: 'font/ttf' }) })), 'pptx');
+    }
     const packageId = newId();
     await savePackage(packageId, new Blob([buf], { type: file.type || 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }));
     doc.source = { packageId, fileName: file.name, importedAt: Date.now() };

@@ -145,7 +145,7 @@ try {
   check('글꼴 파일 추가: 이름·스타일 읽기', chips.join(',') === 'Regular,Bold Italic', chips.join(','));
   check('한국어 이름도 표시', (await page.locator('[data-family="SlideLab Test Serif"]').textContent()).includes('슬라이드랩 테스트 명조'));
   check('브라우저에 등록', await page.evaluate(() => document.fonts.check('16px "SlideLab Test Serif"') && document.fonts.check('bold italic 16px "SlideLab Test Serif"') && document.fonts.check('16px "슬라이드랩 테스트 명조"')));
-  // 끌어 놓기 (WOFF2 → 이름은 파일 이름으로 추정)
+  // 끌어 놓기 (WOFF2 → 파일 이름과 무관하게 글꼴 안의 실제 이름을 읽음 → 같은 스타일은 교체)
   const w2 = readFileSync(`${FX}/TestSerif-Regular.woff2`).toString('base64');
   await page.evaluate(async (b64) => {
     const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -153,8 +153,9 @@ try {
     dt.items.add(new File([bin], 'Dropped-Medium.woff2', { type: 'font/woff2' }));
     document.querySelector('[data-font-drop]').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
   }, w2);
-  await page.waitForSelector('[data-family="Dropped"]');
-  check('끌어 놓아 추가 (WOFF2, 이름 추정)', (await page.locator('[data-family="Dropped"] .chip').textContent()) === 'Medium');
+  await page.waitForFunction(() => window.__SLIDELAB_FONTS__?.getState().userFonts.some((f) => f.fileName === 'Dropped-Medium.woff2'), null, { timeout: 8000 });
+  const afterDrop = await page.evaluate(() => window.__SLIDELAB_FONTS__.getState().userFonts.map((f) => `${f.family}/${f.weight}/${f.fileName}`));
+  check('끌어 놓아 추가 (WOFF2, 실제 이름 읽음 → 같은 스타일 교체)', afterDrop.length === 2 && afterDrop.includes('SlideLab Test Serif/400/Dropped-Medium.woff2') && !(await page.locator('[data-family="Dropped"]').count()), afterDrop.join(', '));
   await page.screenshot({ path: `${OUT}/s13-02-manager.png` });
   await page.locator('.dialog .btn.primary', { hasText: '닫기' }).click();
 
@@ -200,10 +201,11 @@ try {
   check('.slidelab에 쓴 글꼴만 포함', native.fonts?.length === 2 && native.fonts.every((f) => f.family === '우리 회사 명조' && f.dataUrl.startsWith('data:')), JSON.stringify(native.fonts?.map((f) => f.family)));
   await page.keyboard.press('Escape');
   await page.evaluate(() => window.__SLIDELAB__.getState().set({ backstageOpen: false, fontDialog: 'manage' }));
-  for (const fam of ['우리 회사 명조', 'Dropped']) await page.locator(`[data-font-delete="${fam}"]`).click();
+  for (const fam of ['우리 회사 명조']) await page.locator(`[data-font-delete="${fam}"]`).click();
   await page.waitForFunction(() => !document.querySelector('[data-family]'));
   check('글꼴 삭제 (등록 해제)', await page.evaluate(() => !document.fonts.check('16px "우리 회사 명조"') || ![...document.fonts].some((f) => f.family.includes('우리 회사 명조'))));
   await page.locator('.dialog .btn.primary', { hasText: '닫기' }).click();
+  const beforeId = await page.evaluate(() => window.__SLIDELAB__.getState().doc.id);
   await page.evaluate(async (text) => {
     const dt = new DataTransfer();
     dt.items.add(new File([text], 'restored.slidelab', { type: 'application/json' }));
@@ -211,6 +213,8 @@ try {
   }, readFileSync(nativePath, 'utf8'));
   await page.waitForFunction(() => document.fonts.check('16px "우리 회사 명조"') && [...document.fonts].some((f) => f.family.includes('우리 회사 명조')), null, { timeout: 8000 });
   check('.slidelab 열면 글꼴 복원', true);
+  // 문서 교체가 끝난 뒤에 다음 단계 진행 (글꼴 등록과 문서 열기는 비동기)
+  await page.waitForFunction((id) => window.__SLIDELAB__.getState().doc.id !== id, beforeId, { timeout: 8000 });
 
   /* ───── PPTX: 테마 한글 글꼴 + 글자 글꼴 ───── */
   await page.evaluate(() => window.__SLIDELAB__.getState().commit('테마 글꼴', (d) => (d.theme.fonts = { heading: 'Noto Serif KR', body: 'Gowun Dodum' })));

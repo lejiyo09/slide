@@ -8,3 +8,4 @@ test-output
 
 # AI 중계 서버 로컬 비밀 값
 proxy/.dev.vars
+.webfonts-cache

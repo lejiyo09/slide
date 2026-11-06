@@ -83,7 +83,7 @@ export function App() {
         if (e.dataTransfer.types.includes('Files')) e.preventDefault();
       }}
       onDrop={(e) => {
-        const fontFiles = Array.from(e.dataTransfer.files).filter((x) => /\.(ttf|otf|woff2?)$/i.test(x.name));
+        const fontFiles = Array.from(e.dataTransfer.files).filter((x) => /\.(ttf|otf|ttc|woff2?)$/i.test(x.name));
         if (fontFiles.length) {
           // 글꼴 파일을 창에 놓으면 내 글꼴에 추가
           e.preventDefault();

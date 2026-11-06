@@ -1,0 +1,993 @@
+{
+ "commit": "24ddc1f324cac5d9f5aedca126d298f56e3f1640",
+ "fonts": {
+  "Noto Sans KR": {
+   "path": "ofl/notosanskr",
+   "files": [
+    {
+     "file": "NotoSansKR[wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      100,
+      900
+     ],
+     "size": 10414588
+    }
+   ]
+  },
+  "Nanum Gothic": {
+   "path": "ofl/nanumgothic",
+   "files": [
+    {
+     "file": "NanumGothic-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 2054744
+    },
+    {
+     "file": "NanumGothic-Bold.ttf",
+     "italic": false,
+     "weight": 700,
+     "size": 2073868
+    }
+   ]
+  },
+  "Gothic A1": {
+   "path": "ofl/gothica1",
+   "files": [
+    {
+     "file": "GothicA1-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 2295400
+    },
+    {
+     "file": "GothicA1-Bold.ttf",
+     "italic": false,
+     "weight": 700,
+     "size": 2287068
+    }
+   ]
+  },
+  "IBM Plex Sans KR": {
+   "path": "ofl/ibmplexsanskr",
+   "files": [
+    {
+     "file": "IBMPlexSansKR-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 2797100
+    },
+    {
+     "file": "IBMPlexSansKR-Bold.ttf",
+     "italic": false,
+     "weight": 700,
+     "size": 2875584
+    }
+   ]
+  },
+  "Gowun Dodum": {
+   "path": "ofl/gowundodum",
+   "files": [
+    {
+     "file": "GowunDodum-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 7229088
+    }
+   ]
+  },
+  "Nanum Gothic Coding": {
+   "path": "ofl/nanumgothiccoding",
+   "files": [
+    {
+     "file": "NanumGothicCoding-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 2315924
+    },
+    {
+     "file": "NanumGothicCoding-Bold.ttf",
+     "italic": false,
+     "weight": 700,
+     "size": 2246240
+    }
+   ]
+  },
+  "Sunflower": {
+   "path": "ofl/sunflower",
+   "files": [
+    {
+     "file": "Sunflower-Light.ttf",
+     "italic": false,
+     "weight": 300,
+     "size": 758332
+    },
+    {
+     "file": "Sunflower-Medium.ttf",
+     "italic": false,
+     "weight": 500,
+     "size": 770536
+    },
+    {
+     "file": "Sunflower-Bold.ttf",
+     "italic": false,
+     "weight": 700,
+     "size": 746300
+    }
+   ]
+  },
+  "Orbit": {
+   "path": "ofl/orbit",
+   "files": [
+    {
+     "file": "Orbit-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 784480
+    }
+   ]
+  },
+  "Noto Serif KR": {
+   "path": "ofl/notoserifkr",
+   "files": [
+    {
+     "file": "NotoSerifKR[wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      200,
+      900
+     ],
+     "size": 23795420
+    }
+   ]
+  },
+  "Nanum Myeongjo": {
+   "path": "ofl/nanummyeongjo",
+   "files": [
+    {
+     "file": "NanumMyeongjo-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 3058408
+    },
+    {
+     "file": "NanumMyeongjo-Bold.ttf",
+     "italic": false,
+     "weight": 700,
+     "size": 3074720
+    }
+   ]
+  },
+  "Gowun Batang": {
+   "path": "ofl/gowunbatang",
+   "files": [
+    {
+     "file": "GowunBatang-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 8433296
+    },
+    {
+     "file": "GowunBatang-Bold.ttf",
+     "italic": false,
+     "weight": 700,
+     "size": 8178712
+    }
+   ]
+  },
+  "Hahmlet": {
+   "path": "ofl/hahmlet",
+   "files": [
+    {
+     "file": "Hahmlet[wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      100,
+      900
+     ],
+     "size": 3559144
+    }
+   ]
+  },
+  "Song Myung": {
+   "path": "ofl/songmyung",
+   "files": [
+    {
+     "file": "SongMyung-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 2035300
+    }
+   ]
+  },
+  "Diphylleia": {
+   "path": "ofl/diphylleia",
+   "files": [
+    {
+     "file": "Diphylleia-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 1947768
+    }
+   ]
+  },
+  "Nanum Pen Script": {
+   "path": "ofl/nanumpenscript",
+   "files": [
+    {
+     "file": "NanumPenScript-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 3201664
+    }
+   ]
+  },
+  "Nanum Brush Script": {
+   "path": "ofl/nanumbrushscript",
+   "files": [
+    {
+     "file": "NanumBrushScript-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 3564804
+    }
+   ]
+  },
+  "Gaegu": {
+   "path": "ofl/gaegu",
+   "files": [
+    {
+     "file": "Gaegu-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 3165816
+    },
+    {
+     "file": "Gaegu-Bold.ttf",
+     "italic": false,
+     "weight": 700,
+     "size": 2962664
+    }
+   ]
+  },
+  "Hi Melody": {
+   "path": "ofl/himelody",
+   "files": [
+    {
+     "file": "HiMelody-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 12623412
+    }
+   ]
+  },
+  "Gamja Flower": {
+   "path": "ofl/gamjaflower",
+   "files": [
+    {
+     "file": "GamjaFlower-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 12615444
+    }
+   ]
+  },
+  "Poor Story": {
+   "path": "ofl/poorstory",
+   "files": [
+    {
+     "file": "PoorStory-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 3966768
+    }
+   ]
+  },
+  "Single Day": {
+   "path": "ofl/singleday",
+   "files": [
+    {
+     "file": "SingleDay-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 816524
+    }
+   ]
+  },
+  "Cute Font": {
+   "path": "ofl/cutefont",
+   "files": [
+    {
+     "file": "CuteFont-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 1027936
+    }
+   ]
+  },
+  "Dokdo": {
+   "path": "ofl/dokdo",
+   "files": [
+    {
+     "file": "Dokdo-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 2150860
+    }
+   ]
+  },
+  "East Sea Dokdo": {
+   "path": "ofl/eastseadokdo",
+   "files": [
+    {
+     "file": "EastSeaDokdo-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 3178684
+    }
+   ]
+  },
+  "Kirang Haerang": {
+   "path": "ofl/kiranghaerang",
+   "files": [
+    {
+     "file": "KirangHaerang-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 5995608
+    }
+   ]
+  },
+  "Dongle": {
+   "path": "ofl/dongle",
+   "files": [
+    {
+     "file": "Dongle-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 4458600
+    },
+    {
+     "file": "Dongle-Bold.ttf",
+     "italic": false,
+     "weight": 700,
+     "size": 4476536
+    }
+   ]
+  },
+  "Black Han Sans": {
+   "path": "ofl/blackhansans",
+   "files": [
+    {
+     "file": "BlackHanSans-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 998424
+    }
+   ]
+  },
+  "Do Hyeon": {
+   "path": "ofl/dohyeon",
+   "files": [
+    {
+     "file": "DoHyeon-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 879764
+    }
+   ]
+  },
+  "Jua": {
+   "path": "ofl/jua",
+   "files": [
+    {
+     "file": "Jua-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 2119352
+    }
+   ]
+  },
+  "Yeon Sung": {
+   "path": "ofl/yeonsung",
+   "files": [
+    {
+     "file": "YeonSung-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 2511004
+    }
+   ]
+  },
+  "Stylish": {
+   "path": "ofl/stylish",
+   "files": [
+    {
+     "file": "Stylish-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 10854004
+    }
+   ]
+  },
+  "Gugi": {
+   "path": "ofl/gugi",
+   "files": [
+    {
+     "file": "Gugi-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 990856
+    }
+   ]
+  },
+  "Bagel Fat One": {
+   "path": "ofl/bagelfatone",
+   "files": [
+    {
+     "file": "BagelFatOne-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 1585984
+    }
+   ]
+  },
+  "Gasoek One": {
+   "path": "ofl/gasoekone",
+   "files": [
+    {
+     "file": "GasoekOne-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 1061372
+    }
+   ]
+  },
+  "Moirai One": {
+   "path": "ofl/moiraione",
+   "files": [
+    {
+     "file": "MoiraiOne-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 2102128
+    }
+   ]
+  },
+  "Grandiflora One": {
+   "path": "ofl/grandifloraone",
+   "files": [
+    {
+     "file": "GrandifloraOne-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 2342680
+    }
+   ]
+  },
+  "Inter": {
+   "path": "ofl/inter",
+   "files": [
+    {
+     "file": "Inter[opsz,wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      100,
+      900
+     ],
+     "size": 876576
+    },
+    {
+     "file": "Inter-Italic[opsz,wght].ttf",
+     "italic": true,
+     "weight": 400,
+     "range": [
+      100,
+      900
+     ],
+     "size": 906596
+    }
+   ]
+  },
+  "Roboto": {
+   "path": "ofl/roboto",
+   "files": [
+    {
+     "file": "Roboto[wdth,wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      100,
+      900
+     ],
+     "size": 488584
+    },
+    {
+     "file": "Roboto-Italic[wdth,wght].ttf",
+     "italic": true,
+     "weight": 400,
+     "range": [
+      100,
+      900
+     ],
+     "size": 530944
+    }
+   ]
+  },
+  "Open Sans": {
+   "path": "ofl/opensans",
+   "files": [
+    {
+     "file": "OpenSans[wdth,wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      300,
+      800
+     ],
+     "size": 532636
+    },
+    {
+     "file": "OpenSans-Italic[wdth,wght].ttf",
+     "italic": true,
+     "weight": 400,
+     "range": [
+      300,
+      800
+     ],
+     "size": 583992
+    }
+   ]
+  },
+  "Lato": {
+   "path": "ofl/lato",
+   "files": [
+    {
+     "file": "Lato-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 656568
+    },
+    {
+     "file": "Lato-Bold.ttf",
+     "italic": false,
+     "weight": 700,
+     "size": 656544
+    },
+    {
+     "file": "Lato-Italic.ttf",
+     "italic": true,
+     "weight": 400,
+     "size": 722900
+    },
+    {
+     "file": "Lato-BoldItalic.ttf",
+     "italic": true,
+     "weight": 700,
+     "size": 698364
+    }
+   ]
+  },
+  "Montserrat": {
+   "path": "ofl/montserrat",
+   "files": [
+    {
+     "file": "Montserrat[wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      100,
+      900
+     ],
+     "size": 744936
+    },
+    {
+     "file": "Montserrat-Italic[wght].ttf",
+     "italic": true,
+     "weight": 400,
+     "range": [
+      100,
+      900
+     ],
+     "size": 762376
+    }
+   ]
+  },
+  "Poppins": {
+   "path": "ofl/poppins",
+   "files": [
+    {
+     "file": "Poppins-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 160316
+    },
+    {
+     "file": "Poppins-Bold.ttf",
+     "italic": false,
+     "weight": 700,
+     "size": 155996
+    },
+    {
+     "file": "Poppins-Italic.ttf",
+     "italic": true,
+     "weight": 400,
+     "size": 184544
+    },
+    {
+     "file": "Poppins-BoldItalic.ttf",
+     "italic": true,
+     "weight": 700,
+     "size": 179108
+    }
+   ]
+  },
+  "Raleway": {
+   "path": "ofl/raleway",
+   "files": [
+    {
+     "file": "Raleway[wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      100,
+      900
+     ],
+     "size": 312352
+    },
+    {
+     "file": "Raleway-Italic[wght].ttf",
+     "italic": true,
+     "weight": 400,
+     "range": [
+      100,
+      900
+     ],
+     "size": 318476
+    }
+   ]
+  },
+  "Nunito": {
+   "path": "ofl/nunito",
+   "files": [
+    {
+     "file": "Nunito[wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      200,
+      1000
+     ],
+     "size": 276932
+    },
+    {
+     "file": "Nunito-Italic[wght].ttf",
+     "italic": true,
+     "weight": 400,
+     "range": [
+      200,
+      1000
+     ],
+     "size": 281832
+    }
+   ]
+  },
+  "Source Sans 3": {
+   "path": "ofl/sourcesans3",
+   "files": [
+    {
+     "file": "SourceSans3[wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      200,
+      900
+     ],
+     "size": 646340
+    },
+    {
+     "file": "SourceSans3-Italic[wght].ttf",
+     "italic": true,
+     "weight": 400,
+     "range": [
+      200,
+      900
+     ],
+     "size": 395372
+    }
+   ]
+  },
+  "Noto Sans": {
+   "path": "ofl/notosans",
+   "files": [
+    {
+     "file": "NotoSans[wdth,wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      100,
+      900
+     ],
+     "size": 2049096
+    },
+    {
+     "file": "NotoSans-Italic[wdth,wght].ttf",
+     "italic": true,
+     "weight": 400,
+     "range": [
+      100,
+      900
+     ],
+     "size": 2322640
+    }
+   ]
+  },
+  "Oswald": {
+   "path": "ofl/oswald",
+   "files": [
+    {
+     "file": "Oswald[wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      200,
+      700
+     ],
+     "size": 172088
+    }
+   ]
+  },
+  "Bebas Neue": {
+   "path": "ofl/bebasneue",
+   "files": [
+    {
+     "file": "BebasNeue-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 61400
+    }
+   ]
+  },
+  "Playfair Display": {
+   "path": "ofl/playfairdisplay",
+   "files": [
+    {
+     "file": "PlayfairDisplay[wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      400,
+      900
+     ],
+     "size": 300724
+    },
+    {
+     "file": "PlayfairDisplay-Italic[wght].ttf",
+     "italic": true,
+     "weight": 400,
+     "range": [
+      400,
+      900
+     ],
+     "size": 278688
+    }
+   ]
+  },
+  "Merriweather": {
+   "path": "ofl/merriweather",
+   "files": [
+    {
+     "file": "Merriweather[opsz,wdth,wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      300,
+      900
+     ],
+     "size": 4628080
+    },
+    {
+     "file": "Merriweather-Italic[opsz,wdth,wght].ttf",
+     "italic": true,
+     "weight": 400,
+     "range": [
+      300,
+      900
+     ],
+     "size": 4591168
+    }
+   ]
+  },
+  "Lora": {
+   "path": "ofl/lora",
+   "files": [
+    {
+     "file": "Lora[wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      400,
+      700
+     ],
+     "size": 212196
+    },
+    {
+     "file": "Lora-Italic[wght].ttf",
+     "italic": true,
+     "weight": 400,
+     "range": [
+      400,
+      700
+     ],
+     "size": 221232
+    }
+   ]
+  },
+  "PT Serif": {
+   "path": "ofl/ptserif",
+   "files": [
+    {
+     "file": "PT_Serif-Web-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 359048
+    },
+    {
+     "file": "PT_Serif-Web-Bold.ttf",
+     "italic": false,
+     "weight": 700,
+     "size": 339996
+    },
+    {
+     "file": "PT_Serif-Web-Italic.ttf",
+     "italic": true,
+     "weight": 400,
+     "size": 375356
+    },
+    {
+     "file": "PT_Serif-Web-BoldItalic.ttf",
+     "italic": true,
+     "weight": 700,
+     "size": 337580
+    }
+   ]
+  },
+  "Noto Serif": {
+   "path": "ofl/notoserif",
+   "files": [
+    {
+     "file": "NotoSerif[wdth,wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      100,
+      900
+     ],
+     "size": 1887192
+    },
+    {
+     "file": "NotoSerif-Italic[wdth,wght].ttf",
+     "italic": true,
+     "weight": 400,
+     "range": [
+      100,
+      900
+     ],
+     "size": 2448496
+    }
+   ]
+  },
+  "Roboto Slab": {
+   "path": "apache/robotoslab",
+   "files": [
+    {
+     "file": "RobotoSlab[wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      100,
+      900
+     ],
+     "size": 251880
+    }
+   ]
+  },
+  "Dancing Script": {
+   "path": "ofl/dancingscript",
+   "files": [
+    {
+     "file": "DancingScript[wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      400,
+      700
+     ],
+     "size": 133636
+    }
+   ]
+  },
+  "Caveat": {
+   "path": "ofl/caveat",
+   "files": [
+    {
+     "file": "Caveat[wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      400,
+      700
+     ],
+     "size": 403648
+    }
+   ]
+  },
+  "Pacifico": {
+   "path": "ofl/pacifico",
+   "files": [
+    {
+     "file": "Pacifico-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 329380
+    }
+   ]
+  },
+  "Lobster": {
+   "path": "ofl/lobster",
+   "files": [
+    {
+     "file": "Lobster-Regular.ttf",
+     "italic": false,
+     "weight": 400,
+     "size": 406076
+    }
+   ]
+  },
+  "Roboto Mono": {
+   "path": "ofl/robotomono",
+   "files": [
+    {
+     "file": "RobotoMono[wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      100,
+      700
+     ],
+     "size": 183700
+    },
+    {
+     "file": "RobotoMono-Italic[wght].ttf",
+     "italic": true,
+     "weight": 400,
+     "range": [
+      100,
+      700
+     ],
+     "size": 196792
+    }
+   ]
+  },
+  "Fira Code": {
+   "path": "ofl/firacode",
+   "files": [
+    {
+     "file": "FiraCode[wght].ttf",
+     "italic": false,
+     "weight": 400,
+     "range": [
+      300,
+      700
+     ],
+     "size": 260364
+    }
+   ]
+  }
+ }
+}

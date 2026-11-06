@@ -26,6 +26,14 @@ jobs:
           # AI 중계 서버 주소(비밀 값 아님). 저장소 Variables에 AI_PROXY_URL을 넣으면 앱이 GPT 중계 서버를 기본으로 사용
           VITE_AI_PROXY_URL: ${{ vars.AI_PROXY_URL }}
           VITE_AI_PROXY_MODEL: ${{ vars.AI_PROXY_MODEL }}
+      # 웹 글꼴 자체 호스팅: Google Fonts의 woff2 조각을 dist/webfonts에 넣어 사용자의 브라우저가 Google에 요청하지 않게 함
+      # (gstatic 파일 주소에는 버전이 있어 바뀌지 않으므로 캐시해 두고 재사용. 실패한 글꼴은 앱이 Google Fonts로 대체)
+      - uses: actions/cache@v4
+        with:
+          path: .webfonts-cache
+          key: webfonts-${{ hashFiles('src/services/fonts/catalog.ts', 'scripts/webfonts.mjs') }}
+          restore-keys: webfonts-
+      - run: node scripts/webfonts.mjs dist/webfonts --cache=.webfonts-cache
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

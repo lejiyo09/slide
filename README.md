@@ -59,18 +59,32 @@ GitHub Codespaces에서도 동일하게 실행됩니다. `main`에 push하면 `.
 
 - **글꼴 선택 상자** (홈 › 글꼴, 서식 창, 테마 사용자 지정): 검색, 종류(고딕·명조·손글씨·디자인·고정폭)·한글 필터, 글꼴마다 그 모양으로 미리 보기, 키보드(↑↓ Enter Esc).
   구역: 테마 글꼴(제목/본문) · 최근 사용 · **내 글꼴** · **무료 웹 글꼴** · 이 컴퓨터의 글꼴 · 기본 시스템 글꼴(설치 안 된 것은 "없음"). 목록에 없는 이름도 입력해 쓸 수 있음
-- **내 글꼴 추가** (글꼴 선택 상자 › 글꼴 추가, 홈 › 바꾸기 › 글꼴 관리, 창에 글꼴 파일 끌어 놓기): `.ttf` `.otf` `.woff` `.woff2`.
-  파일의 `name` 표에서 글꼴 이름(영어 + 한국어 이름), `OS/2` 표에서 굵기·기울임·포함 권한을 읽어 한 패밀리의 여러 스타일(Regular/Bold/Italic…)로 묶습니다 (WOFF는 zlib 압축 해제, WOFF2는 파일 이름으로 추정 후 이름 고치기 가능).
+- **내 글꼴 추가** (글꼴 선택 상자 › 글꼴 추가, 홈 › 바꾸기 › 글꼴 관리, 창에 글꼴 파일 끌어 놓기): `.ttf` `.otf` `.ttc` `.woff` `.woff2`.
+  파일의 `name` 표에서 글꼴 이름(영어 + 한국어 이름), `OS/2` 표에서 굵기·기울임·포함 권한을 읽어 한 패밀리의 여러 스타일(Regular/Bold/Italic…)로 묶습니다.
+  WOFF는 zlib 압축을 풀어 표를 다시 조립하고, WOFF2는 woff2-encoder(WebAssembly, 처음 쓸 때만 불러옴)로 TTF로 복원해 **실제 이름**을 읽습니다.
+  **TTC(글꼴 모음)**는 글꼴마다 독립된 TTF로 나눠 각각 추가합니다(브라우저는 모음 파일을 직접 읽지 못함).
   IndexedDB(`fonts`)에 저장되어 새로 고침·오프라인에서도 유지되고, 이름 바꾸기(예전 이름도 계속 표시)·삭제 가능
 - **무료 웹 글꼴 60종** (Google Fonts, SIL OFL 등): 본고딕(Noto Sans/Serif KR), 나눔고딕·명조·손글씨, 고운돋움·바탕, 배민 글꼴(도현·주아), 검은고딕, IBM Plex Sans KR 등 한글 36종 + 영문 24종.
   모두 Google Fonts API에서 제공 여부를 확인했고, 쓸 때만 내려받으며(목록 미리 보기는 이름 글자만) PWA 캐시로 오프라인에서도 사용. 글꼴 관리에서 끌 수 있음
+- **웹 글꼴 자체 호스팅**: 배포할 때 `scripts/webfonts.mjs`가 60종의 woff2 조각(unicode-range 부분 집합, 약 4,500개·66MB)과 미리 보기 파일을 `dist/webfonts/`에 넣습니다.
+  앱은 같은 출처의 `webfonts/manifest.json`이 있으면 그 파일을 쓰므로 **사용자의 브라우저가 Google에 요청하지 않습니다**. 빠진 글꼴만 Google Fonts로 대체.
+  미리 받지 않고(PWA 사전 캐시 제외) 쓴 조각만 캐시. GitHub Actions 캐시로 다음 배포부터는 바뀐 파일만 받음
+- **오프라인 보관** (글꼴 관리 › 무료 웹 글꼴): 웹 글꼴의 **전체 TTF**를 google/fonts 저장소(커밋 고정 `24ddc1f`, 60종 파일 경로·크기 확인)에서 받아 '내 글꼴'에 저장 →
+  인터넷 없이 모든 글자 사용 + PPTX에 포함 가능. 가변 글꼴(예: Noto Sans KR 100–900)은 굵기 범위 그대로 등록, 라이선스(OFL/Apache) 표시
 - **이 컴퓨터의 글꼴**: Local Font Access API(Chrome·Edge)로 설치된 글꼴 전체를 목록에 추가
 - **글꼴 바꾸기** (홈 › 바꾸기 › 글꼴 바꾸기): 문서 전체(슬라이드·마스터·레이아웃·테마)에서 한 글꼴을 다른 글꼴로, 사용 중인 글꼴과 상태(설치됨/웹/내 글꼴/없음) 표시.
   문서에 이 브라우저에 없는 글꼴이 있으면 상태 표시줄에 **"글꼴 N개 없음"** 알림
 - **이식성**: `.slidelab` 파일에 문서에 쓴 내 글꼴을 포함(제작사가 포함을 제한한 글꼴 제외) → 다른 브라우저에서 열면 자동 등록.
-  PPTX는 글꼴 이름만 저장(받는 컴퓨터에 설치 필요). 테마 글꼴이 한글 글꼴이면 PPTX 테마의 동아시아(`a:ea`)·한글(`Hang`) 글꼴에도 기록해 PowerPoint에서 한글도 테마 글꼴로 보이게 함.
+  테마 글꼴이 한글 글꼴이면 PPTX 테마의 동아시아(`a:ea`)·한글(`Hang`) 글꼴에도 기록해 PowerPoint에서 한글도 테마 글꼴로 보이게 함.
   발표자 보기의 청중 창에도 같은 글꼴 등록
-- **제한**: PPTX 안에 글꼴 파일 넣기(포함 글꼴)와 PPTX에 포함된 글꼴 읽기는 미지원, TTC(글꼴 모음)는 브라우저가 읽지 못하면 추가 실패로 안내
+- **PPTX 포함 글꼴** (파일 › 내보내기 › "파일의 글꼴 포함", 기본 켬 · 문서마다 저장):
+  - 내보내기: 문서에 쓴 내 글꼴(직접 추가·오프라인 보관·PPTX에서 가져온 글꼴)을 EOT(`ppt/fonts/fontN.fntdata`)로 넣고 `p:embeddedFontLst`·`embedTrueTypeFonts`를 기록.
+    구조는 PowerPoint·LibreOffice와 같음(보통/굵게/기울임/굵은 기울임 4칸, `application/x-fontdata`). 포함 제한 글꼴(fsType 2, 비트맵 전용)과 CFF(.otf) 윤곽선 글꼴은 넣지 않고 알림
+  - 가져오기: PowerPoint가 넣은 **MTX 압축 EOT**(MicroType Express — libeot의 LZCOMP·CTF 복원 코드를 TypeScript로 옮김, MPL 2.0), 압축 안 된 EOT, XOR 암호화를 TTF로 복원해 '내 글꼴'에 추가하고 가져오기 보고서에 표시
+  - 검증: LibreOffice 테스트 파일(PowerPoint가 만든 Boldonse 포함 PPTX)의 복원 결과를 libeot와 표 단위로 비교(합성 글리프의 명령어 길이 필드만 다름 — 설치된 구버전 libeot의 누락, fontTools로 우리 쪽이 맞음을 확인).
+    우리가 만든 fntdata는 libeot(독립 구현)로 다시 풀어 fontTools로 읽힘을 확인
+- **남은 제한**: 가변 글꼴을 PPTX에 넣으면 PowerPoint는 기본 굵기만 씀(굵게는 PowerPoint가 흉내 냄). 실제 PowerPoint로 연 확인은 하지 못함(이 환경에 없음) — 구조는 PowerPoint가 만든 파일과 같게 맞춤.
+  설치된 LibreOffice 24.2는 PPTX 포함 글꼴을 읽지 않아(자체 테스트 파일도 대체 글꼴로 표시) 화면 비교에는 쓰지 못함
 
 ## AI 도우미 (12단계)
 
@@ -223,6 +237,8 @@ src/
 | lucide-react | 1.x | ISC | 아이콘 |
 | vite-plugin-pwa (Workbox) | 2 | MIT | PWA |
 | @anthropic-ai/sdk | 1.1.0 | Apache-2.0 | Claude 제공자 (선택, 지연 로딩) |
+| woff2-encoder | 2.0.0 | MIT | WOFF2 → TTF 복원 (WebAssembly, `woff2-encoder/decompress`만 지연 로딩) |
+| libeot (코드 이식) | – | MPL-2.0 | `src/services/fonts/mtx/` MTX 압축 해제 (원본 파일 단위 MPL 유지) |
 | vitest, jsdom, fake-indexeddb | – | MIT/Apache-2.0 | 테스트 |
 
 모두 npm 레지스트리에서 실재·버전·라이선스를 확인했습니다. 유료 API(GPT·Claude)는 선택 사항이며, 키가 없어도 편집기와 기본 AI 엔진은 그대로 동작합니다.

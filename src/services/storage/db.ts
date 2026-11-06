@@ -49,6 +49,12 @@ export interface UserFontRecord {
   embedding: string;
   addedAt: number;
   data: Blob;
+  /** 가변 글꼴의 굵기 범위 (예: [100, 900]) */
+  weightRange?: [number, number];
+  /** 어디서 왔는지: 파일 추가 / 웹 글꼴 오프라인 보관 / PPTX 포함 글꼴 / .slidelab */
+  origin?: 'file' | 'web' | 'pptx' | 'slidelab';
+  /** 라이선스 (웹 글꼴: OFL/Apache) */
+  license?: string;
 }
 
 const DB_NAME = 'slidelab';

@@ -4,22 +4,23 @@ import { Trash2, Upload, Pencil, Check } from 'lucide-react';
 import { Dialog } from './Dialog';
 import { useEditor } from '../../core/store/editorStore';
 import { pickFiles } from '../../services/storage/files';
-import { addFontFiles, fontStatus, queryLocalFonts, removeFonts, renameFamily, setWebFontsEnabled, useFonts, type UserFontMeta } from '../../services/fonts/library';
+import { addFontFiles, fontStatus, keepWebFontOffline, offlineSize, queryLocalFonts, removeFonts, renameFamily, selfHostedWebFonts, setWebFontsEnabled, useFonts, type UserFontMeta } from '../../services/fonts/library';
+import { WEB_FONTS } from '../../services/fonts/catalog';
 import { fontsUsed, replaceFontInDoc } from '../../services/fonts/docFonts';
 import { FontPicker } from '../common/FontPicker';
 import { cssFontStack } from '../../editors/text/fonts';
 import type { Presentation } from '../../types/model';
 
-const FONT_ACCEPT = '.ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2,application/font-woff,application/x-font-ttf';
+const FONT_ACCEPT = '.ttf,.otf,.ttc,.woff,.woff2,font/collection,font/ttf,font/otf,font/woff,font/woff2,application/font-woff,application/x-font-ttf';
 const styleName = (f: Pick<UserFontMeta, 'weight' | 'italic'>) =>
   `${({ 100: 'Thin', 200: 'ExtraLight', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'SemiBold', 700: 'Bold', 800: 'ExtraBold', 900: 'Black' } as Record<number, string>)[f.weight] ?? f.weight}${f.italic ? ' Italic' : ''}`;
 const kb = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)}MB` : `${Math.round(n / 1024)}KB`);
 
 export async function addFontsFromFiles(files: File[]) {
   const st = useEditor.getState();
-  const fonts = files.filter((f) => /\.(ttf|otf|woff2?)$/i.test(f.name));
+  const fonts = files.filter((f) => /\.(ttf|otf|ttc|woff2?)$/i.test(f.name));
   if (!fonts.length) {
-    if (files.length) st.toast('글꼴 파일(.ttf, .otf, .woff, .woff2)만 추가할 수 있습니다.', 'warning');
+    if (files.length) st.toast('글꼴 파일(.ttf, .otf, .ttc, .woff, .woff2)만 추가할 수 있습니다.', 'warning');
     return;
   }
   const r = await addFontFiles(fonts);
@@ -38,7 +39,8 @@ export function FontDialogs() {
 }
 
 function FontManagerDialog({ onClose, pickOnOpen }: { onClose: () => void; pickOnOpen: boolean }) {
-  const { userFonts, webFonts, local } = useFonts();
+  const { userFonts, webFonts, local, webSource } = useFonts();
+  useEffect(() => void selfHostedWebFonts(), []);
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState(false);
   const [renaming, setRenaming] = useState<{ from: string; to: string } | null>(null);
@@ -82,7 +84,7 @@ function FontManagerDialog({ onClose, pickOnOpen }: { onClose: () => void; pickO
         >
           <Upload size={22} />
           <span>
-            인터넷에서 받은 글꼴 파일(.ttf, .otf, .woff, .woff2)을 여기에 끌어다 놓거나
+            인터넷에서 받은 글꼴 파일(.ttf, .otf, .ttc, .woff, .woff2)을 여기에 끌어다 놓거나
             <button type="button" className="btn btn-sm" data-font-pick="" disabled={busy} onClick={() => void pick()}>
               파일 선택
             </button>
@@ -111,6 +113,8 @@ function FontManagerDialog({ onClose, pickOnOpen }: { onClose: () => void; pickO
                   ) : (
                     <>
                       <b>{fam}</b>
+                      {styles[0].origin === 'web' && <span className="chip chip-sm" data-kept="">웹 글꼴 보관 · {styles[0].license}</span>}
+                      {styles[0].origin === 'pptx' && <span className="chip chip-sm">PPTX 포함 글꼴</span>}
                       {styles[0].aliases.length > 0 && <span className="muted"> · {styles[0].aliases.join(', ')}</span>}
                       <button type="button" className="icon-btn" title="이름 바꾸기" onClick={() => setRenaming({ from: fam, to: fam })}>
                         <Pencil size={13} />
@@ -128,7 +132,7 @@ function FontManagerDialog({ onClose, pickOnOpen }: { onClose: () => void; pickO
                 <div className="fm-styles">
                   {styles.map((s) => (
                     <span key={s.id} className="chip" title={`${s.fileName} · ${kb(s.size)}${s.embedding === 'restricted' ? ' · 포함 제한 글꼴' : ''}`} style={{ fontFamily: cssFontStack(fam), fontWeight: s.weight, fontStyle: s.italic ? 'italic' : 'normal' }}>
-                      {styleName(s)}
+                      {s.weightRange ? `가변 ${s.weightRange[0]}–${s.weightRange[1]}${s.italic ? ' Italic' : ''}` : styleName(s)}
                     </span>
                   ))}
                 </div>
@@ -142,7 +146,12 @@ function FontManagerDialog({ onClose, pickOnOpen }: { onClose: () => void; pickO
           <label className="fm-check">
             <input type="checkbox" checked={webFonts} onChange={(e) => setWebFontsEnabled(e.target.checked)} data-webfonts="" /> Google Fonts의 무료 글꼴 60여 종 사용 (본고딕·나눔·고운·배민 글꼴 등)
           </label>
-          <p className="muted">글꼴을 쓸 때 fonts.googleapis.com에서 내려받습니다(한 번 받으면 오프라인에서도 사용). PowerPoint에서 열 컴퓨터에도 같은 글꼴이 설치되어 있어야 같은 모양으로 보입니다.</p>
+          <p className="muted" data-websource={webSource ?? ''}>
+            {webSource === 'self'
+              ? '글꼴 파일은 이 사이트에서 받습니다(외부 글꼴 서버에 요청하지 않음). 한 번 받은 글자 조각은 오프라인에서도 쓸 수 있습니다.'
+              : '글꼴을 쓸 때 Google Fonts(fonts.googleapis.com)에서 내려받습니다. 한 번 받은 글자 조각은 오프라인에서도 쓸 수 있습니다.'}
+          </p>
+          <OfflineKeep />
         </section>
 
         <section>
@@ -165,6 +174,50 @@ function FontManagerDialog({ onClose, pickOnOpen }: { onClose: () => void; pickO
         </section>
       </div>
     </Dialog>
+  );
+}
+
+/** 웹 글꼴 오프라인 보관: 전체 글꼴 파일(TTF)을 내 글꼴에 저장 → 인터넷 없이 사용 + PPTX에 포함 가능 */
+function OfflineKeep() {
+  const userFonts = useFonts((s) => s.userFonts);
+  const kept = useMemo(() => new Set(userFonts.filter((f) => f.origin === 'web').map((f) => f.family)), [userFonts]);
+  const [family, setFamily] = useState(WEB_FONTS[0].family);
+  const [size, setSize] = useState(0);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void offlineSize(family).then((n) => alive && setSize(n));
+    return () => {
+      alive = false;
+    };
+  }, [family]);
+  const keep = async () => {
+    setProgress({ done: 0, total: size });
+    try {
+      const recs = await keepWebFontOffline(family, (done, total) => setProgress({ done, total }));
+      useEditor.getState().toast(`${family}을(를) 내 글꼴에 보관했습니다 (${recs.length}개 파일). 이제 인터넷 없이 쓰고 PPTX에 포함할 수 있습니다.`, 'success');
+    } catch (e) {
+      useEditor.getState().toast((e as Error).message, 'error');
+    } finally {
+      setProgress(null);
+    }
+  };
+  return (
+    <div className="fm-keep" data-offline-keep="">
+      <span>오프라인 보관</span>
+      <select value={family} onChange={(e) => setFamily(e.target.value)} aria-label="보관할 웹 글꼴" disabled={!!progress}>
+        {WEB_FONTS.map((f) => (
+          <option key={f.family} value={f.family}>
+            {f.label ?? f.family}
+            {kept.has(f.family) ? ' ✓' : ''}
+          </option>
+        ))}
+      </select>
+      <button type="button" className="btn btn-sm" disabled={!!progress} onClick={() => void keep()} data-keep-btn="">
+        {progress ? `받는 중 ${Math.round((progress.done / Math.max(1, progress.total)) * 100)}%` : `${kept.has(family) ? '다시 받기' : '받기'} (${kb(size)})`}
+      </button>
+      <small className="muted">전체 글꼴 파일을 google/fonts 저장소에서 받아 '내 글꼴'에 저장합니다. 인터넷 없이 모든 글자를 쓸 수 있고, PPTX 저장 시 파일에 포함됩니다.</small>
+    </div>
   );
 }
 

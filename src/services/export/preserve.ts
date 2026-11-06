@@ -10,6 +10,7 @@
 import JSZip from 'jszip';
 import type { Animation, Fill } from '../../types/model';
 import { buildTimingXml } from './animXml';
+import { FONT_SLOTS, type EmbedPlanFont } from '../fonts/embed';
 
 export interface PreservedXml {
   xml: string;
@@ -310,6 +311,8 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
 
   // 5) 쇼 설정(presProps.xml) / 재구성한 쇼(presentation.xml)
   if (pres) await writePresentationSettings(out, pres);
+  // 6) 포함 글꼴 (ppt/fonts/*.fntdata + p:embeddedFontLst)
+  if (pres?.embeddedFonts?.length) await writeEmbeddedFonts(out, ctDoc, pres.embeddedFonts);
 
   out.file('[Content_Types].xml', serialize(ctDoc));
   return out.generateAsync({ type: 'uint8array', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
@@ -322,6 +325,69 @@ export interface PresentationPlan {
   customShows: { name: string; slides: number[] }[];
   /** 테마 제목/본문 글꼴 중 한글을 표시할 수 있는 것 (없으면 null → PowerPoint 기본 '맑은 고딕') */
   themeEastAsian?: { major: string | null; minor: string | null };
+  /** 포함 글꼴 (EOT) */
+  embeddedFonts?: EmbedPlanFont[];
+}
+
+const FONT_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/font';
+
+/** LibreOffice(oox/sd 내보내기)·PowerPoint와 같은 구조: ppt/fonts/fontN.fntdata, application/x-fontdata, p:embeddedFontLst */
+async function writeEmbeddedFonts(out: JSZip, ctDoc: Document, fonts: EmbedPlanFont[]) {
+  const presPath = 'ppt/presentation.xml';
+  const relsPath = relsPathFor(presPath);
+  if (!out.file(presPath) || !out.file(relsPath)) return;
+  const pdoc = parse(await out.file(presPath)!.async('string'));
+  const rdoc = parse(await out.file(relsPath)!.async('string'));
+  const root = pdoc.documentElement;
+  const used = new Set(Array.from(rdoc.documentElement.childNodes).map((n) => (n as Element).getAttribute?.('Id')));
+  let seq = 0;
+  const nextId = () => {
+    let id: string;
+    do id = `rIdFont${++seq}`;
+    while (used.has(id));
+    used.add(id);
+    return id;
+  };
+  let fileNo = 0;
+  for (const c of kids(root)) if (c.localName === 'embeddedFontLst') root.removeChild(c);
+  const lst = pdoc.createElementNS(NS.p, 'p:embeddedFontLst');
+  for (const f of fonts) {
+    const ef = pdoc.createElementNS(NS.p, 'p:embeddedFont');
+    const fontEl = pdoc.createElementNS(NS.p, 'p:font');
+    fontEl.setAttribute('typeface', f.typeface);
+    ef.appendChild(fontEl);
+    for (const slot of FONT_SLOTS) {
+      const data = f.faces[slot];
+      if (!data) continue;
+      let name: string;
+      do name = `ppt/fonts/font${++fileNo}.fntdata`;
+      while (out.file(name));
+      out.file(name, data);
+      const rid = nextId();
+      const rel = rdoc.createElementNS(NS.pr, 'Relationship');
+      rel.setAttribute('Id', rid);
+      rel.setAttribute('Type', FONT_REL);
+      rel.setAttribute('Target', name.slice('ppt/'.length));
+      rdoc.documentElement.appendChild(rel);
+      const el = pdoc.createElementNS(NS.p, `p:${slot}`);
+      el.setAttributeNS(NS.r, 'r:id', rid);
+      ef.appendChild(el);
+    }
+    lst.appendChild(ef);
+  }
+  // CT_Presentation 순서: ... notesSz, smartTags, embeddedFontLst, custShowLst, photoAlbum, ...
+  const after = new Set(['custShowLst', 'photoAlbum', 'custDataLst', 'kinsoku', 'defaultTextStyle', 'modifyVerifier', 'extLst']);
+  root.insertBefore(lst, kids(root).find((c) => after.has(c.localName)) ?? null);
+  root.setAttribute('embedTrueTypeFonts', '1');
+  out.file(presPath, serialize(pdoc));
+  out.file(relsPath, serialize(rdoc));
+  const ctRoot = ctDoc.documentElement;
+  if (!kids(ctRoot).some((c) => c.localName === 'Default' && c.getAttribute('Extension')?.toLowerCase() === 'fntdata')) {
+    const d = ctDoc.createElementNS(NS.ct, 'Default');
+    d.setAttribute('Extension', 'fntdata');
+    d.setAttribute('ContentType', 'application/x-fontdata');
+    ctRoot.insertBefore(d, kids(ctRoot).find((c) => c.localName === 'Override') ?? null);
+  }
 }
 
 /** pptxgenjs 테마는 a:ea가 비어 있고 Hang이 '맑은 고딕'으로 고정 → 테마 글꼴이 한글 글꼴이면 그 글꼴로 */

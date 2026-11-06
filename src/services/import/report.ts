@@ -12,6 +12,8 @@ export interface ImportReport {
   preservedTimings: number;
   approximated: string[];
   warnings: string[];
+  /** 파일에 포함되어 있던 글꼴 (내 글꼴에 추가됨) */
+  embeddedFonts?: string[];
 }
 
 /** UI 표시용 요약 */
@@ -24,5 +26,6 @@ export function summarizeReport(r: ImportReport): string[] {
   for (const [k, n] of Object.entries(r.unsupported)) lines.push(`${names[k as UnsupportedKind]} ${n}개: 편집은 아직 지원하지 않지만 원본 그대로 보존되며, PPTX로 저장하면 복원됩니다. (이동·크기 조절·삭제 가능)`);
   if (r.preservedTransitions) lines.push(`슬라이드 전환 ${r.preservedTransitions}개: 편집·재생할 수 있게 가져왔습니다 (바꾸지 않으면 저장 시 원본 그대로).`);
   if (r.preservedTimings) lines.push(`애니메이션이 있는 슬라이드 ${r.preservedTimings}개: 애니메이션 창에서 편집·재생할 수 있습니다 (바꾸지 않으면 저장 시 원본 그대로).`);
+  if (r.embeddedFonts?.length) lines.push(`포함 글꼴 ${r.embeddedFonts.length}개(${r.embeddedFonts.join(', ')}): 파일에서 꺼내 '내 글꼴'에 추가했습니다.`);
   return [...lines, ...r.approximated, ...r.warnings];
 }

@@ -8,7 +8,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, Plus, Settings2 } from 'lucide-react';
 import { useEditor } from '../../core/store/editorStore';
 import { lockSelection } from '../../editors/text/editorSession';
-import { CATEGORY_NAMES, SYSTEM_FONTS, WEB_FONTS, type CatalogFont, type FontCategory } from '../../services/fonts/catalog';
+import { CATEGORY_NAMES, pickerLabel, SYSTEM_FONTS, WEB_FONTS, type CatalogFont, type FontCategory } from '../../services/fonts/catalog';
 import { addRecent, ensureWebFont, isFontInstalled, previewWebFont, useFonts } from '../../services/fonts/library';
 import { cssFontStack } from '../../editors/text/fonts';
 
@@ -131,7 +131,7 @@ function FontPanel({ anchor, value, allowTokens, onClose, onPick }: { anchor: HT
       const installed = web ? undefined : isFontInstalled(f.family);
       return {
         value: f.family,
-        label: f.label && f.label !== f.family ? `${f.family} · ${f.label}` : f.family,
+        label: pickerLabel(f),
         face: f.family,
         category: f.category,
         korean: f.korean,
@@ -164,7 +164,7 @@ function FontPanel({ anchor, value, allowTokens, onClose, onPick }: { anchor: HT
 
   // 웹 글꼴 미리 보기 (이름 글자만 담은 작은 파일)
   useEffect(() => {
-    for (const s of sections) for (const it of s.items) if (it.web) previewWebFont(it.value, it.label);
+    for (const s of sections) for (const it of s.items) if (it.web) previewWebFont(it.value);
   }, [sections]);
 
   useEffect(() => setHi(0), [q, cat, koreanOnly]);

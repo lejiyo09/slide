@@ -15,6 +15,7 @@ import { designLayers } from '../../engines/rendering/SlideView';
 import { resolveTokensDeep } from '../../utils/themeColor';
 import { chartPalette } from '../../editors/chart/chart';
 import { KEEP_PREFIX, postProcessPptx, type SlidePlan } from './preserve';
+import { planEmbeddedFonts, type EmbedPlanFont } from '../fonts/embed';
 import { buildTransitionXml } from './animXml';
 import { OoxmlPackage } from '../import/ooxml';
 import { getBlob, getPackage } from '../storage/db';
@@ -485,7 +486,7 @@ function geometryToPoints(o: ShapeObject, warn: (m: string) => void) {
  */
 export async function exportPptxBytes(
   doc: Presentation,
-  opts: BuildOptions & { sourcePackage?: ArrayBuffer | Uint8Array | Blob | null } = {},
+  opts: BuildOptions & { sourcePackage?: ArrayBuffer | Uint8Array | Blob | null; embeddedFonts?: EmbedPlanFont[] } = {},
 ): Promise<{ bytes: Uint8Array; warnings: string[] }> {
   const { pptx, warnings, plans } = await buildPptx(doc, { ...opts, sourceAvailable: !!opts.sourcePackage });
   const raw = (await pptx.write({ outputType: 'uint8array', compression: true })) as Uint8Array;
@@ -495,6 +496,7 @@ export async function exportPptxBytes(
     showPrXml: buildShowPrXml(showSettingsOf(doc), doc.customShows),
     customShows: customShowPlan(doc),
     themeEastAsian: { major: koreanCapable(doc.theme.fonts.heading) ? doc.theme.fonts.heading : null, minor: koreanCapable(doc.theme.fonts.body) ? doc.theme.fonts.body : null },
+    embeddedFonts: opts.embeddedFonts,
   };
   const bytes = await postProcessPptx(raw, plans, source, (m) => extra.push(m), pres);
   return { bytes, warnings: [...new Set([...warnings, ...extra])] };
@@ -511,7 +513,23 @@ export async function exportPptxBlob(doc: Presentation): Promise<{ blob: Blob; w
     const b = await getBlob(a.blobKey);
     return b ? readAsDataUrl(b) : null;
   };
-  const { bytes, warnings } = await exportPptxBytes(doc, { rasterizeGradient: browserGradientRasterizer, cropImage: browserImageCropper, sourcePackage, loadMedia });
+  // 포함 글꼴: 문서에 쓰인 내 글꼴 (문서 설정 '파일의 글꼴 포함'이 꺼져 있으면 넣지 않음)
+  const fontWarnings: string[] = [];
+  let embeddedFonts: EmbedPlanFont[] | undefined;
+  if (doc.embedFonts !== false) {
+    const { fontsUsed } = await import('../fonts/docFonts');
+    const { userFontRecords } = await import('../fonts/library');
+    const used = [...fontsUsed(doc).keys()];
+    const recs = await userFontRecords(used);
+    if (recs.length) {
+      const plan = await planEmbeddedFonts(used, recs);
+      embeddedFonts = plan.fonts;
+      fontWarnings.push(...plan.skipped);
+      if (plan.fonts.length) fontWarnings.push(`글꼴 ${plan.fonts.length}개(${plan.fonts.map((f) => f.typeface).join(', ')})를 파일에 포함했습니다 (${(plan.bytes / 1024 / 1024).toFixed(1)}MB).`);
+    }
+  }
+  const { bytes, warnings } = await exportPptxBytes(doc, { rasterizeGradient: browserGradientRasterizer, cropImage: browserImageCropper, sourcePackage, loadMedia, embeddedFonts });
+  warnings.push(...fontWarnings);
   const blob = new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
   return { blob, warnings };
 }
