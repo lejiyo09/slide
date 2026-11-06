@@ -144,7 +144,9 @@ export const pickerLabel = (f: CatalogFont) => (f.label && f.label !== f.family 
 export function webFontCssUrl(family: string, text?: string): string {
   const f = webFontByFamily.get(family.toLowerCase());
   const axes = f?.axes ?? 'ital,wght@0,400;0,700;1,400;1,700';
-  const q = `family=${encodeURIComponent(f?.family ?? family).replace(/%20/g, '+')}${text ? '' : `:${axes}`}&display=swap${text ? `&text=${encodeURIComponent(text)}` : ''}`;
+  // 미리 보기(text)는 기본 굵기 하나만 — 단, 400이 없는 글꼴(축을 따로 지정한 글꼴)은 축을 넣어야 함 (없으면 HTTP 400)
+  const withAxes = !text || !!f?.axes;
+  const q = `family=${encodeURIComponent(f?.family ?? family).replace(/%20/g, '+')}${withAxes ? `:${axes}` : ''}&display=swap${text ? `&text=${encodeURIComponent(text)}` : ''}`;
   return `https://fonts.googleapis.com/css2?${q}`;
 }
 

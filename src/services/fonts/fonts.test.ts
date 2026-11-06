@@ -88,6 +88,8 @@ describe('글꼴 목록', () => {
     expect(webFontCssUrl('Noto Sans KR')).toBe('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:ital,wght@0,400;0,700;1,400;1,700&display=swap');
     expect(webFontCssUrl('Sunflower')).toContain('Sunflower:wght@300;500;700');
     expect(webFontCssUrl('Jua', 'Jua주아')).toBe('https://fonts.googleapis.com/css2?family=Jua&display=swap&text=Jua%EC%A3%BC%EC%95%84');
+    // 400이 없는 글꼴은 미리 보기에도 축을 넣어야 함 (없으면 Google이 HTTP 400)
+    expect(webFontCssUrl('Sunflower', 'Sunflower')).toBe('https://fonts.googleapis.com/css2?family=Sunflower:wght@300;500;700&display=swap&text=Sunflower');
     expect(SYSTEM_FONTS.some((f) => f.family === 'Malgun Gothic')).toBe(true);
   });
 });
