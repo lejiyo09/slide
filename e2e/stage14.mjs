@@ -364,19 +364,6 @@ try {
     }, pngBytes.toString('base64'));
     check('대체 그림: 2배 해상도, 투명 배경 위 수식', alpha.w >= eq.width * 2 - 2 && alpha.ink > 300 && alpha.clear > alpha.ink, JSON.stringify(alpha));
     await closeBackstage();
-    // LibreOffice가 만든 수식 PPTX 가져오기
-    const lo = readFileSync('src/services/math/__fixtures__/lo-equations.pptx').toString('base64');
-    await page.evaluate(async (b) => {
-      const bin = Uint8Array.from(atob(b), (c) => c.charCodeAt(0));
-      const dt = new DataTransfer();
-      dt.items.add(new File([bin], 'lo-equations.pptx', { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }));
-      document.querySelector('.app').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
-    }, lo);
-    await page.waitForFunction(() => window.__SLIDELAB__.getState().doc.title === 'lo-equations', null, { timeout: 15000 });
-    await page.locator('.dialog .btn.primary').click().catch(() => {});
-    const n = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides.filter((s) => s.objects[0]?.type === 'equation').length);
-    await page.waitForFunction(() => !!document.querySelector('[data-testid="slide-stage"] math mfrac'));
-    check('LibreOffice PPTX의 수식 12개 → 편집 가능한 수식', n === 12);
   }
 
   if (want('comments')) {
@@ -442,6 +429,75 @@ try {
     await page.locator('.rb', { hasText: '삭제' }).click();
     await page.locator('.menu-item', { hasText: '프레젠테이션의 모든 메모' }).click();
     check('모든 메모 삭제', (await comments()).every((c) => c.length === 0) && (await page.locator('[data-cm-marker]').count()) === 0);
+  }
+
+  if (want('spell')) {
+    /* ───── 맞춤법 검사 ───── */
+    await closeBackstage();
+    await page.evaluate(() => {
+      const st = window.__SLIDELAB__.getState();
+      st.commit('맞춤법 준비', (d) => {
+        const [s1, s2] = d.slides;
+        s1.objects.find((o) => o.ph?.type === 'subTitle').text.paragraphs = [{ runs: [{ text: 'This presentaion is is good' }] }];
+        s2.objects.find((o) => o.ph?.type === 'subTitle').text.paragraphs = [{ runs: [{ text: '누구나 할수있다. 몇일 뒤 발표' }] }];
+        d.slides[2].hidden = false;
+        d.slides[2].objects.find((o) => o.ph?.type === 'subTitle').text.paragraphs = [{ runs: [{ text: 'presentaion again' }] }];
+        d.slides.forEach((s) => (s.notes = ''));
+      });
+      st.set({ activeSlideId: st.doc.slides[0].id, selectedSlideIds: [st.doc.slides[0].id], selectedIds: [] });
+    });
+    await page.locator('[data-testid="slide-stage"]').click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press('F7');
+    await page.waitForSelector('[data-spell-word]', { timeout: 30000 });
+    const word = () => page.locator('[data-spell-word]').textContent();
+    check('F7 → 맞춤법 검사 (사전 받기 → 첫 오류)', (await word()) === 'presentaion');
+    const sugs = await page.locator('[data-spell-suggestions] button').allTextContents();
+    check('영어 추천 단어 (Hunspell)', sugs[0] === 'presentation', sugs.slice(0, 3).join(','));
+    const sel = await page.evaluate(() => window.__SLIDELAB__.getState().selectedIds);
+    check('오류가 있는 개체 선택', sel.length === 1);
+    await page.locator('[data-spell-change-all]').click();
+    await page.waitForFunction(() => document.querySelector('[data-spell-word]')?.textContent === 'is is');
+    let texts = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides.map((s) => s.objects.find((o) => o.ph?.type === 'subTitle').text.paragraphs[0].runs.map((r) => r.text).join('')));
+    check('모두 변경: 모든 슬라이드의 같은 단어', texts[0].startsWith('This presentation') && texts[2] === 'presentation again', texts.join(' | '));
+    check('반복된 단어 → 추천은 한 번', (await page.locator('[data-spell-suggestions] button').first().textContent()) === 'is');
+    await page.locator('[data-spell-change]').click();
+    await page.waitForFunction(() => document.querySelector('[data-spell-word]')?.textContent === '할수있');
+    check('한국어 규칙(띄어쓰기) + 설명', (await page.locator('.spell-why').textContent()).includes('의존 명사'));
+    check('한국어 오류의 슬라이드로 이동', await page.evaluate(() => window.__SLIDELAB__.getState().activeSlideId === window.__SLIDELAB__.getState().doc.slides[1].id));
+    await page.locator('[data-spell-change]').click();
+    await page.waitForFunction(() => document.querySelector('[data-spell-word]')?.textContent === '몇일');
+    await page.locator('[data-spell-ignore]').click();
+    await page.waitForSelector('[data-spell-done]');
+    texts = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides.map((s) => s.objects.find((o) => o.ph?.type === 'subTitle').text.paragraphs[0].runs.map((r) => r.text).join('')));
+    check('완료: 고친 글자·무시한 글자', texts[0] === 'This presentation is good' && texts[1] === '누구나 할 수 있다. 몇일 뒤 발표' && (await page.locator('[data-spell-done]').textContent()).includes('곳을 고쳤습니다'), texts.join(' | '));
+    await page.keyboard.press('Control+z');
+    texts = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides.map((s) => s.objects.find((o) => o.ph?.type === 'subTitle').text.paragraphs[0].runs.map((r) => r.text).join('')));
+    check('실행 취소 → 고치기 전', texts[1] === '누구나 할수있다. 몇일 뒤 발표');
+    await page.screenshot({ path: `${OUT}/s14-spell.png` });
+    await page.locator('[data-spell-pane] .pp-head .icon-btn').click();
+    // 입력할 때 맞춤법 검사: 편집 영역 spellcheck
+    await page.evaluate(() => window.__SLIDELAB__.getState().setEditingText(window.__SLIDELAB__.getState().doc.slides[1].objects.find((o) => o.ph?.type === 'subTitle').id));
+    await page.waitForSelector('.sl-editing');
+    check('입력할 때 맞춤법 검사(브라우저) 켜짐', (await page.locator('.sl-editing').getAttribute('spellcheck')) === 'true' && (await page.locator('.sl-editing').getAttribute('lang')) === 'ko');
+    await page.keyboard.press('Escape');
+  }
+
+  if (want('equation')) {
+    // 문서를 바꾸므로 마지막에: LibreOffice가 만든 수식 PPTX 가져오기
+    await closeBackstage();
+    // LibreOffice가 만든 수식 PPTX 가져오기
+    const lo = readFileSync('src/services/math/__fixtures__/lo-equations.pptx').toString('base64');
+    await page.evaluate(async (b) => {
+      const bin = Uint8Array.from(atob(b), (c) => c.charCodeAt(0));
+      const dt = new DataTransfer();
+      dt.items.add(new File([bin], 'lo-equations.pptx', { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }));
+      document.querySelector('.app').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    }, lo);
+    await page.waitForFunction(() => window.__SLIDELAB__.getState().doc.title === 'lo-equations', null, { timeout: 15000 });
+    await page.locator('.dialog .btn.primary').click().catch(() => {});
+    const n = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides.filter((s) => s.objects[0]?.type === 'equation').length);
+    await page.waitForFunction(() => !!document.querySelector('[data-testid="slide-stage"] math mfrac'));
+    check('LibreOffice PPTX의 수식 12개 → 편집 가능한 수식', n === 12);
   }
 
   check('콘솔/페이지 오류 없음', errors.length === 0, errors.slice(0, 3).join(' | '));

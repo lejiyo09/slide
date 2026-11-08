@@ -18,6 +18,7 @@ const bodyOf = (obj: EditableObject, cell?: [number, number]): TextBody =>
 
 export function TextEditor({ obj, slideId, selectAll, cell }: { obj: EditableObject; slideId: string; selectAll?: boolean; cell?: [number, number] }) {
   const ref = useRef<HTMLDivElement>(null);
+  const spellAsYouType = useEditor((s) => s.spellAsYouType);
   const objRef = useRef(obj);
   objRef.current = obj;
   const cellKey = cell ? `${cell[0]},${cell[1]}` : '';
@@ -183,7 +184,8 @@ export function TextEditor({ obj, slideId, selectAll, cell }: { obj: EditableObj
         style={{ ...textInnerStyle(body), cursor: 'text' }}
         contentEditable
         suppressContentEditableWarning
-        spellCheck={false}
+        spellCheck={spellAsYouType}
+        lang="ko"
         onInput={() => getEditorSession()?.sync()}
         onKeyDown={onKeyDown}
         onContextMenu={(e) => e.stopPropagation()}

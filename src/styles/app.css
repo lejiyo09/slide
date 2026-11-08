@@ -4281,3 +4281,76 @@ button.bs-export-item:hover:not(:disabled) {
 .cm-marker.is-resolved {
   opacity: 0.45;
 }
+
+/* ───────────── 맞춤법 검사 ───────────── */
+.spell-pane {
+  width: 290px;
+}
+.spell-kind {
+  font-size: 11.5px;
+  color: var(--text-muted, #666);
+}
+.spell-word {
+  font-size: 18px;
+  font-weight: 700;
+  color: #c42b1c;
+  text-decoration: underline wavy #c42b1c;
+  text-underline-offset: 4px;
+  word-break: break-all;
+}
+.spell-context {
+  font-size: 12.5px;
+  background: var(--bg-hover);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.spell-why {
+  font-size: 12px;
+  margin: 0;
+}
+.spell-sugs {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  max-height: 180px;
+  overflow: auto;
+}
+.spell-sugs button {
+  text-align: left;
+  padding: 5px 8px;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+}
+.spell-sugs button.is-sel {
+  background: var(--accent);
+  color: #fff;
+}
+.spell-sugs .muted {
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.spell-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.spell-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.spell-count,
+.spell-opt {
+  font-size: 12px;
+}
+.spell-done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0;
+  text-align: center;
+  color: #1e7b34;
+}

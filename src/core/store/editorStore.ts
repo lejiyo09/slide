@@ -79,6 +79,9 @@ export interface EditorState {
   commentsPane: boolean;
   activeCommentId: string | null;
   showComments: boolean;
+  /** 맞춤법 검사 창 / 입력할 때 맞춤법 검사(브라우저) */
+  spellPane: boolean;
+  spellAsYouType: boolean;
   /** 현재 리본 탭 (애니메이션 번호 배지 표시 판단) */
   ribbonTab: string;
   /** 애니메이션 창에서 선택한 효과 */
@@ -171,6 +174,14 @@ export const useEditor = create<EditorState>()((set, get) => ({
   commentsPane: false,
   activeCommentId: null,
   showComments: true,
+  spellPane: false,
+  spellAsYouType: (() => {
+    try {
+      return localStorage.getItem('slidelab.spellAsYouType') !== '0';
+    } catch {
+      return true;
+    }
+  })(),
   ribbonTab: 'home',
   selectedAnimIds: [],
   preview: null,

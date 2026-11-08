@@ -157,6 +157,10 @@ export function useShortcuts() {
       }
 
       switch (k) {
+        case 'F7':
+          // PowerPoint와 같이 F7 → 맞춤법 검사
+          handled();
+          return s.set({ spellPane: true, commentsPane: false });
         case 'F5':
           handled();
           // F5 처음부터, Shift+F5 현재 슬라이드부터, Alt+F5 발표자 보기
