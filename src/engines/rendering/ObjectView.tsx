@@ -1,5 +1,5 @@
-import { createContext, memo, useContext, useMemo, type CSSProperties, type ReactNode } from 'react';
-import type { Asset, EquationObject, Fill, ImageObject, LineObject, MediaObject, Paragraph, ShapeObject, SlideObject, Stroke, TableObject, TextBody, TextObject, Theme, UnsupportedObject } from '../../types/model';
+import { createContext, memo, Suspense, useContext, useMemo, type CSSProperties, type ReactNode } from 'react';
+import type { Asset, EquationObject, ExtensionObject, Fill, ImageObject, LineObject, MediaObject, Paragraph, ShapeObject, SlideObject, Stroke, TableObject, TextBody, TextObject, Theme, UnsupportedObject } from '../../types/model';
 import { ChartView } from './ChartView';
 import { useAssetUrl } from '../../hooks/useAssetUrl';
 import { DEFAULT_THEME } from '../../themes/themes';
@@ -13,6 +13,7 @@ import { frameToCss } from '../animation/timeline';
 import type { Frame } from '../animation/effects';
 import { sanitizeMathml } from '../../services/math/omml';
 import { ensureMathFont, MATH_FONT_STACK } from './mathFont';
+import { getExtension } from '../../extensions/registry';
 
 export type Assets = Record<string, Asset>;
 
@@ -255,6 +256,9 @@ export const ObjectView = memo(function ObjectView({ obj: raw, assets, theme, ed
     case 'equation':
       content = <EquationContent obj={obj} />;
       break;
+    case 'extension':
+      content = <ExtensionContent obj={obj} assets={assets} mode={mode ?? (interactive ? 'edit' : 'thumb')} />;
+      break;
     case 'unsupported':
       content = <UnsupportedContent obj={obj} />;
       break;
@@ -265,6 +269,21 @@ export const ObjectView = memo(function ObjectView({ obj: raw, assets, theme, ed
     </div>
   );
 });
+
+/** 확장 개체: 편집·쇼에서는 확장의 View, 썸네일·인쇄·그림 내보내기에서는 대체 그림 */
+function ExtensionContent({ obj, assets, mode }: { obj: ExtensionObject; assets: Assets; mode: RenderMode }) {
+  const ext = getExtension(obj.kind);
+  const poster = obj.posterId ? assets[obj.posterId]?.dataUrl : '';
+  const posterEl = poster ? <img src={poster} alt={ext?.describe?.(obj) ?? obj.name} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} /> : <div className="sl-ext-missing">{ext?.name ?? obj.kind}</div>;
+  // usePoster: 가져온 원본(PowerPoint)이 그린 그림을 바꾸기 전까지 그대로 표시
+  if (mode === 'thumb' || !ext || (obj.data.usePoster && poster)) return posterEl;
+  const View = ext.View;
+  return (
+    <Suspense fallback={posterEl}>
+      <View obj={obj} assets={assets} mode={mode === 'show' ? 'show' : 'edit'} fallback={posterEl} />
+    </Suspense>
+  );
+}
 
 /** 수식: 저장된 MathML을 정화해 표시 (글꼴은 STIX Two Math) */
 const EquationContent = memo(function EquationContent({ obj }: { obj: EquationObject }) {

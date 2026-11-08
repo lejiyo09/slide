@@ -4452,3 +4452,35 @@ button.bs-export-item:hover:not(:disabled) {
 .cmp-objectDeleted .cmp-icon {
   color: #c42b1c;
 }
+
+/* ───────────── 확장 개체 · 3D 모델 ───────────── */
+.sl-model3d {
+  position: absolute;
+  inset: 0;
+}
+.sl-ext-missing {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed #999;
+  color: #777;
+  font-size: 14px;
+}
+.m3d-props {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.m3d-row {
+  display: grid;
+  grid-template-columns: 48px 1fr 40px;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.m3d-row output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

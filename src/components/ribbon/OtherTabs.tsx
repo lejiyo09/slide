@@ -7,6 +7,8 @@ import {
 import { goToComment, startNewComment } from '../comments/CommentsPane';
 import { openSpellPane } from '../spell/SpellPane';
 import { startCompare } from '../compare/ComparePane';
+import { listExtensions } from '../../extensions/registry';
+import { insertExtension } from '../../extensions/actions';
 import { deleteAllComments } from '../../core/comments/comments';
 import { useMemo, useState } from 'react';
 import * as M from '../../core/commands/masterActions';
@@ -22,7 +24,7 @@ import { ScaledSlide } from '../../engines/rendering/SlideView';
 import { TableGridPicker, ChartTypeMenu, LinkDialog, IconPickerDialog } from './InsertExtras';
 import { pickAndInsertMedia } from '../../editors/media/mediaActions';
 import { lockSelection } from '../../editors/text/editorSession';
-import { RibbonButton, DropdownButton, RibbonGroup, PlannedGroup, MenuItem, MenuSeparator, SplitButton } from '../common/Buttons';
+import { RibbonButton, DropdownButton, RibbonGroup, MenuItem, MenuSeparator, SplitButton } from '../common/Buttons';
 import { ColorPanel } from '../common/ColorPicker';
 import { useEditor } from '../../core/store/editorStore';
 import * as A from '../../core/commands/actions';
@@ -101,7 +103,14 @@ export function InsertTab() {
       <RibbonGroup label="기호">
         <RibbonButton size="large" icon={<Sigma size={26} />} label="수식" title="수식 삽입 (LaTeX 입력, PowerPoint 수식으로 저장)" onClick={() => set({ equationEditorId: 'new' })} />
       </RibbonGroup>
-      <PlannedGroup label="3D" stage="14단계" items={['3D 모델(확장 인터페이스)']} />
+      <RibbonGroup label="3D">
+        {listExtensions()
+          .filter((x) => x.ribbon)
+          .map((x) => {
+            const Icon = x.ribbon!.icon;
+            return <RibbonButton key={x.kind} size="large" icon={<Icon size={26} />} label={x.ribbon!.label} title={x.ribbon!.title} onClick={() => void insertExtension(x.kind)} />;
+          })}
+      </RibbonGroup>
       <RibbonGroup label="미디어">
         <RibbonButton size="large" icon={<Film size={26} />} label="비디오" title="이 디바이스의 비디오 삽입 (MP4, WebM)" onClick={() => void pickAndInsertMedia('video')} />
         <RibbonButton size="large" icon={<Volume2 size={26} />} label="오디오" title="이 디바이스의 오디오 삽입 (MP3, M4A, WAV)" onClick={() => void pickAndInsertMedia('audio')} />

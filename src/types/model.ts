@@ -336,7 +336,24 @@ export interface EquationObject extends BaseObject {
   sourceOmml?: { xml: string; latex: string };
 }
 
-export type SlideObject = TextObject | ShapeObject | LineObject | ImageObject | GroupObject | TableObject | ChartObject | MediaObject | EquationObject | UnsupportedObject;
+/* ───────────── 확장 개체 ───────────── */
+
+/**
+ * 확장 개체 (extensions/registry.ts에 등록한 종류가 그리고 편집). 첫 확장: 3D 모델(kind 'model3d').
+ * 썸네일·인쇄·PDF·비디오·PPTX 대체 그림은 posterId 그림을 쓴다.
+ */
+export interface ExtensionObject extends BaseObject {
+  type: 'extension';
+  kind: string;
+  /** 종류별 설정 (3D: 회전·확대) */
+  data: Record<string, unknown>;
+  /** 원본 바이너리 (3D: GLB) — Asset.blobKey로 IndexedDB에 저장 */
+  assetId?: ID;
+  /** 대체 그림 (PNG data URL 자산) */
+  posterId?: ID;
+}
+
+export type SlideObject = TextObject | ShapeObject | LineObject | ImageObject | GroupObject | TableObject | ChartObject | MediaObject | EquationObject | ExtensionObject | UnsupportedObject;
 export type ObjectType = SlideObject['type'];
 
 export interface SlideBackground {

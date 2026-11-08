@@ -12,7 +12,7 @@
 import type {
   BulletType, CustomGeometry, Fill, GroupObject, HAlign, ImageObject, LayoutDef, LineObject, Paragraph, PathCommand, Presentation,
   Section, ShapeKind, ShapeObject, Slide, SlideObject, Stroke, TextBody, TextObject, TextRun, Theme, UnsupportedKind, UnsupportedObject, VAlign,
-  TableObject, TableCell, CellBorders, ChartObject, ChartType, MediaObject, MasterSlide, PlaceholderType, SlideTransition, Animation, EquationObject, SlideComment,
+  TableObject, TableCell, CellBorders, ChartObject, ChartType, MediaObject, MasterSlide, PlaceholderType, SlideTransition, Animation, EquationObject, SlideComment, ExtensionObject,
 } from '../../types/model';
 import type { Rel } from './ooxml';
 import { contentFingerprint, mediaPlaybackSignature } from '../../core/document/fingerprint';
@@ -967,6 +967,11 @@ async function parseElement(el: Element, ctx: ShapeCtx, skipPlaceholders: boolea
     case 'AlternateContent': {
       // 수식(a14:m)은 Choice에서 편집할 수 있는 수식으로
       const choice = kid(el, 'Choice');
+      // PowerPoint 3D 모델(am3d:model3d): GLB + 대체 그림, 원본 XML 보존
+      if (choice && descendants(choice, 'model3d').length) {
+        const m = await parseModel3D(el, choice, ctx, tf);
+        if (m) return m;
+      }
       if (choice && descendants(choice, 'oMath').length) {
         for (const c of kids(choice)) {
           const eq = c.localName === 'sp' ? parseEquation(c, ctx, tf) : null;
@@ -991,6 +996,46 @@ async function parseElement(el: Element, ctx: ShapeCtx, skipPlaceholders: boolea
       ctx.report.warnings.push(`알 수 없는 요소 '${el.localName}'를 원본 그대로 보존했습니다.`);
       return unsupported(el, 'other', el.localName, ctx, tf, null);
   }
+}
+
+const REL_MODEL3D = 'http://schemas.microsoft.com/office/2017/06/relationships/model3d';
+
+/** PowerPoint 3D 모델 → 3D 모델 확장 개체 (GLB는 IndexedDB, 대체 그림은 Fallback 그림). 바꾸지 않으면 원본 XML 그대로 저장 */
+async function parseModel3D(alt: Element, choice: Element, ctx: ShapeCtx, tf: Xform): Promise<ExtensionObject | null> {
+  const gf = kids(choice).find((c) => c.localName === 'graphicFrame');
+  const geo = gf ? readXfrm(kid(gf, 'xfrm'), tf) : null;
+  const m3d = descendants(choice, 'model3d')[0];
+  const rid = m3d ? rAttr(m3d, 'embed') : undefined;
+  const rel = rid ? (await ctx.pkg.rels(ctx.part)).get(rid) : undefined;
+  if (!gf || !geo || !rel || rel.external || (rel.type !== REL_MODEL3D && !/\.glb$/i.test(rel.target))) return null;
+  const bytes = await ctx.pkg.bytes(rel.target);
+  if (!bytes) return null;
+  const base = baseProps(gf, 'nvGraphicFramePr', ctx);
+  const blobKey = newId();
+  ctx.blobs?.push({ key: blobKey, data: bytes, mime: 'model/gltf-binary' });
+  const modelId = newId();
+  ctx.assets[modelId] = { id: modelId, mime: 'model/gltf-binary', dataUrl: '', blobKey, name: rel.target.split('/').pop(), size: bytes.length };
+  const blip = descendants(kid(alt, 'Fallback') ?? alt, 'blip')[0];
+  const posterRid = blip ? rAttr(blip, 'embed') : undefined;
+  const posterId = posterRid ? await assetFromRel(posterRid, ctx) : null;
+  const obj: ExtensionObject = {
+    id: newId(),
+    type: 'extension',
+    kind: 'model3d',
+    name: base.name || '3D 모델',
+    sourceId: base.sourceId,
+    x: geo.x,
+    y: geo.y,
+    width: Math.max(1, geo.width),
+    height: Math.max(1, geo.height),
+    rotation: geo.rotation,
+    // PowerPoint가 그린 대체 그림을 그대로 보여 줌 (회전을 바꾸면 SlideLab이 다시 그림)
+    data: { rotX: 0, rotY: 0, rotZ: 0, zoom: 1, usePoster: true },
+    assetId: modelId,
+    ...(posterId ? { posterId } : {}),
+  };
+  obj.preserved = { xml: serializeElement(alt), part: ctx.part, fingerprint: contentFingerprint(obj) };
+  return obj;
 }
 
 /** 수식이 든 텍스트 상자 → 수식 개체 (문단 안의 보통 글자는 \text{}로) */

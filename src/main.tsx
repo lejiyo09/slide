@@ -2,6 +2,8 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './app/App';
 import './styles/app.css';
+// 확장 개체 등록 (3D 모델)
+import './extensions/model3d';
 import { useEditor } from './core/store/editorStore';
 import { useFonts } from './services/fonts/library';
 

@@ -2,7 +2,9 @@ import { AlignCenter, AlignJustify, AlignLeft, AlignRight, AlignVerticalJustifyC
 import { useEditor, getActiveSlide, useSelectedObjects } from '../../core/store/editorStore';
 import { findSlide } from '../../core/document/query';
 import * as C from '../../core/commands/commands';
-import type { ArrowHead, DashStyle, Fill, SlideObject, Stroke } from '../../types/model';
+import { Suspense } from 'react';
+import type { ArrowHead, DashStyle, ExtensionObject, Fill, SlideObject, Stroke } from '../../types/model';
+import { getExtension } from '../../extensions/registry';
 import { ColorField, NumberField, Row, Section, Segmented, SliderField } from './fields';
 import { round } from '../../utils/units';
 import { applyFormat } from '../../editors/text/formatting';
@@ -16,7 +18,7 @@ import { fillToCss } from '../../engines/rendering/ObjectView';
 const pxToCm = (px: number) => round((px / 96) * 2.54, 2);
 const cmToPx = (cm: number) => (cm / 2.54) * 96;
 
-const TYPE_NAMES: Record<SlideObject['type'], string> = { text: '텍스트 상자', shape: '도형', line: '선', image: '그림', group: '그룹', table: '표', chart: '차트', media: '미디어', equation: '수식', unsupported: '보존된 개체' };
+const TYPE_NAMES: Record<SlideObject['type'], string> = { text: '텍스트 상자', shape: '도형', line: '선', image: '그림', group: '그룹', table: '표', chart: '차트', media: '미디어', equation: '수식', extension: '확장 개체', unsupported: '보존된 개체' };
 
 /** 선택된 개체에 적용 (하나의 실행 취소 단계) */
 function edit(label: string, fn: (o: SlideObject) => void) {
@@ -157,6 +159,7 @@ function ObjectProps({ objs }: { objs: SlideObject[] }) {
         </Section>
       )}
       {single && o.type === 'image' && <ImageSection obj={o} />}
+      {single && o.type === 'extension' && <ExtensionSection obj={o} />}
       {single && o.type === 'equation' && (
         <Section title="수식">
           <Row label="LaTeX">
@@ -213,6 +216,19 @@ function ObjectProps({ objs }: { objs: SlideObject[] }) {
         </Row>
       </Section>
     </>
+  );
+}
+
+function ExtensionSection({ obj }: { obj: ExtensionObject }) {
+  const ext = getExtension(obj.kind);
+  if (!ext?.Properties) return null;
+  const P = ext.Properties;
+  return (
+    <Section title={ext.name}>
+      <Suspense fallback={<p className="pp-hint">불러오는 중…</p>}>
+        <P obj={obj} />
+      </Suspense>
+    </Section>
   );
 }
 

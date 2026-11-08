@@ -213,19 +213,37 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
       const node = sdoc.importNode(frag, true) as Element;
       // 현재 위치/크기/회전 반영
       const mx = path(marker, 'spPr', 'xfrm');
-      const target =
-        node.localName === 'graphicFrame' ? kid(node, 'xfrm') : node.localName === 'grpSp' ? path(node, 'grpSpPr', 'xfrm') : path(node, 'spPr', 'xfrm');
-      if (mx && target) {
+      const xfrmOf = (n: Element) => (n.localName === 'graphicFrame' ? kid(n, 'xfrm') : n.localName === 'grpSp' ? path(n, 'grpSpPr', 'xfrm') : path(n, 'spPr', 'xfrm'));
+      // mc:AlternateContent(3D 모델 등): Choice와 Fallback 안의 도형 모두
+      const targets =
+        node.localName === 'AlternateContent'
+          ? kids(node)
+              .filter((c) => c.localName === 'Choice' || c.localName === 'Fallback')
+              .flatMap((c) => kids(c))
+              .map((c) => ({ n: c, x: xfrmOf(c) }))
+          : [{ n: node, x: xfrmOf(node) }];
+      for (const { n, x: target } of targets) {
+        if (!mx || !target) continue;
         const mo = kid(mx, 'off'), me = kid(mx, 'ext'), to = kid(target, 'off'), te = kid(target, 'ext');
         if (mo && to) (['x', 'y'] as const).forEach((k) => to.setAttribute(k, mo.getAttribute(k) ?? '0'));
         if (me && te) (['cx', 'cy'] as const).forEach((k) => te.setAttribute(k, me.getAttribute(k) ?? '0'));
         const rot = mx.getAttribute('rot');
-        if (rot && node.localName !== 'graphicFrame') target.setAttribute('rot', rot);
+        if (rot && n.localName !== 'graphicFrame') target.setAttribute('rot', rot);
         else target.removeAttribute('rot');
       }
       // ID: 최상위는 자리 표시 도형의 ID, 내부 cNvPr은 고유 ID
       const allNv = Array.from(node.getElementsByTagNameNS(NS.p, 'cNvPr'));
-      allNv.forEach((n, i) => n.setAttribute('id', i === 0 ? c?.getAttribute('id') ?? String(freshId++) : String(freshId++)));
+      const topId = c?.getAttribute('id') ?? String(freshId++);
+      // AlternateContent: Choice·Fallback의 최상위 도형은 같은 도형이므로 같은 ID
+      const tops = new Set(
+        node.localName === 'AlternateContent'
+          ? kids(node)
+              .flatMap((x) => kids(x))
+              .map((x) => x.getElementsByTagNameNS(NS.p, 'cNvPr')[0])
+              .filter(Boolean)
+          : [allNv[0]],
+      );
+      allNv.forEach((n) => n.setAttribute('id', tops.has(n) ? topId : String(freshId++)));
       // 관계 재매핑
       const srcRels = await source.rels(obj.part);
       for (const el of [node, ...Array.from(node.getElementsByTagName('*'))]) {

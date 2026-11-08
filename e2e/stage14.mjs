@@ -531,6 +531,82 @@ try {
     await page.locator('[data-compare-end]').click();
   }
 
+  if (want('model3d')) {
+    /* ───── 3D 모델 (확장 인터페이스) ───── */
+    await closeBackstage();
+    await page.evaluate(() => {
+      const st = window.__SLIDELAB__.getState();
+      st.set({ activeSlideId: st.doc.slides[0].id, selectedSlideIds: [st.doc.slides[0].id], selectedIds: [] });
+    });
+    await page.locator('.tab', { hasText: '삽입' }).click();
+    const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.locator('.rb', { hasText: '3D 모델' }).click()]);
+    await fc.setFiles('src/extensions/model3d/__fixtures__/cube.glb');
+    await page.waitForFunction(() => window.__SLIDELAB__.getState().doc.slides[0].objects.some((o) => o.type === 'extension'));
+    const m = await page.evaluate(() => JSON.parse(JSON.stringify(window.__SLIDELAB__.getState().doc.slides[0].objects.find((o) => o.type === 'extension'))));
+    const assets = await page.evaluate((m) => { const a = window.__SLIDELAB__.getState().doc.assets; return { model: a[m.assetId], poster: a[m.posterId]?.dataUrl.slice(0, 30) }; }, m);
+    check('3D 모델 삽입: GLB(IndexedDB) + 대체 그림', m.kind === 'model3d' && m.name === 'cube' && !!assets.model.blobKey && assets.poster.startsWith('data:image/png'), JSON.stringify(assets).slice(0, 120));
+    await page.waitForSelector(`[data-obj-id="${m.id}"] [data-model3d="ready"]`, { timeout: 15000 });
+    const stats = (sel) => page.evaluate((sel) => {
+      const c = document.querySelector(sel);
+      const g = c.getContext('2d');
+      const d = g.getImageData(0, 0, c.width, c.height).data;
+      let ink = 0, r = 0, gg = 0, b = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200) { ink++; r += d[i]; gg += d[i + 1]; b += d[i + 2]; }
+      return { ink, frac: ink / (c.width * c.height), rgb: ink ? [Math.round(r / ink), Math.round(gg / ink), Math.round(b / ink)] : null };
+    }, sel);
+    const canvasSel = `[data-testid="slide-stage"] [data-obj-id="${m.id}"] canvas`;
+    const s0 = await stats(canvasSel);
+    check('WebGL로 그림 (정육면체가 상자의 일부를 채움)', s0.frac > 0.1 && s0.frac < 0.9, JSON.stringify(s0));
+    // 서식 창: Y 회전 → 다시 그림 + 대체 그림 갱신 (한 단계 실행 취소)
+    await page.waitForSelector('[data-m3d-props]');
+    const posterBefore = await page.evaluate((m) => window.__SLIDELAB__.getState().doc.assets[m.posterId].dataUrl, m);
+    // 마우스로 끌기: 한 번의 동작 = 실행 취소 한 단계
+    const sb = await page.locator('[data-m3d="rotY"]').boundingBox();
+    const xAt = (deg) => sb.x + ((deg + 180) / 360) * sb.width;
+    await page.mouse.move(xAt(m.data.rotY), sb.y + sb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(xAt(m.data.rotY + 30), sb.y + sb.height / 2, { steps: 8 });
+    await page.mouse.move(xAt(m.data.rotY + 60), sb.y + sb.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForFunction(() => !window.__SLIDELAB__.getState().gestureBase, null, { timeout: 5000 });
+    const after = await page.evaluate((m) => { const st = window.__SLIDELAB__.getState(); const o = st.doc.slides[0].objects.find((x) => x.id === m.id); return { rotY: o.data.rotY, poster: st.doc.assets[m.posterId].dataUrl }; }, m);
+    const s1 = await stats(canvasSel);
+    check('회전(끌기) → 화면·대체 그림이 바뀜', Math.abs(after.rotY - (m.data.rotY + 60)) <= 8 && after.poster !== posterBefore && JSON.stringify(s1.rgb) !== JSON.stringify(s0.rgb), `${after.rotY}° ${JSON.stringify(s0.rgb)}→${JSON.stringify(s1.rgb)}`);
+    await page.locator('[data-testid="slide-stage"]').click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press('Control+z');
+    const undone = await page.evaluate((m) => { const st = window.__SLIDELAB__.getState(); return st.doc.slides[0].objects.find((x) => x.id === m.id)?.data.rotY; }, m);
+    check('실행 취소 → 원래 각도', undone === m.data.rotY, String(undone));
+    await page.screenshot({ path: `${OUT}/s14-model3d.png` });
+    // 그림 내보내기 = 대체 그림 위치에 정육면체
+    await openExport();
+    await page.locator('[data-export-image] select[aria-label="내보낼 슬라이드"]').selectOption('current');
+    await page.locator('[data-export-image] select[aria-label="그림 형식"]').selectOption('png');
+    await page.locator('[data-export-image] select[aria-label="해상도"]').selectOption('1');
+    const png = await download(() => page.locator('[data-export-image-go]').click(), 's14-img-3d.png');
+    const inBox = await page.evaluate(async ([b64, m]) => {
+      const img = await new Promise((ok) => Object.assign(new Image(), { onload() { ok(this); }, src: `data:image/png;base64,${b64}` }));
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0);
+      const d = g.getImageData(Math.round(m.x), Math.round(m.y), Math.round(m.width), Math.round(m.height)).data;
+      let colored = 0;
+      for (let i = 0; i < d.length; i += 4) if (Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]) > 60) colored++;
+      return colored / (d.length / 4);
+    }, [readFileSync(png.path).toString('base64'), m]);
+    check('그림 내보내기에 3D 모델(대체 그림)', inBox > 0.1, inBox.toFixed(2));
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('.bs-export-item', { hasText: 'PowerPoint' }).click()]);
+    await dl.saveAs(`${OUT}/s14-model3d.pptx`);
+    const z = await JSZip.loadAsync(readFileSync(`${OUT}/s14-model3d.pptx`));
+    check('PPTX: 대체 그림으로 저장 + 안내', /<p:pic>[\s\S]*descr="cube"/.test(await z.file('ppt/slides/slide1.xml').async('string')) && (await page.locator('.bs-warnings').textContent()).includes('3D 모델은'));
+    // .slidelab에 GLB 포함
+    const [dl2] = await Promise.all([page.waitForEvent('download'), page.locator('.bs-export-item', { hasText: 'SlideLab 문서' }).click()]);
+    await dl2.saveAs(`${OUT}/s14-model3d.slidelab`);
+    const native = JSON.parse(readFileSync(`${OUT}/s14-model3d.slidelab`, 'utf8'));
+    check('.slidelab에 3D 모델 파일(GLB) 포함', native.blobs?.[assets.model.blobKey]?.startsWith('data:model/gltf-binary;base64,') && Buffer.from(native.blobs[assets.model.blobKey].split(',')[1], 'base64').length === readFileSync('src/extensions/model3d/__fixtures__/cube.glb').length);
+    await closeBackstage();
+  }
+
   if (want('equation')) {
     // 문서를 바꾸므로 마지막에: LibreOffice가 만든 수식 PPTX 가져오기
     await closeBackstage();

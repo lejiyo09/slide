@@ -396,6 +396,18 @@ export async function buildPptx(source: Presentation, opts: BuildOptions = {}): 
           emit();
           break;
         }
+        case 'extension': {
+          // 확장 개체(3D 모델 등): 대체 그림으로 저장 (가져온 원본이 그대로면 위에서 원본 XML로 복원됨)
+          const poster = o.posterId ? doc.assets[o.posterId]?.dataUrl : '';
+          if (!poster) {
+            warn(`${o.name}: 대체 그림이 없어 저장하지 못했습니다.`);
+            break;
+          }
+          slide.addImage({ ...pos, data: poster, altText: o.name });
+          warn('3D 모델은 PowerPoint 파일에 그림으로 저장됩니다 (PowerPoint에서 가져온 3D 모델은 바꾸지 않으면 원래대로 저장).');
+          emit();
+          break;
+        }
         case 'equation': {
           // 자리 표시 도형 → 후처리에서 mc:AlternateContent(a14:m OMML + 대체 그림)로 교체
           const marker = `${KEEP_PREFIX}${o.id}`;

@@ -172,7 +172,7 @@ function matchObjects(a: SlideObject[], b: SlideObject[]): [SlideObject, SlideOb
   return pairs;
 }
 
-const TYPE_NAME: Record<SlideObject['type'], string> = { text: '텍스트 상자', shape: '도형', line: '선', image: '그림', group: '그룹', table: '표', chart: '차트', media: '미디어', equation: '수식', unsupported: '개체' };
+const TYPE_NAME: Record<SlideObject['type'], string> = { text: '텍스트 상자', shape: '도형', line: '선', image: '그림', group: '그룹', table: '표', chart: '차트', media: '미디어', equation: '수식', extension: '3D·확장 개체', unsupported: '개체' };
 const nameOf = (o: SlideObject) => {
   const t = objectText(o).replace(/\s+/g, ' ').trim();
   return `${TYPE_NAME[o.type]}${t ? ` "${t.length > 24 ? `${t.slice(0, 24)}…` : t}"` : o.name ? ` (${o.name})` : ''}`;
@@ -233,6 +233,7 @@ function assetIds(o: SlideObject): string[] {
   if (o.type === 'image') return [o.assetId];
   if (o.type === 'media') return [o.assetId, ...(o.posterId ? [o.posterId] : [])];
   if (o.type === 'group') return o.children.flatMap(assetIds);
+  if (o.type === 'extension') return [o.assetId, o.posterId].filter((x): x is string => !!x);
   const f = 'fill' in o ? o.fill : undefined;
   return f && f.type === 'image' ? [f.assetId] : [];
 }

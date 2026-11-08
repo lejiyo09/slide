@@ -1,7 +1,7 @@
 /** 파일 입출력 도우미 */
 import type { Asset, Presentation } from '../../types/model';
 import { newId } from '../../utils/id';
-import { getPackage, savePackage } from './db';
+import { getBlob, getPackage, saveBlob, savePackage } from './db';
 
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -81,7 +81,14 @@ export async function exportNative(doc: Presentation): Promise<{ skippedFonts: s
   // 오프라인 보관한 웹 글꼴은 SlideLab 기본 웹 글꼴이라 받는 쪽에서도 쓸 수 있으므로 넣지 않음 (파일 크기 절약)
   for (const r of recs.filter((x) => x.embedding !== 'restricted' && x.origin !== 'web'))
     fonts.push({ family: r.family, aliases: r.aliases, weight: r.weight, italic: r.italic, fileName: r.fileName, format: r.format, dataUrl: await readAsDataUrl(r.data) });
-  const blob = new Blob([JSON.stringify({ format: 'slidelab', version: 1, doc, sourcePackage, ...(fonts.length ? { fonts } : {}) })], { type: 'application/json' });
+  // IndexedDB에 따로 둔 큰 바이너리(동영상·오디오·내레이션·3D 모델)도 포함 — 다른 브라우저에서 열어도 그대로
+  const blobs: Record<string, string> = {};
+  for (const a of Object.values(doc.assets)) {
+    if (!a.blobKey || blobs[a.blobKey]) continue;
+    const b = await getBlob(a.blobKey);
+    if (b) blobs[a.blobKey] = await readAsDataUrl(b);
+  }
+  const blob = new Blob([JSON.stringify({ format: 'slidelab', version: 1, doc, sourcePackage, ...(fonts.length ? { fonts } : {}), ...(Object.keys(blobs).length ? { blobs } : {}) })], { type: 'application/json' });
   downloadBlob(blob, `${safeFileName(doc.title)}.slidelab`);
   return { skippedFonts };
 }
@@ -92,6 +99,13 @@ export async function importNative(file: File): Promise<Presentation> {
   if (data?.format !== 'slidelab' || !data.doc?.slides) throw new Error('SlideLab 파일 형식이 아닙니다');
   const doc = data.doc as Presentation;
   doc.id = newId(); // 기존 프로젝트를 덮어쓰지 않도록 새 ID
+  // 함께 들어 있던 바이너리(동영상·오디오·3D 모델) 복원
+  if (data.blobs && typeof data.blobs === 'object') {
+    for (const [key, url] of Object.entries(data.blobs as Record<string, unknown>)) {
+      if (typeof url !== 'string' || !url.startsWith('data:')) continue;
+      await saveBlob(key, await (await fetch(url)).blob());
+    }
+  }
   if (doc.source && typeof data.sourcePackage === 'string') {
     const packageId = newId();
     await savePackage(packageId, await (await fetch(data.sourcePackage)).blob());
