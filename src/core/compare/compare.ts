@@ -37,7 +37,8 @@ function objectText(o: SlideObject): string {
   if (o.type === 'text' || o.type === 'shape') return bodyText(o.text);
   if (o.type === 'group') return o.children.map(objectText).join(' ');
   if (o.type === 'table') return o.rows.map((r) => r.cells.map((c) => bodyText(c.text)).join('\t')).join('\n');
-  if (o.type === 'equation') return o.latex;
+  // 수식: 같은 수식도 LaTeX 표기는 다를 수 있으므로(PPTX를 거치면 m{c}^{2} 등) 표시되는 글자로 비교
+  if (o.type === 'equation') return o.mathml.replace(/<[^>]+>/g, '').replace(/[\u2061-\u2063\s]/g, '');
   if (o.type === 'chart') return o.title ?? '';
   return '';
 }
@@ -118,7 +119,8 @@ function formatKey(o: SlideObject, doc: Presentation): string {
   const norm = (k: string) => {
     if (k === 'opacity') return r[k] ?? 1;
     if (k === 'flipH' || k === 'flipV') return !!r[k];
-    if (k === 'assetId') return asset(r[k]);
+    // 미디어는 한쪽이 data URL, 다른 쪽이 IndexedDB 바이너리일 수 있어 내용 비교 불가 → 서식 비교에서 제외
+    if (k === 'assetId') return o.type === 'media' ? null : asset(r[k]);
     if (k === 'fill' && r.fill && typeof r.fill === 'object' && (r.fill as { type: string }).type === 'image') return { ...(r.fill as object), assetId: asset((r.fill as { assetId: string }).assetId) };
     return r[k] ?? null;
   };

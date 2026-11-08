@@ -513,7 +513,8 @@ try {
     await fc.setFiles(`${OUT}/s14-compare-revised.pptx`);
     await page.waitForSelector('[data-compare-pane]');
     const kinds = await page.locator('[data-compare-kind]').evaluateAll((els) => els.map((e) => e.getAttribute('data-compare-kind')));
-    check('비교: 글자 변경 + 슬라이드 삭제만 (PPTX 왕복의 잡음 없음)', kinds.join(',') === 'textChanged,slideDeleted', kinds.join(','));
+    const labels = await page.locator('[data-compare-kind] .cmp-main').allTextContents();
+    check('비교: 글자 변경 + 슬라이드 삭제만 (PPTX 왕복의 잡음 없음)', kinds.join(',') === 'textChanged,slideDeleted', labels.join(' | '));
     check('낱말 단위 차이 표시', (await page.locator('.cmp-diff .d-add').first().textContent()).trim() === '고친');
     await page.locator('[data-compare-kind="textChanged"]').click();
     check('변경 선택 → 현재/검토본 미리 보기', (await page.locator('.cmp-preview .sl-slide').count()) === 2);
