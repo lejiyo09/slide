@@ -482,6 +482,54 @@ try {
     await page.keyboard.press('Escape');
   }
 
+  if (want('compare')) {
+    /* ───── 비교 ───── */
+    await closeBackstage();
+    await page.evaluate(() => {
+      const st = window.__SLIDELAB__.getState();
+      st.commit('비교 준비', (d) => {
+        d.slides.forEach((s, i) => {
+          s.hidden = false;
+          s.comments = undefined;
+          const sub = s.objects.find((o) => o.ph?.type === 'subTitle');
+          if (sub) sub.text.paragraphs = [{ runs: [{ text: ['첫 슬라이드 부제목 내용', '둘째 슬라이드 설명 문장', '셋째 슬라이드 정리 내용'][i] ?? 'x' }] }];
+        });
+      });
+    });
+    // 검토본: PPTX로 내보낸 뒤 Node에서 수정 (2번 부제목 글자 변경, 3번 슬라이드 삭제)
+    await openExport();
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('.bs-export-item', { hasText: 'PowerPoint' }).click()]);
+    await dl.saveAs(`${OUT}/s14-compare-base.pptx`);
+    await closeBackstage();
+    const z = await JSZip.loadAsync(readFileSync(`${OUT}/s14-compare-base.pptx`));
+    const s2 = await z.file('ppt/slides/slide2.xml').async('string');
+    z.file('ppt/slides/slide2.xml', s2.replace('둘째 슬라이드 설명 문장', '둘째 슬라이드 고친 설명 문장'));
+    const pres = await z.file('ppt/presentation.xml').async('string');
+    const ids = [...pres.matchAll(/<p:sldId [^>]*\/>/g)].map((m) => m[0]);
+    z.file('ppt/presentation.xml', pres.replace(ids[2], ''));
+    writeFileSync(`${OUT}/s14-compare-revised.pptx`, await z.generateAsync({ type: 'nodebuffer' }));
+    await page.locator('.tab', { hasText: '검토' }).click();
+    const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.locator('.rb', { hasText: '비교' }).click()]);
+    await fc.setFiles(`${OUT}/s14-compare-revised.pptx`);
+    await page.waitForSelector('[data-compare-pane]');
+    const kinds = await page.locator('[data-compare-kind]').evaluateAll((els) => els.map((e) => e.getAttribute('data-compare-kind')));
+    check('비교: 글자 변경 + 슬라이드 삭제만 (PPTX 왕복의 잡음 없음)', kinds.join(',') === 'textChanged,slideDeleted', kinds.join(','));
+    check('낱말 단위 차이 표시', (await page.locator('.cmp-diff .d-add').first().textContent()).trim() === '고친');
+    await page.locator('[data-compare-kind="textChanged"]').click();
+    check('변경 선택 → 현재/검토본 미리 보기', (await page.locator('.cmp-preview .sl-slide').count()) === 2);
+    await page.locator('[data-compare-kind="textChanged"] [data-compare-apply]').click();
+    const t2 = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides[1].objects.find((o) => o.ph?.type === 'subTitle').text.paragraphs[0].runs.map((r) => r.text).join(''));
+    check('하나 적용', t2 === '둘째 슬라이드 고친 설명 문장' && (await page.locator('[data-compare-kind]').count()) === 1, t2);
+    const para = await page.evaluate(() => JSON.stringify(window.__SLIDELAB__.getState().doc.slides[1].objects.find((o) => o.ph?.type === 'subTitle').text.paragraphs[0]));
+    check('글자만 바꾸고 현재 서식 유지', para === JSON.stringify({ runs: [{ text: '둘째 슬라이드 고친 설명 문장' }] }), para);
+    await page.locator('[data-compare-all]').click();
+    check('모두 적용 → 다른 점 없음', (await page.locator('[data-compare-done]').count()) === 1 && (await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides.length)) === 2);
+    await page.screenshot({ path: `${OUT}/s14-compare.png` });
+    await page.keyboard.press('Control+z');
+    check('실행 취소 → 슬라이드 복원', (await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides.length)) === 3);
+    await page.locator('[data-compare-end]').click();
+  }
+
   if (want('equation')) {
     // 문서를 바꾸므로 마지막에: LibreOffice가 만든 수식 PPTX 가져오기
     await closeBackstage();

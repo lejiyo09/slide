@@ -2,10 +2,11 @@ import {
   Image as ImageIcon, Type, Plus, FileImage, Monitor, LayoutGrid, Square, Grid3x3, Ruler, Magnet,
   NotebookPen, ZoomIn, ZoomOut, Maximize, Moon, Sun, Ratio, Palette, PaintBucket, History, Save, Shapes,
   Table2, BarChart3, Smile, Link2, Film, Volume2, LayoutTemplate, Type as TypeIcon, Settings2, PanelsTopLeft, Sparkles,
-  Sigma, SpellCheck, MessageSquarePlus, MessagesSquare, ChevronLeft, ChevronRight, Trash2, Eye, EyeOff,
+  Sigma, SpellCheck, GitCompare, MessageSquarePlus, MessagesSquare, ChevronLeft, ChevronRight, Trash2, Eye, EyeOff,
 } from 'lucide-react';
 import { goToComment, startNewComment } from '../comments/CommentsPane';
 import { openSpellPane } from '../spell/SpellPane';
+import { startCompare } from '../compare/ComparePane';
 import { deleteAllComments } from '../../core/comments/comments';
 import { useMemo, useState } from 'react';
 import * as M from '../../core/commands/masterActions';
@@ -415,7 +416,9 @@ export function ReviewTab() {
       <RibbonGroup label="언어 교정">
         <RibbonButton size="large" icon={<SpellCheck size={26} />} label="맞춤법 검사" title="맞춤법 검사 (F7): 한국어·영어 사전과 한국어 맞춤법 규칙" onClick={openSpellPane} />
       </RibbonGroup>
-      <PlannedGroup label="비교" stage="14단계" items={['비교']} />
+      <RibbonGroup label="비교">
+        <RibbonButton size="large" icon={<GitCompare size={26} />} label="비교" title="다른 버전의 파일(.pptx, .slidelab)과 비교해 변경을 적용" onClick={() => void startCompare()} />
+      </RibbonGroup>
       <CommentsGroup />
     </>
   );

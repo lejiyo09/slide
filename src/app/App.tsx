@@ -8,6 +8,7 @@ import { MasterPanel } from '../components/sidebar/MasterPanel';
 import { AIPane } from '../components/ai/AIPane';
 import { CommentsPane } from '../components/comments/CommentsPane';
 import { SpellPane } from '../components/spell/SpellPane';
+import { ComparePane } from '../components/compare/ComparePane';
 import { useDocFonts } from '../hooks/useDocFonts';
 import { FontDialogs, addFontsFromFiles } from '../components/dialogs/FontDialogs';
 import { EquationDialogHost } from '../components/dialogs/EquationDialog';
@@ -48,6 +49,7 @@ export function App() {
   const aiPane = useEditor((s) => s.aiPane);
   const commentsPane = useEditor((s) => s.commentsPane);
   const spellPane = useEditor((s) => s.spellPane);
+  const compare = useEditor((s) => s.compare);
   useShortcuts();
   useDocFonts();
 
@@ -113,7 +115,9 @@ export function App() {
               <EditorCanvas />
               {showNotes && !masterView && <NotesPane />}
             </main>
-            {spellPane && !masterView ? (
+            {compare && !masterView ? (
+              <ComparePane />
+            ) : spellPane && !masterView ? (
               <SpellPane />
             ) : commentsPane && !masterView ? (
               <CommentsPane />

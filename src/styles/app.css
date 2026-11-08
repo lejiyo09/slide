@@ -4354,3 +4354,101 @@ button.bs-export-item:hover:not(:disabled) {
   text-align: center;
   color: #1e7b34;
 }
+
+/* ───────────── 비교 ───────────── */
+.compare-pane {
+  width: 310px;
+}
+.compare-pane .pp-head span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmp-preview {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+.cmp-preview figure {
+  margin: 0;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cmp-preview figure > div:last-child {
+  border: 1px solid var(--border);
+}
+.cmp-none {
+  width: 124px;
+  height: 70px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted, #888);
+  background: var(--bg-hover);
+}
+.cmp-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+.cmp-toolbar .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cmp-group h4 {
+  margin: 6px 0 4px;
+  font-size: 12px;
+}
+.cmp-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  margin-bottom: 4px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.cmp-item.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.cmp-icon {
+  width: 16px;
+  flex: none;
+  text-align: center;
+}
+.cmp-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.cmp-diff {
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cmp-diff .d-del {
+  color: #b42318;
+  text-decoration: line-through;
+  background: #fde7e7;
+}
+.cmp-diff .d-add {
+  color: #1e6b34;
+  background: #def7e4;
+}
+.cmp-slideInserted .cmp-icon,
+.cmp-objectInserted .cmp-icon {
+  color: #1e7b34;
+}
+.cmp-slideDeleted .cmp-icon,
+.cmp-objectDeleted .cmp-icon {
+  color: #c42b1c;
+}

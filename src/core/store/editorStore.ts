@@ -82,6 +82,9 @@ export interface EditorState {
   /** 맞춤법 검사 창 / 입력할 때 맞춤법 검사(브라우저) */
   spellPane: boolean;
   spellAsYouType: boolean;
+  /** 비교 중인 검토본 (검토 › 비교) / 선택한 변경 */
+  compare: { other: Presentation; fileName: string } | null;
+  compareSel: string | null;
   /** 현재 리본 탭 (애니메이션 번호 배지 표시 판단) */
   ribbonTab: string;
   /** 애니메이션 창에서 선택한 효과 */
@@ -175,6 +178,8 @@ export const useEditor = create<EditorState>()((set, get) => ({
   activeCommentId: null,
   showComments: true,
   spellPane: false,
+  compare: null,
+  compareSel: null,
   spellAsYouType: (() => {
     try {
       return localStorage.getItem('slidelab.spellAsYouType') !== '0';
