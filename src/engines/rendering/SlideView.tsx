@@ -14,13 +14,16 @@ interface SlideViewProps {
   cellSelection?: { id: string; r1: number; c1: number; r2: number; c2: number } | null;
   /** 애니메이션 프레임 (개체 ID → 상태) */
   frames?: Map<string, Frame>;
+  /** 편집 화면: 슬라이드 바깥(작업 영역)에 놓은 개체도 그림 (배경은 슬라이드 안에만). 쇼·축소판·내보내기는 잘라서 그림 */
+  showOffSlide?: boolean;
 }
 
 /** 슬라이드 원본 크기(px)로 렌더링. 확대/축소는 바깥에서 transform으로 처리 */
-export const SlideView = memo(function SlideView({ slide, doc, editingTextId, editingCell, renderEditor, interactive, mode, cellSelection, frames }: SlideViewProps) {
+export const SlideView = memo(function SlideView({ slide, doc, editingTextId, editingCell, renderEditor, interactive, mode, cellSelection, frames, showOffSlide }: SlideViewProps) {
   const { bg, layers } = designLayers(slide, doc);
   return (
-    <div className="sl-slide" style={{ position: 'absolute', left: 0, top: 0, width: doc.size.width, height: doc.size.height, overflow: 'hidden', background: '#fff' }}>
+    <div className="sl-slide" style={{ position: 'absolute', left: 0, top: 0, width: doc.size.width, height: doc.size.height, overflow: showOffSlide ? 'visible' : 'hidden', background: showOffSlide ? undefined : '#fff' }}>
+      <div style={{ position: 'absolute', inset: 0, ...(showOffSlide ? { background: '#fff' } : {}) }} />
       <div style={{ position: 'absolute', inset: 0, ...fillToCss(bg, doc.assets, doc.theme) }} />
       {layers.length > 0 && (
         <div className="sl-layout-layer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>

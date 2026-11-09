@@ -1032,6 +1032,81 @@ try {
     }, hiddenBefore);
   }
 
+  if (want('offslide')) {
+    /* ───── 슬라이드 바깥(작업 영역) 개체: 보이고, 클릭·끌기·편집, 쇼·축소판에서는 잘림 ───── */
+    await closeBackstage();
+    await page.evaluate(() => {
+      const st = window.__SLIDELAB__.getState();
+      const body = (t) => ({ paragraphs: [{ runs: [{ text: t, fontSize: 28, color: '#000000' }], align: 'left' }], vAlign: 'middle', direction: 'horizontal', padding: { top: 4, right: 8, bottom: 4, left: 8 }, autoFit: 'none' });
+      st.commit('바깥 개체', (d) => {
+        d.slides[0].objects.push({ id: 'off-l', type: 'shape', name: '왼쪽 바깥', shape: 'ellipse', x: -320, y: 200, width: 200, height: 200, rotation: 0, fill: { type: 'solid', color: '#E04040' }, stroke: null, text: body('') });
+        d.slides[0].objects.push({ id: 'off-r', type: 'text', name: '오른쪽 바깥', x: 1340, y: 300, width: 300, height: 80, rotation: 0, fill: { type: 'none' }, stroke: null, text: body('바깥 글자') });
+      });
+      st.set({ activeSlideId: st.doc.slides[0].id, selectedSlideIds: [st.doc.slides[0].id], selectedIds: [] });
+    });
+    await page.waitForSelector('.canvas-scroller[data-offslide] [data-obj-id="off-l"]');
+    const vis = await page.evaluate(() => {
+      const stage = document.querySelector('[data-testid="slide-stage"]').getBoundingClientRect();
+      const out = {};
+      for (const id of ['off-l', 'off-r']) {
+        const el = document.querySelector(`.canvas-scroller [data-obj-id="${id}"]`);
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('[data-obj-id]')?.dataset.objId;
+        out[id] = { outside: id === 'off-l' ? r.right <= stage.left + 1 + (document.querySelector('[data-testid="slide-stage"]').getBoundingClientRect().left - stage.left) : r.left >= document.querySelector('[data-testid="slide-stage"]').getBoundingClientRect().right - 1, w: Math.round(r.width), hit };
+      }
+      return out;
+    });
+    check('슬라이드 바깥 개체가 작업 영역에 보이고 그 자리에서 맞음(클릭 대상)', vis['off-l'].w > 0 && vis['off-l'].hit === 'off-l' && vis['off-l'].outside && vis['off-r'].hit === 'off-r' && vis['off-r'].outside, JSON.stringify(vis));
+    // 클릭 → 선택, 끌어서 슬라이드 안으로
+    const el = page.locator('.canvas-scroller [data-obj-id="off-l"]');
+    await el.scrollIntoViewIfNeeded();
+    await el.click();
+    check('바깥 개체 클릭 → 선택', JSON.stringify(await page.evaluate(() => window.__SLIDELAB__.getState().selectedIds)) === '["off-l"]');
+    const zoom = await page.evaluate(() => window.__SLIDELAB__.getState().zoom);
+    const b = await el.boundingBox();
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await page.mouse.down();
+    for (let i = 1; i <= 10; i++) await page.mouse.move(b.x + b.width / 2 + i * 10 * zoom, b.y + b.height / 2, { steps: 1 });
+    await page.mouse.up();
+    const x1 = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides[0].objects.find((o) => o.id === 'off-l').x);
+    check('바깥 개체 끌기: 끈 만큼 정확히 이동 (작업 영역이 늘어도 튀지 않음)', Math.abs(x1 - -220) < 3, `x=${x1}`);
+    // 크기 조절 핸들
+    const h = page.locator('.sel-handle[data-handle="e"], [data-handle="e"]').first();
+    if (await h.count()) {
+      const hb = await h.boundingBox();
+      await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(hb.x + hb.width / 2 + 50 * zoom, hb.y + hb.height / 2, { steps: 5 });
+      await page.mouse.up();
+    }
+    const w1 = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides[0].objects.find((o) => o.id === 'off-l').width);
+    check('바깥 개체 크기 조절 핸들 (스냅 허용)', w1 > 240 && w1 < 260, `width=${w1}`);
+    // 바깥 텍스트 상자: 두 번 클릭 → 편집 → 입력
+    const tl = page.locator('.canvas-scroller [data-obj-id="off-r"]');
+    await tl.scrollIntoViewIfNeeded();
+    await tl.dblclick();
+    await page.waitForSelector('.sl-editing');
+    await page.keyboard.press('End');
+    await page.keyboard.type(' 편집');
+    await page.keyboard.press('Escape');
+    const txt = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides[0].objects.find((o) => o.id === 'off-r').text.paragraphs[0].runs.map((r) => r.text).join(''));
+    check('바깥 텍스트 상자 두 번 클릭 → 편집·입력', txt === '바깥 글자 편집', txt);
+    await page.evaluate(() => window.__SLIDELAB__.getState().set({ zoom: 0.4, fitMode: false, selectedIds: ['off-l'] }));
+    await page.waitForTimeout(300);
+    await page.locator('.canvas-viewport').screenshot({ path: `${OUT}/s14-offslide.png` });
+    // 축소판·슬라이드 쇼에서는 슬라이드 밖이 잘림
+    const thumbClip = await page.evaluate(() => getComputedStyle(document.querySelector('[data-slide-id] .sl-slide')).overflow);
+    await page.keyboard.press('F5');
+    await page.waitForSelector('.slideshow .show-stage');
+    await page.waitForTimeout(300);
+    const showClip = await page.evaluate(() => getComputedStyle(document.querySelector('.show-stage .sl-slide')).overflow);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !window.__SLIDELAB__.getState().slideshow);
+    check('축소판·슬라이드 쇼에서는 슬라이드 밖을 잘라 보여 줌', thumbClip === 'hidden' && showClip === 'hidden', `${thumbClip} / ${showClip}`);
+    await page.evaluate(() => window.__SLIDELAB__.getState().commit('바깥 개체 정리', (d) => (d.slides[0].objects = d.slides[0].objects.filter((o) => !o.id.startsWith('off-')))));
+  }
+
   if (want('perf')) {
     /* ───── 성능: 슬라이드 1000장 ───── */
     await closeBackstage();

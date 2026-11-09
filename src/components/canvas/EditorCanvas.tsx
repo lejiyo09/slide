@@ -42,6 +42,8 @@ export function EditorCanvas() {
   const viewportRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<Drag | null>(null);
+  const offRef = useRef<{ l: number; t: number; r: number; b: number } | null>(null);
+  const prevPad = useRef<{ l: number; t: number } | null>(null);
   /** 캔버스가 시작한 실행 취소 단위(이동·크기 조정 등)가 있는지 — 텍스트 편집기의 단위를 대신 닫지 않도록 */
   const canvasGesture = useRef(false);
   const [guides, setGuides] = useState<Guide[]>([]);
@@ -499,7 +501,22 @@ export function EditorCanvas() {
   const cursor = insertTool ? 'crosshair' : formatPainter ? 'copy' : undefined;
   const stageW = W * zoom;
   const stageH = H * zoom;
+  // 작업 영역: 슬라이드 바깥에 놓은 개체까지 스크롤로 닿도록 그쪽 여백을 늘림 (PowerPoint의 회색 작업 영역)
+  const offNow = offSlideExtent(slide.objects, W, H);
+  // 끄는 동안에는 고정 (여백이 늘며 슬라이드가 밀리면 끄는 개체가 더 밀려나는 되먹임 방지), 놓은 뒤 반영
+  if (!dragRef.current || !offRef.current) offRef.current = offNow;
+  const off = offRef.current;
+  const pad = { l: PAD + off.l * zoom, t: PAD + off.t * zoom, r: PAD + off.r * zoom, b: PAD + off.b * zoom };
   const selectedObjs = slide.objects.filter((o) => selectedIds.includes(o.id));
+  // 왼쪽·위쪽 여백이 바뀌면 그만큼 스크롤을 옮겨 슬라이드가 화면에서 움직이지 않게
+  useLayoutEffect(() => {
+    const vp = viewportRef.current;
+    const prev = prevPad.current;
+    prevPad.current = { l: pad.l, t: pad.t };
+    if (!vp || !prev) return;
+    if (pad.l !== prev.l) vp.scrollLeft += pad.l - prev.l;
+    if (pad.t !== prev.t) vp.scrollTop += pad.t - prev.t;
+  }, [pad.l, pad.t]);
 
   return (
     <div
@@ -529,7 +546,7 @@ export function EditorCanvas() {
       onDrop={onDrop}
       style={{ cursor }}
     >
-      <div className="canvas-scroller" style={{ width: Math.max(stageW + PAD * 2, 0), height: Math.max(stageH + PAD * 2, 0), padding: PAD }}>
+      <div className="canvas-scroller" style={{ width: Math.max(stageW + pad.l + pad.r, 0), height: Math.max(stageH + pad.t + pad.b, 0), padding: `${pad.t}px ${pad.r}px ${pad.b}px ${pad.l}px` }} data-offslide={off.l + off.t + off.r + off.b > 0 ? '' : undefined}>
         <div
           ref={stageRef}
           className="stage"
@@ -540,7 +557,7 @@ export function EditorCanvas() {
           data-testid="slide-stage"
         >
           <div className="stage-inner" style={{ width: W, height: H, transform: `scale(${zoom})` }}>
-            <SlideView slide={slide} doc={doc} editingTextId={editingTextId} editingCell={editingCell} renderEditor={renderEditor} interactive cellSelection={cellSel} />
+            <SlideView slide={slide} doc={doc} editingTextId={editingTextId} editingCell={editingCell} renderEditor={renderEditor} interactive cellSelection={cellSel} showOffSlide />
             {showGrid && <GridOverlay w={W} h={H} />}
             <PreviewOverlay slide={slide} doc={doc} />
           </div>
@@ -575,6 +592,22 @@ export function EditorCanvas() {
 }
 
 /* ───────────── 계산 도우미 ───────────── */
+
+/** 슬라이드 바깥으로 나간 개체의 범위 (슬라이드 px, 각 방향으로 얼마나 나갔는지; 회전은 외접 상자로) */
+export function offSlideExtent(objects: SlideObject[], W: number, H: number): { l: number; t: number; r: number; b: number } {
+  let l = 0, t = 0, r = 0, b = 0;
+  for (const o of objects) {
+    if (o.hidden) continue;
+    const a = ((o.rotation ?? 0) * Math.PI) / 180;
+    const bw = Math.abs(o.width * Math.cos(a)) + Math.abs(o.height * Math.sin(a)), bh = Math.abs(o.width * Math.sin(a)) + Math.abs(o.height * Math.cos(a));
+    const cx = o.x + o.width / 2, cy = o.y + o.height / 2;
+    l = Math.max(l, -(cx - bw / 2));
+    t = Math.max(t, -(cy - bh / 2));
+    r = Math.max(r, cx + bw / 2 - W);
+    b = Math.max(b, cy + bh / 2 - H);
+  }
+  return { l, t, r, b };
+}
 
 /** 화면 좌표의 표 셀 [행, 열] */
 function cellAt(clientX: number, clientY: number): [number, number] | null {
