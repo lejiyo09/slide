@@ -25,7 +25,7 @@ export const TRANSITIONS: TransitionDef[] = [
   { id: 'zoom', name: '확대/축소', defaultDuration: 700 },
   { id: 'rotate', name: '회전', defaultDuration: 1200 },
   { id: 'flip', name: '뒤집기', directions: ['left', 'right'], defaultDuration: 1000 },
-  { id: 'morph', name: '모핑', defaultDuration: 2000 },
+  { id: 'morph', name: '모핑', defaultDuration: 1000 },
 ];
 
 /** 모핑 효과 옵션 (PowerPoint: 개체 / 단어 / 문자) */

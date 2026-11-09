@@ -1,11 +1,13 @@
 /** 전환 탭 · 애니메이션 탭 */
-import { Play, ListOrdered, Zap, ChevronUp, ChevronDown, Plus, Star, MousePointerClick, Copy } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Play, ListOrdered, Zap, ChevronUp, ChevronDown, Plus, Star, MousePointerClick, Copy, Link2, RotateCcw } from 'lucide-react';
+import { MorphLinkDialog } from '../dialogs/MorphLinkDialog';
 import { RibbonButton, DropdownButton, RibbonGroup, MenuItem, MenuSeparator } from '../common/Buttons';
 import { useEditor, useActiveSlide, useSelectedObjects } from '../../core/store/editorStore';
 import * as AA from '../../core/commands/animActions';
 import { TRANSITIONS, DIRECTION_NAMES, MORPH_OPTIONS } from '../../engines/transition/transitions';
 import { EFFECTS, PATH_PRESETS } from '../../engines/animation/effects';
-import type { AnimationCategory, AnimationStart, Direction, TransitionType } from '../../types/model';
+import type { AnimationCategory, AnimationStart, Direction, SlideTransition, TransitionType } from '../../types/model';
 
 export const CATEGORY_NAMES: Record<AnimationCategory, string> = { entrance: '나타내기', emphasis: '강조', exit: '끝내기', path: '이동 경로' };
 export const CATEGORY_COLORS: Record<AnimationCategory, string> = { entrance: '#2E9D4F', emphasis: '#D8A100', exit: '#D13438', path: '#3A7BD5' };
@@ -36,7 +38,16 @@ function TransitionIcon({ id }: { id: TransitionType }) {
   );
 }
 
+const EASINGS: { id: NonNullable<SlideTransition['easing']>; name: string }[] = [
+  { id: 'linear', name: '일정하게 (Linear)' },
+  { id: 'easeIn', name: '점점 빠르게 (Ease In)' },
+  { id: 'easeOut', name: '점점 느리게 (Ease Out)' },
+  { id: 'easeInOut', name: '천천히 시작·끝 (Ease In Out)' },
+  { id: 'cubicBezier', name: '사용자 지정 (Cubic Bezier)' },
+];
+
 export function TransitionsTab() {
+  const [linkOpen, setLinkOpen] = useState(false);
   const slide = useActiveSlide();
   const t = slide.transition ?? { type: 'none' as TransitionType, duration: 0, advanceOnClick: true };
   const def = TRANSITIONS.find((x) => x.id === t.type)!;
@@ -68,11 +79,44 @@ export function TransitionsTab() {
           )}
         </DropdownButton>
       </RibbonGroup>
+      {t.type === 'morph' && (
+        <RibbonGroup label="모핑">
+          <div className="rb-col rb-col-tight timing-col">
+            <label className="timing-field">
+              <span>가감속</span>
+              <select className="rb-input" value={t.easing ?? 'easeInOut'} onChange={(e) => AA.updateTransition({ easing: e.target.value as SlideTransition['easing'], ...(e.target.value === 'cubicBezier' && !t.bezier ? { bezier: [0.25, 0.1, 0.25, 1] } : {}) })} aria-label="모핑 가감속" data-morph-easing="">
+                {EASINGS.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {t.easing === 'cubicBezier' && (
+              <label className="timing-field">
+                <span>곡선</span>
+                <BezierInput value={t.bezier ?? [0.25, 0.1, 0.25, 1]} onChange={(b) => AA.updateTransition({ bezier: b })} />
+              </label>
+            )}
+          </div>
+          <div className="rb-col rb-col-tight timing-col">
+            <RibbonButton icon={<Link2 size={15} />} label="모핑 연결" title="이 슬라이드의 개체가 앞 슬라이드의 어떤 개체에서 이어지는지 보고 바꾸기" onClick={() => setLinkOpen(true)} />
+            <RibbonButton icon={<RotateCcw size={15} />} label="설정 초기화" title="모핑 단위·가감속·기간을 기본값으로" onClick={() => AA.updateTransition({ morphOption: 'byObject', easing: undefined, bezier: undefined, duration: 1000 })} />
+          </div>
+          {linkOpen && <MorphLinkDialog onClose={() => setLinkOpen(false)} />}
+        </RibbonGroup>
+      )}
       <RibbonGroup label="타이밍">
         <div className="rb-col rb-col-tight timing-col">
           <label className="timing-field">
             <span>기간</span>
-            <SecondsInput value={t.duration} disabled={t.type === 'none'} onChange={(ms) => AA.updateTransition({ duration: ms })} />
+            <SecondsInput
+              value={t.duration}
+              disabled={t.type === 'none'}
+              // 모핑: 0.1~5초 (권장 범위)
+              max={t.type === 'morph' ? 5 : 600}
+              onChange={(ms) => AA.updateTransition({ duration: t.type === 'morph' ? Math.max(100, Math.min(5000, ms)) : ms })}
+            />
           </label>
           <RibbonButton icon={<Copy size={15} />} label="모두 적용" title="이 슬라이드의 전환·타이밍을 모든 슬라이드에" onClick={AA.applyTransitionToAll} />
         </div>
@@ -88,6 +132,27 @@ export function TransitionsTab() {
         </div>
       </RibbonGroup>
     </>
+  );
+}
+
+/** cubic-bezier 제어점 입력 (x1, y1, x2, y2; x는 0..1) */
+function BezierInput({ value, onChange }: { value: [number, number, number, number]; onChange: (b: [number, number, number, number]) => void }) {
+  const [text, setText] = useState(value.join(', '));
+  useEffect(() => setText(value.join(', ')), [value]);
+  return (
+    <input
+      className="rb-input"
+      style={{ width: 120 }}
+      value={text}
+      aria-label="cubic-bezier 제어점"
+      data-morph-bezier=""
+      onKeyDown={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        setText(e.target.value);
+        const n = e.target.value.split(',').map((x) => Number(x.trim()));
+        if (n.length === 4 && n.every(Number.isFinite) && n[0] >= 0 && n[0] <= 1 && n[2] >= 0 && n[2] <= 1) onChange(n as [number, number, number, number]);
+      }}
+    />
   );
 }
 

@@ -4521,3 +4521,9 @@ button.bs-export-item:hover:not(:disabled) {
 .sl-math-inline math { font-family: "STIX Two Math", "Cambria Math", "Latin Modern Math", math; }
 .sl-editing .sl-math-inline { cursor: pointer; border-radius: 2px; }
 .sl-editing .sl-math-inline:hover { outline: 1px dashed var(--accent, #2b579a); }
+
+/* 모핑 연결 대화 상자 */
+.morph-link { max-width: 720px; max-height: 60vh; overflow: auto; }
+.morph-link-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.morph-link-table th, .morph-link-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border, #ddd); vertical-align: middle; }
+.morph-link-table select { max-width: 220px; }

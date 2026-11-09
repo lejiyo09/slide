@@ -903,6 +903,125 @@ try {
     }
     check('PPTX: p159:morph + 대체 페이드', /<p159:morph option="byObject"\/>[\s\S]*<mc:Fallback><p:transition[^>]*><p:fade\/>/.test(morphXml));
     await closeBackstage();
+    // ── 문자 단위: ABCDE 👨‍👩‍👧 → EDCBA 👨‍👩‍👧 (이모지는 한 글자, 각 글자가 새 자리로) ──
+    await page.evaluate(() => {
+      window.__SLIDELAB__.getState().commit('문자 모핑 준비', (d) => {
+        const m1 = d.slides.find((s) => s.id === 'm1'), m2 = d.slides.find((s) => s.id === 'm2');
+        m1.objects.find((o) => o.id === 'm1t').text.paragraphs[0].runs[0].text = 'ABCDE 👨‍👩‍👧';
+        m2.objects.find((o) => o.id === 'm2t').text.paragraphs[0].runs[0].text = 'EDCBA 👨‍👩‍👧';
+        m2.transition.morphOption = 'byChar';
+      });
+    });
+    const sc = await sampleShow('[data-obj-id="mp:m2t"]');
+    const ct = sc.find((x) => x.tokens.length >= 6);
+    check('쇼: 문자 단위 (각 글자 이동, 가족 이모지는 한 글자)', !!ct && ct.tokens.filter(([t]) => t === '👨‍👩‍👧').length === 1 && ['A', 'B', 'C', 'D', 'E'].every((c) => ct.tokens.some(([t, o]) => t === c && o === '1.00')), JSON.stringify(ct?.tokens));
+    await page.evaluate(() => window.__SLIDELAB__.getState().set({ activeSlideId: 'm1', selectedSlideIds: ['m1'] }));
+    await page.keyboard.press('Shift+F5');
+    await page.waitForSelector('.slideshow .show-stage');
+    await page.waitForTimeout(300);
+    await page.keyboard.press('ArrowRight');
+    await page.waitForSelector('.show-stage[data-transition="running"]');
+    await page.waitForTimeout(1500);
+    await page.locator('.show-stage').screenshot({ path: `${OUT}/s14-morph-chars.png` });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !window.__SLIDELAB__.getState().slideshow);
+    // ── 명세 테스트 5: '!!' 이름의 원 → 사각형은 경로 모핑 (전환 중 도형이 사용자 지정 경로) ──
+    await page.evaluate(() => {
+      window.__SLIDELAB__.getState().commit('도형 변형 준비', (d) => {
+        const m1 = d.slides.find((s) => s.id === 'm1'), m2 = d.slides.find((s) => s.id === 'm2');
+        m1.objects.find((o) => o.id === 'm1c').name = '!!모양';
+        Object.assign(m2.objects.find((o) => o.id === 'm2c'), { name: '!!모양', shape: 'rect' });
+        m2.transition.morphOption = 'byObject';
+      });
+    });
+    const sp = await sampleShow('[data-obj-id="mp:m2c"]');
+    const pathInfo = sp.length ? await Promise.resolve(sp) : [];
+    check('쇼: !! 원 → 사각형 경로 모핑 (전환 중 같은 개체가 이동)', pathInfo.length >= 3 && pathInfo.some((x) => x.cx > 210 && x.cx < 940), JSON.stringify(pathInfo.slice(0, 3).map((x) => Math.round(x.cx))));
+    {
+      // 경로 모양 확인: 쇼를 다시 시작해 전환 중 path의 점 개수와 모양을 읽음
+      await page.evaluate(() => window.__SLIDELAB__.getState().set({ activeSlideId: 'm1', selectedSlideIds: ['m1'] }));
+      await page.keyboard.press('Shift+F5');
+      await page.waitForSelector('.slideshow .show-stage');
+      await page.waitForTimeout(300);
+      await page.keyboard.press('ArrowRight');
+      await page.waitForSelector('.show-stage[data-transition="running"]');
+      await page.waitForTimeout(1200);
+      await page.locator('.show-stage').screenshot({ path: `${OUT}/s14-morph-shape.png` });
+      const d = await page.evaluate(() => document.querySelector('[data-obj-id="mp:m2c"] svg path')?.getAttribute('d') ?? '');
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !window.__SLIDELAB__.getState().slideshow);
+      const pts = (d.match(/-?\d+(\.\d+)?,-?\d+(\.\d+)?/g) ?? []).length;
+      check('쇼: 도형 변형 중 경로는 원도 사각형도 아닌 중간 모양 (점 128개 윤곽)', pts >= 100, `점 ${pts}개`);
+    }
+    // ── 모핑 연결 대화 상자: 현재 연결 표시, '연결 안 함' → 나타나는 개체, 실행 취소 ──
+    await page.evaluate(() => window.__SLIDELAB__.getState().set({ activeSlideId: 'm2', selectedSlideIds: ['m2'] }));
+    await page.locator('.tab', { hasText: '전환' }).click();
+    await page.locator('.rb', { hasText: '모핑 연결' }).click();
+    await page.waitForSelector('[data-morph-link]');
+    const st1 = await page.locator('[data-morph-status="m2c"]').textContent();
+    await page.locator('[data-morph-select="m2c"]').selectOption('none');
+    await page.waitForFunction(() => document.querySelector('[data-morph-status="m2c"]')?.textContent.includes('나타남'));
+    const excl = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides.find((s) => s.id === 'm2').objects.find((o) => o.id === 'm2c').morphExclude);
+    await page.locator('[data-morph-select="m2c"]').selectOption('m1t');
+    await page.waitForFunction(() => document.querySelector('[data-morph-status="m2c"]')?.textContent.includes('같은 개체'));
+    const key = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides.find((s) => s.id === 'm2').objects.find((o) => o.id === 'm2c').morphKey);
+    await page.locator('[data-morph-select="m2c"]').selectOption('auto');
+    await page.locator('.dialog .btn.primary', { hasText: '닫기' }).click();
+    check("모핑 연결: 현재 연결('!!' 이름) 표시 → 연결 안 함 → 다른 개체로 지정(morphKey) → 자동", st1.includes("'!!' 이름") && excl === true && key === 'm1t', `${st1} / ${excl} / ${key}`);
+    // ── 가감속·기간 범위·초기화 ──
+    await page.locator('[data-morph-easing]').selectOption('cubicBezier');
+    await page.locator('[data-morph-bezier]').fill('0.1, 0.7, 0.3, 1');
+    await page.locator('.seconds-input').first().fill('9');
+    const tr1 = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides.find((s) => s.id === 'm2').transition);
+    check('가감속 cubic-bezier 저장, 기간은 5초를 넘지 않음', tr1.easing === 'cubicBezier' && tr1.bezier.join(',') === '0.1,0.7,0.3,1' && tr1.duration <= 5000, JSON.stringify(tr1));
+    // ── 명세 테스트 10: 슬라이드 복제 후 객체 이동 → morphKey로 자동 매칭 ──
+    await page.locator('.tab', { hasText: '홈' }).click();
+    await page.evaluate(() => window.__SLIDELAB__.getState().set({ activeSlideId: 'm1', selectedSlideIds: ['m1'] }));
+    await page.locator('.rb', { hasText: '복제' }).first().click();
+    const dupInfo = await page.evaluate(() => {
+      const st = window.__SLIDELAB__.getState();
+      const i = st.doc.slides.findIndex((s) => s.id === 'm1');
+      const dup = st.doc.slides[i + 1];
+      st.commit('복제본 이동', (d) => {
+        const s = d.slides[i + 1];
+        const c = s.objects.find((o) => o.morphKey === 'm1c');
+        c.x = 900;
+        c.y = 400;
+        c.name = '다른 이름';
+        s.transition = { type: 'morph', duration: 3000, advanceOnClick: true, easing: 'linear' };
+      });
+      return { id: dup.id, keys: dup.objects.map((o) => o.morphKey), ids: dup.objects.map((o) => o.id) };
+    });
+    check('슬라이드 복제: 개체 ID는 새로, morphKey는 원본 ID', dupInfo.keys.join(',') === 'm1c,m1t' && !dupInfo.ids.includes('m1c'), JSON.stringify(dupInfo));
+    const dupC = dupInfo.ids[0];
+    const sd = await sampleShow(`[data-obj-id="mp:${dupC}"]`);
+    check('쇼: 복제본에서 이름을 바꾸고 옮긴 원도 morphKey로 이어져 이동', sd.length >= 3 && sd.some((x) => x.cx > 210 && x.cx < 1040), JSON.stringify(sd.slice(0, 4).map((x) => Math.round(x.cx))));
+    // ── 동작 줄이기(prefers-reduced-motion): 움직임 없이 페이드 ──
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.evaluate(() => window.__SLIDELAB__.getState().set({ activeSlideId: 'm1', selectedSlideIds: ['m1'] }));
+    await page.keyboard.press('Shift+F5');
+    await page.waitForSelector('.slideshow .show-stage');
+    await page.waitForTimeout(300);
+    await page.keyboard.press('ArrowRight');
+    await page.waitForSelector('.show-stage[data-transition="running"]');
+    await page.waitForTimeout(400);
+    const reducedLayer = await page.evaluate(() => document.querySelectorAll('.show-stage [data-morph]').length);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !window.__SLIDELAB__.getState().slideshow);
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    check('동작 줄이기 설정이면 모핑 장면 없이 페이드', reducedLayer === 0, `모핑 층 ${reducedLayer}개`);
+    // ── 명세 테스트 12: 저장 → 새로 고침 → 모핑 설정·연결 관계 유지 ──
+    await page.waitForFunction(() => window.__SLIDELAB__.getState().saveStatus === 'saved', null, { timeout: 8000 });
+    await page.reload();
+    await page.waitForSelector('[data-testid="slide-stage"]');
+    await page.waitForTimeout(500);
+    const kept = await page.evaluate((dupId) => {
+      const d = window.__SLIDELAB__.getState().doc;
+      const m2 = d.slides.find((s) => s.id === 'm2'), dup = d.slides.find((s) => s.id === dupId);
+      return { tr: m2?.transition, keys: dup?.objects.map((o) => o.morphKey), dupTr: dup?.transition };
+    }, dupInfo.id);
+    check('새로 고침 후 모핑 설정(단위·가감속·곡선)과 복제본 morphKey 유지', kept.tr?.type === 'morph' && kept.tr.easing === 'cubicBezier' && kept.tr.bezier?.join(',') === '0.1,0.7,0.3,1' && kept.keys?.join(',') === 'm1c,m1t' && kept.dupTr?.easing === 'linear', JSON.stringify(kept));
+    await page.evaluate((dupId) => window.__SLIDELAB__.getState().commit('복제본 삭제', (d) => (d.slides = d.slides.filter((s) => s.id !== dupId))), dupInfo.id);
     await page.evaluate((hidden) => {
       window.__SLIDELAB__.getState().commit('모핑 정리', (d) => {
         d.slides = d.slides.filter((s) => s.id !== 'm1' && s.id !== 'm2');

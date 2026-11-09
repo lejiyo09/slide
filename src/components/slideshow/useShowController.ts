@@ -127,8 +127,9 @@ export function useShowController(req: ShowRequest) {
     if (!trans) return;
     const dur = slide?.transition?.duration ?? 0;
     let raf = 0;
-    const tick = () => {
-      const p = dur > 0 ? (performance.now() - trans.t0) / dur : 1;
+    // requestAnimationFrame의 시각(timestamp)으로 진행률: 화면 갱신 주기와 무관하게 재생 시간이 일정
+    const tick = (ts: number) => {
+      const p = dur > 0 ? Math.max(0, ts - trans.t0) / dur : 1;
       if (p >= 1) setTrans(null);
       else {
         setTrans((t) => (t ? { ...t, p } : t));
