@@ -37,13 +37,12 @@ const ACCENTS: Record<string, string> = {
 
 export function mathmlToOmml(mathml: string | Element, style: OmmlRunStyle = {}): string {
   const root = typeof mathml === 'string' ? parseXml(mathml) : mathml;
-  const aRPr = (italic: boolean) =>
-    `<a:rPr lang="en-US"${style.size ? ` sz="${Math.round(style.size * 100)}"` : ''} i="${italic ? 1 : 0}">${style.color ? `<a:solidFill><a:srgbClr val="${style.color.replace('#', '').toUpperCase()}"/></a:solidFill>` : ''}<a:latin typeface="Cambria Math" panose="02040503050406030204" pitchFamily="18" charset="0"/></a:rPr>`;
+  // 글자 크기·색은 m:r 안이 아니라 문단(a:pPr/a:defRPr, a:endParaRPr)에 둔다: OMML 스키마의 m:r에는 a:rPr 자리가 없음
+  void style;
   const run = (text: string, sty?: 'p' | 'b' | 'bi' | 'nor') => {
     if (!text) return '';
-    const italic = !sty && /^\p{L}$/u.test(text) && !/[0-9]/.test(text);
     const rPr = sty === 'nor' ? '<m:rPr><m:nor/></m:rPr>' : sty ? `<m:rPr><m:sty m:val="${sty}"/></m:rPr>` : '';
-    return `<m:r>${rPr}${aRPr(italic)}<m:t xml:space="preserve">${esc(text)}</m:t></m:r>`;
+    return `<m:r>${rPr}<m:t xml:space="preserve">${esc(text)}</m:t></m:r>`;
   };
   const text = (e: Element) => (e.textContent ?? '').replace(/⁡|⁢|⁣/g, ''); // 보이지 않는 함수 적용/곱하기 기호 제거
   const isNaryBase = (e: Element | undefined): string | null => {
@@ -176,7 +175,7 @@ export function mathmlToOmml(mathml: string | Element, style: OmmlRunStyle = {})
     }
   }
   const body = conv(root);
-  return `<m:oMath xmlns:m="${M_NS}" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">${body}</m:oMath>`;
+  return `<m:oMath xmlns:m="${M_NS}">${body}</m:oMath>`;
 }
 
 function parseXml(s: string): Element {

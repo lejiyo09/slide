@@ -52,8 +52,10 @@ describe('LaTeX → MathML → OMML', () => {
     expect(o[8]).toContain('<m:acc><m:accPr><m:chr m:val="̂"/></m:accPr>');
     expect(o[9]).toMatch(/<m:limLow><m:e>.*lim.*<\/m:e><m:lim>.*n.*→.*∞.*<\/m:lim><\/m:limLow>/);
     // 함수 이름은 똑바로(sty p), 한 글자 변수는 기울임
-    expect(o[11]).toMatch(/<m:r><m:rPr><m:sty m:val="p"\/><\/m:rPr><a:rPr[^>]*i="0"[^>]*>.*<m:t xml:space="preserve">sin<\/m:t>/);
-    expect(o[11]).toMatch(/<a:rPr[^>]*i="1"[^>]*>.*<m:t xml:space="preserve">θ<\/m:t>/);
+    expect(o[11]).toMatch(/<m:r><m:rPr><m:sty m:val="p"\/><\/m:rPr><m:t xml:space="preserve">sin<\/m:t><\/m:r>/);
+    expect(o[11]).toMatch(/<m:r><m:t xml:space="preserve">θ<\/m:t><\/m:r>/);
+    // OMML 스키마대로 m:r 안에는 a:rPr 없음
+    for (const x of o) expect(x).not.toContain('a:rPr');
     // 모두 올바른 XML
     for (const x of o) expect(parse(x).localName).toBe('oMath');
   });

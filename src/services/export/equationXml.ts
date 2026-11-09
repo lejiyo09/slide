@@ -25,11 +25,14 @@ export function equationShapeXml(o: EquationObject, opts: { id: number; withImag
   const xfrm = `<a:xfrm${rot}><a:off x="${Math.round(o.x * EMU)}" y="${Math.round(o.y * EMU)}"/><a:ext cx="${Math.max(1, Math.round(o.width * EMU))}" cy="${Math.max(1, Math.round(o.height * EMU))}"/></a:xfrm>`;
   const nv = `<p:nvSpPr><p:cNvPr id="${opts.id}" name="${esc(o.name || '수식')}" descr="${esc(o.latex)}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>`;
   const algn = o.align === 'left' ? 'l' : o.align === 'right' ? 'r' : 'ctr';
-  const end = `<a:endParaRPr lang="en-US" sz="${Math.round(o.fontSize * 100)}" dirty="0"/>`;
+  const fill = `<a:solidFill><a:srgbClr val="${o.color.replace('#', '').toUpperCase()}"/></a:solidFill>`;
+  const end = `<a:endParaRPr lang="en-US" sz="${Math.round(o.fontSize * 100)}" dirty="0">${fill}<a:latin typeface="Cambria Math"/></a:endParaRPr>`;
+  // 수식 글자의 크기·색: 문단 기본 글자 서식(a:defRPr)
+  const ppr = `<a:pPr algn="__ALGN__"><a:defRPr sz="${Math.round(o.fontSize * 100)}">${fill}<a:latin typeface="Cambria Math"/></a:defRPr></a:pPr>`;
   const choice =
     `<p:sp>${nv}<p:spPr>${xfrm}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>` +
     `<p:txBody><a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" anchor="ctr"><a:noAutofit/></a:bodyPr><a:lstStyle/>` +
-    `<a:p><a:pPr algn="${algn}"/><a14:m>${equationOmml(o)}</a14:m>${end}</a:p></p:txBody></p:sp>`;
+    `<a:p>${ppr.replace('__ALGN__', algn)}<a14:m>${equationOmml(o)}</a14:m>${end}</a:p></p:txBody></p:sp>`;
   const fallbackFill = opts.withImage ? `<a:blipFill><a:blip r:embed="${EQ_IMAGE_RID}"/><a:stretch><a:fillRect/></a:stretch></a:blipFill>` : '<a:noFill/>';
   // 그림이 없을 때(그림을 만들 수 없는 환경)는 LaTeX 글자로 대체
   const fallbackText = opts.withImage

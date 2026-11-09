@@ -53,8 +53,7 @@ const serialize = (d: Document) => XML_DECL + new XMLSerializer().serializeToStr
 const SHAPE_TAGS = new Set(['sp', 'pic', 'graphicFrame', 'grpSp', 'cxnSp', 'contentPart', 'AlternateContent']);
 
 export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], source: OoxmlPackage | null, warn: (m: string) => void, pres?: PresentationPlan): Promise<Uint8Array> {
-  const needs = plans.some((p) => p.markers.size || p.transitionXml || p.timingXml || p.emitted.some((x) => x !== undefined) || p.fills.some(Boolean) || p.groupPaths.some((g) => g.length) || !!p.background || !!p.animations?.length || !!p.media?.length) || !!pres;
-  if (!needs) return bytes;
+  // 스키마 정리(normalizeOoxml)는 항상 하므로 후처리를 늘 거침
   const out = await JSZip.loadAsync(bytes);
   const ctDoc = parse(await out.file('[Content_Types].xml')!.async('string'));
   const ctRoot = ctDoc.documentElement;
@@ -372,8 +371,57 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
   // 7) 메모 (ppt/commentAuthors.xml + ppt/comments/commentN.xml)
   if (pres?.comments) await writeComments(out, ctDoc, pres.comments);
 
+  // 8) 스키마 정리: pptxgenjs가 만드는 순서·중복 오류 바로잡기 (Open XML SDK 스키마 검증으로 찾음)
+  await normalizeOoxml(out);
+
   out.file('[Content_Types].xml', serialize(ctDoc));
   return out.generateAsync({ type: 'uint8array', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
+}
+
+/** CT_Presentation 자식 순서 (ECMA-376 Part 1 §19.2.1.26) */
+const PRESENTATION_ORDER = ['sldMasterIdLst', 'notesMasterIdLst', 'handoutMasterIdLst', 'sldIdLst', 'sldSz', 'notesSz', 'smartTags', 'embeddedFontLst', 'custShowLst', 'photoAlbum', 'custDataLst', 'kinsoku', 'defaultTextStyle', 'modifyVerifier', 'extLst'];
+
+/**
+ * pptxgenjs 출력의 스키마 위반 바로잡기
+ *  - presentation.xml: p:notesMasterIdLst가 p:sldIdLst 뒤에 옴 → 스키마 순서로
+ *  - 문단(a:p)마다 글자 묶음(a:r) 앞에 a:pPr를 여러 번 씀 (글머리 기호 문단에 서식이 다른 글자가 섞일 때) → 첫 a:pPr만
+ */
+export async function normalizeOoxml(out: JSZip) {
+  const presPath = 'ppt/presentation.xml';
+  const pf = out.file(presPath);
+  if (pf) {
+    const doc = parse(await pf.async('string'));
+    const root = doc.documentElement;
+    const rank = (e: Element) => {
+      const i = PRESENTATION_ORDER.indexOf(e.localName);
+      return i < 0 ? PRESENTATION_ORDER.length : i;
+    };
+    const kidsNow = kids(root);
+    const sorted = [...kidsNow].sort((a, b) => rank(a) - rank(b));
+    if (sorted.some((e, i) => e !== kidsNow[i])) {
+      for (const e of sorted) root.appendChild(e);
+      out.file(presPath, serialize(doc));
+    }
+  }
+  for (const name of Object.keys(out.files).filter((n) => /^ppt\/(slides|slideLayouts|slideMasters|notesSlides)\/[^/]+\.xml$/.test(n))) {
+    const xml = await out.file(name)!.async('string');
+    if (!/<a:pPr[\s>][\s\S]*?<a:pPr[\s>]/.test(xml)) continue;
+    const doc = parse(xml);
+    let changed = false;
+    for (const p of Array.from(doc.getElementsByTagNameNS(NS.a, 'p'))) {
+      const pprs = kids(p).filter((c) => c.localName === 'pPr');
+      for (const extra of pprs.slice(1)) {
+        p.removeChild(extra);
+        changed = true;
+      }
+      // a:pPr는 문단의 첫 자식이어야 함
+      if (pprs[0] && p.firstElementChild !== pprs[0]) {
+        p.insertBefore(pprs[0], p.firstElementChild);
+        changed = true;
+      }
+    }
+    if (changed) out.file(name, serialize(doc));
+  }
 }
 
 /** 프레젠테이션 수준 설정: 쇼 설정 + 재구성한 쇼 */
