@@ -130,6 +130,21 @@ export interface AIProvider {
   reviewDesign(slides: SlideDigest[], call?: CallOptions): Promise<Suggestion[]>;
   recommendLayout(slides: SlideDigest[], call?: CallOptions): Promise<Suggestion[]>;
   chooseDesign(slides: SlideDigest[], deckTitle: string, call?: CallOptions): Promise<DesignChoice[]>;
+  /** 문맥 문법 검사 (생성형 모델만, 오프라인은 빈 목록): 문단마다 고칠 부분(원문에 그대로 있는 글자)과 고칠 말·이유 */
+  proofread(paragraphs: ProofreadInput[], call?: CallOptions): Promise<ProofreadEdit[]>;
+}
+
+export interface ProofreadInput {
+  id: string;
+  text: string;
+}
+
+export interface ProofreadEdit {
+  id: string;
+  /** 원문에 그대로 있는 글자 (첫 번째로 나오는 자리) */
+  find: string;
+  replace: string;
+  reason: string;
 }
 
 /** 이미지 생성 제공자 (선택) */

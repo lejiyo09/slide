@@ -10,7 +10,7 @@ import { compareScripts, contrastRatio, digestSlides, fixIssue, lintDesign } fro
 import { applyScripts, changeLayout, insertDeck } from './apply';
 import { AnthropicProvider } from './anthropic';
 import { OpenAICompatibleProvider } from './openaiCompatible';
-import { normalizeDeck, parseJSONText } from './llm';
+import { normalizeDeck, parseJSONText, validateEdits } from './llm';
 import { TEMPLATES } from '../../themes/templates';
 
 /** SDK가 넘기는 Headers(다른 실행 환경의 객체일 수 있음)를 그대로 읽기 */
@@ -307,6 +307,42 @@ describe('OpenAI 호환 제공자 / 응답 검증', () => {
     expect(() => normalizeDeck({ slides: [] })).toThrow();
     expect(parseJSONText('설명 {"a":1} 끝')).toEqual({ a: 1 });
     expect(() => parseJSONText('없음')).toThrow();
+  });
+});
+
+describe('AI 문맥 문법 검사', () => {
+  it('GPT 중계: 문단을 보내고, 원문에 있는 고칠 부분만 받아들임', async () => {
+    const orig = globalThis.fetch;
+    let sent = '';
+    globalThis.fetch = (async (_u: string | URL | Request, init?: RequestInit) => {
+      const b = JSON.parse(String(init?.body));
+      sent = (b.messages as { content: string }[]).map((m) => m.content).join('\n');
+      const edits = [
+        { id: 'p0', find: '회의를 참석', replace: '회의에 참석', reason: "'참석하다'는 '-에'와 씁니다." },
+        { id: 'p0', find: '없는 글자', replace: 'x', reason: '원문에 없음 → 버림' },
+        { id: 'p1', find: '같음', replace: '같음', reason: '바뀌지 않음 → 버림' },
+        { id: 'p9', find: 'a', replace: 'b', reason: '없는 문단 → 버림' },
+      ];
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ edits }) }, finish_reason: 'stop' }] }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const { getProvider, DEFAULT_AI_SETTINGS } = await import('./settings');
+      const p = await getProvider({ ...DEFAULT_AI_SETTINGS, provider: 'gpt-proxy', proxy: { url: 'https://proxy.example.workers.dev/', model: 'gpt-5-mini' } }, { access: 'c' });
+      const r = await p.proofread([
+        { id: 'p0', text: '내일 회의를 참석합니다.' },
+        { id: 'p1', text: '같음' },
+      ]);
+      expect(r).toEqual([{ id: 'p0', find: '회의를 참석', replace: '회의에 참석', reason: "'참석하다'는 '-에'와 씁니다." }]);
+      expect(sent).toContain('[p0] 내일 회의를 참석합니다.');
+      expect(sent).toContain('National Institute of Korean Language');
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+
+  it('오프라인 제공자는 빈 목록 (생성형 모델 필요), 같은 자리 중복 제거', async () => {
+    expect(await new OfflineProvider().proofread()).toEqual([]);
+    expect(validateEdits([{ id: 'a', text: '가나다 가나다' }], [{ id: 'a', find: '가나', replace: '나가', reason: '' }, { id: 'a', find: '가나', replace: '다른', reason: '' }])).toHaveLength(1);
   });
 });
 

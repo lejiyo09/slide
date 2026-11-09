@@ -543,6 +543,49 @@ try {
     await page.waitForSelector('.sl-editing');
     check('입력할 때 맞춤법 검사(브라우저) 켜짐', (await page.locator('.sl-editing').getAttribute('spellcheck')) === 'true' && (await page.locator('.sl-editing').getAttribute('lang')) === 'ko');
     await page.keyboard.press('Escape');
+    // 문맥 문법: 조사 받침 맞춤(hunspell 확인) + 숫자 뒤 조사 + AI 문법 검사(GPT 중계 서버, 응답은 가짜)
+    await page.evaluate(() => {
+      localStorage.setItem('slidelab.ai.settings', JSON.stringify({ provider: 'gpt-proxy', proxy: { url: 'https://proxy.test/', model: 'gpt-5-mini' } }));
+      sessionStorage.setItem('slidelab.ai.keys', JSON.stringify({ access: 'e2e' }));
+      const st = window.__SLIDELAB__.getState();
+      st.commit('문법 준비', (d) => {
+        const sub = (i) => d.slides[i].objects.find((o) => o.ph?.type === 'subTitle');
+        sub(0).text.paragraphs = [{ runs: [{ text: 'This presentation is good' }] }];
+        sub(1).text.paragraphs = [{ runs: [{ text: '학교을 지나 2을 더하고 내일 회의를 참석합니다.' }] }];
+        sub(2).text.paragraphs = [{ runs: [{ text: 'presentation again' }] }];
+      });
+      st.set({ activeSlideId: st.doc.slides[1].id, selectedSlideIds: [st.doc.slides[1].id], selectedIds: [] });
+    });
+    let proxyBody = '', proxyAccess = '';
+    await context.route('https://proxy.test/**', (route) => {
+      proxyBody = route.request().postData() ?? '';
+      proxyAccess = route.request().headers()['x-slidelab-access'] ?? '';
+      const id = proxyBody.match(/\[(p\d+)\] [^\[]*회의를 참석/)?.[1] ?? 'p0';
+      const edits = [{ id, find: '회의를 참석', replace: '회의에 참석', reason: "'참석하다'는 '-에'와 함께 씁니다." }];
+      return route.fulfill({ status: 200, headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }, body: JSON.stringify({ choices: [{ message: { content: JSON.stringify({ edits }) }, finish_reason: 'stop' }] }) });
+    });
+    await page.locator('[data-testid="slide-stage"]').click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press('F7');
+    await page.waitForFunction(() => document.querySelector('[data-spell-word]')?.textContent === '학교을', null, { timeout: 30000 });
+    check('조사 받침 맞춤: 학교을 → 학교를 (문법)', (await page.locator('[data-spell-suggestions] button').first().textContent()) === '학교를' && (await page.locator('.spell-why').textContent()).includes("받침이 없으면 '를'") && (await page.locator('.spell-kind').textContent()).includes('문법'));
+    await page.locator('[data-spell-change]').click();
+    await page.waitForFunction(() => document.querySelector('[data-spell-word]')?.textContent === '을');
+    check('숫자 뒤 조사: 2을 → 2를 (읽는 소리 \'이\')', (await page.locator('[data-spell-suggestions] button').first().textContent()) === '를' && (await page.locator('.spell-why').textContent()).includes("끝소리 '이'"));
+    await page.locator('[data-spell-change]').click();
+    await page.waitForSelector('[data-spell-done]');
+    await page.locator('[data-spell-ai]').click();
+    await page.waitForFunction(() => document.querySelector('[data-spell-word]')?.textContent === '회의를 참석', null, { timeout: 15000 });
+    check('AI 문법 검사: 중계 서버로 문단 전송(접근 코드) → 문맥 오류 표시', (await page.locator('.spell-kind').textContent()).includes('AI 문맥 문법') && proxyBody.includes('회의를 참석합니다') && proxyAccess === 'e2e' && (await page.locator('[data-spell-suggestions] button').first().textContent()) === '회의에 참석');
+    await page.locator('[data-spell-change]').click();
+    await page.waitForSelector('[data-spell-done]');
+    texts = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides[1].objects.find((o) => o.ph?.type === 'subTitle').text.paragraphs[0].runs.map((r) => r.text).join(''));
+    check('문맥 문법 고친 결과', texts === '학교를 지나 2를 더하고 내일 회의에 참석합니다.', texts);
+    await page.locator('[data-spell-pane] .pp-head .icon-btn').click();
+    await context.unroute('https://proxy.test/**');
+    await page.evaluate(() => {
+      localStorage.removeItem('slidelab.ai.settings');
+      sessionStorage.removeItem('slidelab.ai.keys');
+    });
   }
 
   if (want('compare')) {

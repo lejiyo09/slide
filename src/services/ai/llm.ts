@@ -2,7 +2,7 @@
  * 생성형 모델 공통 작업: 작업별 지시문 + JSON 스키마(구조화 출력) + 결과 검증.
  * 실제 호출(completeJSON)만 제공자마다 다르다 (Claude SDK / OpenAI 호환 HTTP).
  */
-import type { AIProvider, CallOptions, CompareItem, DeckSpec, DesignChoice, DocumentInput, GenerateOptions, OutlineSpec, ProviderId, ScriptItem, SlideDigest, SlideKind, Suggestion } from './types';
+import type { AIProvider, CallOptions, CompareItem, DeckSpec, DesignChoice, DocumentInput, GenerateOptions, OutlineSpec, ProofreadEdit, ProofreadInput, ProviderId, ScriptItem, SlideDigest, SlideKind, Suggestion } from './types';
 import { AIError } from './types';
 import { TEMPLATES } from '../../themes/templates';
 import { COLOR_SCHEMES, FONT_SCHEMES } from '../../themes/schemes';
@@ -41,6 +41,7 @@ export const SCHEMAS = {
       items: obj({ slide_number: { type: 'integer' }, message: str, action: { type: 'string', enum: ['none', 'split', 'titleContent', 'twoContent', 'titleOnly', 'sectionHeader'] } }),
     },
   }),
+  proofread: obj({ edits: { type: 'array', items: obj({ id: str, find: str, replace: str, reason: str }) } }),
   design: obj({
     choices: {
       type: 'array',
@@ -195,6 +196,34 @@ ${opts.audience ? `Audience: ${opts.audience}\n` : ''}${opts.slideCount ? `Targe
     if (!out.length) throw new AIError('AI가 고른 디자인이 목록에 없습니다.', 'format');
     return out.slice(0, 3);
   }
+
+  async proofread(paragraphs: ProofreadInput[], call?: CallOptions): Promise<ProofreadEdit[]> {
+    if (!paragraphs.length) return [];
+    const user =
+      `Proofread each paragraph below for grammar, particles (조사), word spacing (띄어쓰기), spelling and wrong word choice in context, following the standard rules of the paragraph's language (for Korean, the National Institute of Korean Language rules). ` +
+      `Report only real errors, not style preferences. For each error give the paragraph id, "find": the shortest exact substring of the original paragraph that contains the error (copy it character for character), "replace": its corrected text, and "reason": one short sentence in the paragraph's language. Do not rewrite whole sentences. If a paragraph has no errors, report nothing for it.\n\n` +
+      paragraphs.map((p) => `[${p.id}] ${p.text}`).join('\n');
+    const r = rec(await this.completeJSON({ user, schema: SCHEMAS.proofread }, call));
+    return validateEdits(paragraphs, r.edits);
+  }
+}
+
+/** 모델이 준 고칠 부분 검증: 원문에 있고, 실제로 다르고, 같은 자리 중복 없음 */
+export function validateEdits(paragraphs: ProofreadInput[], raw: unknown): ProofreadEdit[] {
+  const byId = new Map(paragraphs.map((p) => [p.id, p.text]));
+  const seen = new Set<string>();
+  const out: ProofreadEdit[] = [];
+  for (const x of Array.isArray(raw) ? raw : []) {
+    const e = rec(x);
+    const id = S(e.id, 40), find = typeof e.find === 'string' ? e.find : '', replace = typeof e.replace === 'string' ? e.replace.slice(0, 400) : '';
+    const text = byId.get(id);
+    if (!text || !find || find === replace || !text.includes(find) || find.length > 200) continue;
+    const key = `${id}:${text.indexOf(find)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ id, find, replace, reason: S(e.reason, 300) });
+  }
+  return out;
 }
 
 /** 응답 텍스트 → JSON (코드 블록 감싸기 허용) */

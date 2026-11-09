@@ -5,7 +5,7 @@
  * - 요약/대본/구성 추천/디자인 선택: 통계·규칙
  * 사실 내용을 새로 지어내지 않으므로, 주제만으로 만든 슬라이드는 "작성 안내" 수준의 초안이다.
  */
-import type { AIProvider, DeckSpec, DesignChoice, GenerateOptions, OutlineSpec, ScriptItem, SlideDigest, SlideSpec, Suggestion, CompareItem, DocumentInput } from '../types';
+import type { AIProvider, DeckSpec, DesignChoice, GenerateOptions, OutlineSpec, ScriptItem, SlideDigest, SlideSpec, Suggestion, CompareItem, DocumentInput, ProofreadEdit } from '../types';
 import { AIError } from '../types';
 import { extractiveSummary, keywords, splitSentences, toBullet } from './text';
 import { parseDocument } from './document';
@@ -173,6 +173,11 @@ export class OfflineProvider implements AIProvider {
 
   async chooseDesign(slides: SlideDigest[], deckTitle: string): Promise<DesignChoice[]> {
     return chooseDesignRules(slides, deckTitle);
+  }
+
+  /** 오프라인: 문맥 문법은 생성형 모델이 필요 (맞춤법 검사의 규칙·사전 검사는 따로 동작) */
+  async proofread(): Promise<ProofreadEdit[]> {
+    return [];
   }
 }
 

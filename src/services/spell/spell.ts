@@ -7,6 +7,7 @@
  */
 import type { Paragraph, Presentation, SlideObject, TextBody } from '../../types/model';
 import { checkKorean } from './korean';
+import { checkParticles, particleAgreement } from './particles';
 
 export type SpellLang = 'ko' | 'en';
 
@@ -119,7 +120,7 @@ export interface SpellIssue {
   start: number;
   end: number;
   word: string;
-  kind: 'spelling' | 'grammar' | 'repeat';
+  kind: 'spelling' | 'grammar' | 'repeat' | 'ai';
   suggestions: string[];
   /** 규칙 설명 (한국어 규칙·반복) */
   why?: string;
@@ -149,6 +150,54 @@ export interface CheckOptions {
   includeNotes: boolean;
 }
 
+/* ───────────── AI 문맥 문법 ───────────── */
+
+export interface ParagraphRef {
+  key: string;
+  slideId: string;
+  objectId: string;
+  cell?: [number, number];
+  paragraph: number;
+  text: string;
+}
+
+/** 검사할 문단 목록 (checkDocument와 같은 순서·범위) */
+export function listParagraphs(doc: Presentation, includeNotes: boolean): ParagraphRef[] {
+  const out: ParagraphRef[] = [];
+  for (const s of doc.slides) {
+    const bodies = [...s.objects.flatMap(bodiesOf), ...(includeNotes && s.notes ? [{ objectId: 'notes', body: notesBody(s.notes) }] : [])];
+    for (const b of bodies)
+      b.body.paragraphs.forEach((p, pi) => {
+        const text = paragraphText(p);
+        if (text.trim()) out.push({ key: `${s.id}|${b.objectId}|${b.cell?.join(',') ?? ''}|${pi}`, slideId: s.id, objectId: b.objectId, ...(b.cell ? { cell: b.cell } : {}), paragraph: pi, text });
+      });
+  }
+  return out;
+}
+
+export interface AIEdit {
+  /** ParagraphRef.key */
+  key: string;
+  find: string;
+  replace: string;
+  reason: string;
+}
+
+/** AI가 고칠 부분 → 지금 문서 기준 이슈 (고친 뒤 원문에서 사라진 것은 뺌) */
+export function aiIssues(doc: Presentation, edits: AIEdit[], includeNotes: boolean): SpellIssue[] {
+  const byKey = new Map(listParagraphs(doc, includeNotes).map((p) => [p.key, p]));
+  const out: SpellIssue[] = [];
+  edits.forEach((e, n) => {
+    const p = byKey.get(e.key);
+    const at = p ? p.text.indexOf(e.find) : -1;
+    if (!p || at < 0) return;
+    const end = at + e.find.length;
+    const context = `${at > 20 ? '…' : ''}${p.text.slice(Math.max(0, at - 20), end + 20)}${end + 20 < p.text.length ? '…' : ''}`;
+    out.push({ id: `ai${n}`, slideId: p.slideId, objectId: p.objectId, ...(p.cell ? { cell: p.cell } : {}), paragraph: p.paragraph, start: at, end, word: e.find, kind: 'ai', suggestions: [e.replace], why: e.reason, context });
+  });
+  return out;
+}
+
 /** 문서 전체 검사 (슬라이드 순서, 개체 순서) */
 export function checkDocument(doc: Presentation, opts: CheckOptions): SpellIssue[] {
   const user = userDictionary();
@@ -170,6 +219,12 @@ export function checkDocument(doc: Presentation, opts: CheckOptions): SpellIssue
           out.push({ ...base, id: `i${seq++}`, start: k.start, end: k.end, word: k.found, kind: 'grammar', suggestions: [k.fix], why: k.why, context: ctx(k.start, k.end) });
           taken.push([k.start, k.end]);
         }
+        // 숫자·대문자 약어 뒤 조사 받침 맞춤 (2를, SQL로)
+        for (const k of checkParticles(text)) {
+          if (opts.ignore.has(text.slice(k.start - 8 < 0 ? 0 : k.start - 8, k.end)) || taken.some(([a, z]) => k.start < z && k.end > a)) continue;
+          out.push({ ...base, id: `i${seq++}`, start: k.start, end: k.end, word: k.found, kind: 'grammar', suggestions: [k.fix], why: k.why, context: ctx(k.start, k.end) });
+          taken.push([k.start, k.end]);
+        }
         const toks = tokenize(text);
         toks.forEach((t, i) => {
           if (taken.some(([a, z]) => t.start < z && t.end > a)) return;
@@ -184,6 +239,12 @@ export function checkDocument(doc: Presentation, opts: CheckOptions): SpellIssue
           if (!sp || sp.spell(t.word)) return;
           // 영어: 첫 글자만 대문자인 문장 첫 단어도 소문자로 다시 확인
           if (t.lang === 'en' && /^[A-Z][a-z]+$/.test(t.word) && sp.spell(t.word.toLowerCase())) return;
+          // 한국어: 조사만 받침에 맞게 바꾸면 맞는 말이면 문법(조사) 오류로
+          const pa = t.lang === 'ko' ? particleAgreement(t.word, (w) => sp.spell(w)) : null;
+          if (pa) {
+            out.push({ ...base, id: `i${seq++}`, start: t.start, end: t.end, word: t.word, kind: 'grammar', suggestions: [pa.fix], why: pa.why, context: ctx(t.start, t.end) });
+            return;
+          }
           out.push({ ...base, id: `i${seq++}`, start: t.start, end: t.end, word: t.word, kind: 'spelling', suggestions: [], context: ctx(t.start, t.end) });
         });
         // 문단 안에서는 글자 순서대로

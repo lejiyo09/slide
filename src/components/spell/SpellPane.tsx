@@ -3,13 +3,13 @@
  * 현재 슬라이드부터 문서 끝까지(그다음 처음부터) 차례로 보여 주고 무시/모두 무시/사전에 추가/변경/모두 변경.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookPlus, Check, X } from 'lucide-react';
+import { BookPlus, Check, Sparkles, X } from 'lucide-react';
 import { useEditor } from '../../core/store/editorStore';
-import type { Speller, SpellIssue, SpellLang } from '../../services/spell/spell';
+import type { AIEdit, Speller, SpellIssue, SpellLang } from '../../services/spell/spell';
 
 type SpellModule = typeof import('../../services/spell/spell');
 
-const KIND: Record<SpellIssue['kind'], string> = { spelling: '맞춤법', grammar: '맞춤법·띄어쓰기 (한국어 규범)', repeat: '반복된 단어' };
+const KIND: Record<SpellIssue['kind'], string> = { spelling: '맞춤법', grammar: '문법·띄어쓰기 (한국어 규범)', repeat: '반복된 단어', ai: 'AI 문맥 문법' };
 const sig = (i: SpellIssue) => `${i.slideId}|${i.objectId}|${i.cell?.join(',') ?? ''}|${i.paragraph}|${i.start}|${i.word}`;
 
 export function SpellPane() {
@@ -24,6 +24,37 @@ export function SpellPane() {
   const [choice, setChoice] = useState(0);
   const [fixed, setFixed] = useState(0);
   const [includeNotes, setIncludeNotes] = useState(true);
+  const [aiEdits, setAiEdits] = useState<AIEdit[]>([]);
+  const [aiBusy, setAiBusy] = useState<string | null>(null);
+  const [aiRunning, setAiRunning] = useState(false);
+
+  /** AI 문맥 문법 검사: 설정한 생성형 모델(GPT 프록시 등)에 문단을 보내 고칠 부분을 받음 */
+  const runAI = async () => {
+    if (!mod) return;
+    const { getProvider } = await import('../../services/ai/settings');
+    const provider = await getProvider();
+    if (!provider.generative) {
+      setAiBusy('AI 문법 검사는 생성형 모델이 필요합니다. 홈 › AI 도우미 › 설정에서 모델(GPT 프록시 등)을 연결하세요.');
+      return;
+    }
+    const paras = mod.listParagraphs(useEditor.getState().doc, includeNotes);
+    const edits: AIEdit[] = [];
+    setAiRunning(true);
+    try {
+      for (let i = 0; i < paras.length; i += 30) {
+        setAiBusy(`AI가 문장을 검사하는 중… (${Math.min(paras.length, i + 30)}/${paras.length}문단)`);
+        const batch = paras.slice(i, i + 30);
+        const r = await provider.proofread(batch.map((p, k) => ({ id: `p${k}`, text: p.text })));
+        for (const e of r) edits.push({ key: batch[Number(e.id.slice(1))].key, find: e.find, replace: e.replace, reason: e.reason });
+      }
+      setAiEdits(edits);
+      setAiBusy(edits.length ? null : 'AI가 고칠 곳을 찾지 못했습니다.');
+    } catch (e) {
+      setAiBusy(`AI 문법 검사를 하지 못했습니다: ${(e as Error).message}`);
+    } finally {
+      setAiRunning(false);
+    }
+  };
 
   // 문서에 있는 언어의 사전만 받음
   useEffect(() => {
@@ -55,11 +86,14 @@ export function SpellPane() {
 
   const issues = useMemo(() => {
     if (!mod) return [];
-    const list = mod.checkDocument(doc, { speller: (l) => spellers[l] ?? null, ignore, includeNotes }).filter((i) => !skipped.has(sig(i)));
+    const base = mod.checkDocument(doc, { speller: (l) => spellers[l] ?? null, ignore, includeNotes });
+    // AI 결과는 규칙·사전 결과와 겹치지 않는 것만
+    const ai = mod.aiIssues(doc, aiEdits, includeNotes).filter((a) => !ignore.has(a.word) && !base.some((b) => b.slideId === a.slideId && b.objectId === a.objectId && b.paragraph === a.paragraph && `${b.cell}` === `${a.cell}` && b.start < a.end && b.end > a.start));
+    const list = [...base, ...ai].filter((i) => !skipped.has(sig(i)));
     // 현재 슬라이드부터
     const order = (id: string) => (doc.slides.findIndex((s) => s.id === id) - doc.slides.findIndex((s) => s.id === startSlide) + doc.slides.length) % doc.slides.length;
     return list.sort((a, b) => order(a.slideId) - order(b.slideId));
-  }, [mod, doc, spellers, ignore, skipped, includeNotes, startSlide]);
+  }, [mod, doc, spellers, ignore, skipped, includeNotes, startSlide, aiEdits]);
   const cur = issues[0];
   const suggestions = useMemo(() => {
     if (!cur) return [];
@@ -168,6 +202,18 @@ export function SpellPane() {
             </div>
             <p className="muted spell-count">남은 항목 {issues.length}개</p>
           </>
+        )}
+        {!status && (
+          <div className="spell-ai">
+            <button type="button" className="btn btn-sm" disabled={aiRunning} onClick={() => void runAI()} data-spell-ai="" title="설정한 AI 모델로 문장 전체의 문맥(조사·어미·띄어쓰기·낱말 선택)을 검사합니다. 문단 글자가 AI 제공자로 전송됩니다.">
+              <Sparkles size={13} /> AI 문법 검사
+            </button>
+            {aiBusy && (
+              <p className="muted" data-spell-ai-status="">
+                {aiBusy}
+              </p>
+            )}
+          </div>
         )}
         <label className="fm-check spell-opt">
           <input type="checkbox" checked={includeNotes} onChange={(e) => setIncludeNotes(e.target.checked)} /> 슬라이드 노트도 검사

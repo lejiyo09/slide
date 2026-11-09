@@ -5,6 +5,8 @@ import { produce } from 'immer';
 import { loadModule } from 'hunspell-asm';
 import { applyFix, checkDocument, replaceInParagraph, tokenize, type Speller, type SpellLang } from './spell';
 import { checkKorean } from './korean';
+import { checkParticles, numberFinal, particleAgreement } from './particles';
+import { aiIssues, listParagraphs } from './spell';
 import { createPresentation } from '../../core/document/factory';
 import type { Paragraph, TextObject } from '../../types/model';
 
@@ -108,5 +110,63 @@ describe('문서 검사 (Hunspell 사전)', () => {
     const p = { runs: [{ text: 'ab' }, { text: 'cd' }, { text: 'ef' }] } as Paragraph;
     replaceInParagraph(p, 1, 5, 'XY');
     expect(p.runs.map((r) => r.text)).toEqual(['aXY', '', 'f']);
+  });
+});
+
+describe('조사 받침 맞춤 (문맥)', () => {
+  const ko = () => spellers.get('ko')!;
+  it('hunspell이 틀렸다고 한 낱말 → 조사만 바꾸면 맞는 말이면 문법 오류', () => {
+    const fix = (w: string) => particleAgreement(w, (x) => ko().spell(x))?.fix ?? null;
+    expect(['학교을', '책를', '사과은', '책는', '서울으로', '집로', '연필으로', '친구이', '자료과', '계획로'].map(fix)).toEqual(['학교를', '책을', '사과는', '책은', '서울로', '집으로', '연필로', '친구가', '자료와', '계획으로']);
+    // 동사 '먹는'·'있는'은 hunspell이 맞다고 하므로 여기까지 오지 않음, 진짜 철자 오류는 조사로 고칠 수 없음
+    expect(ko().spell('먹는') && ko().spell('있는')).toBe(true);
+    expect(fix('발퓨를')).toBeNull();
+    expect(particleAgreement('학교을', (x) => ko().spell(x))!.why).toContain("받침이 없으면 '를'");
+  });
+
+  it('숫자·대문자 약어 + 조사: 읽는 소리로 판단', () => {
+    const fixes = (s: string) => checkParticles(s).map((i) => `${i.found}→${i.fix}`);
+    expect(fixes('2을 더하고 3를 빼고 10를 곱한다')).toEqual(['을→를', '를→을', '를→을']);
+    expect(fixes('1으로 나누고 6로 나눈다')).toEqual(['으로→로', '로→으로']);
+    expect(fixes('3을, 2를, 10을, 1로, 6으로, 100은, 1000이, 20000을')).toEqual([]);
+    expect(fixes('API을 쓰고 SQL으로 묻고 HTML를 고친다')).toEqual(['을→를', '으로→로', '를→을']);
+    expect(fixes('API를, SQL로, HTML을, RAM이, CPU가')).toEqual([]);
+    // 조사가 아닌 경우: 2가지, 3이다, 버전 2.0은
+    expect(fixes('2가지 방법, 정답은 3이다, 2.5는')).toEqual([]);
+    expect(numberFinal('1,000')).toEqual(['other', '천']);
+    expect(numberFinal('3.7')).toEqual(['rieul', '칠']);
+    // R은 '알/아르'로 갈려 판단하지 않음
+    expect(fixes('CSR을 CSR를')).toEqual([]);
+  });
+
+  it('문서 검사에 함께: 조사는 문법(맞춤법이 아님)으로, 고치면 사라짐', () => {
+    const d = produce(createPresentation('조사'), (x) => {
+      (x.slides[0].objects[0] as TextObject).text.paragraphs = [{ runs: [{ text: '학교을 지나 2을 더한 API을 씁니다.' }] } as Paragraph];
+    });
+    const opts = { speller: (l: SpellLang) => spellers.get(l)!, ignore: new Set<string>(), includeNotes: false };
+    const issues = checkDocument(d, opts);
+    expect(issues.map((i) => [i.kind, i.word, i.suggestions[0]])).toEqual([
+      ['grammar', '학교을', '학교를'],
+      ['grammar', '을', '를'],
+      ['grammar', '을', '를'],
+    ]);
+    const fixed = produce(d, (x) => {
+      for (const i of [...issues].reverse()) applyFix(x, i, i.suggestions[0]);
+    });
+    expect((fixed.slides[0].objects[0] as TextObject).text.paragraphs[0].runs[0].text).toBe('학교를 지나 2를 더한 API를 씁니다.');
+    expect(checkDocument(fixed, opts)).toEqual([]);
+  });
+
+  it('AI 고칠 부분 → 지금 글자 기준 이슈 (고친 뒤에는 사라짐)', () => {
+    const d = produce(createPresentation('AI'), (x) => {
+      (x.slides[0].objects[0] as TextObject).text.paragraphs = [{ runs: [{ text: '내일 회의를 참석합니다.' }] } as Paragraph];
+    });
+    const [p] = listParagraphs(d, false);
+    const edits = [{ key: p.key, find: '회의를 참석', replace: '회의에 참석', reason: '참석하다는 -에' }];
+    const [issue] = aiIssues(d, edits, false);
+    expect(issue).toMatchObject({ kind: 'ai', start: 3, end: 9, word: '회의를 참석', suggestions: ['회의에 참석'] });
+    const fixed = produce(d, (x) => void applyFix(x, issue, issue.suggestions[0]));
+    expect((fixed.slides[0].objects[0] as TextObject).text.paragraphs[0].runs[0].text).toBe('내일 회의에 참석합니다.');
+    expect(aiIssues(fixed, edits, false)).toEqual([]);
   });
 });
