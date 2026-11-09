@@ -1,7 +1,7 @@
 /**
  * 14단계 E2E: 그림·PDF 내보내기, 인쇄 (+ 이후 비디오·수식·메모·맞춤법·비교·3D 단계가 이어서 추가됨)
- *   npm run build && npx vite preview --port 4173 &  →  LANG=C.UTF-8 node e2e/stage14.mjs
- *   (LANG 없이 실행하면 Chromium이 한글 파일 이름을 'download'로 바꿈 — 테스트 환경 문제)
+ *   npm run build && npx vite preview --port 4173 &  →  node e2e/stage14.mjs
+ *   (Chromium은 UTF-8 로캘이 아니면 한글 내려받기 파일 이름을 'download'로 바꾸므로 브라우저 환경에 LANG=C.UTF-8을 줌)
  */
 import { createRequire } from 'node:module';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -24,7 +24,8 @@ const want = (part) => !only || only.includes(part);
 const FX = 'src/services/fonts/__fixtures__';
 const JUA = readFileSync(`${FX}/TestSerif-BoldItalic.ttf`); // 웹 글꼴 응답용 (진짜 Jua 대신 모양이 뚜렷한 테스트 글꼴)
 
-const browser = await chromium.launch();
+const utf8 = /utf-?8/i.test(process.env.LC_ALL || process.env.LANG || '');
+const browser = await chromium.launch({ env: { ...process.env, ...(utf8 ? {} : { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' }) } });
 const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, acceptDownloads: true });
 const page = await context.newPage();
 const errors = [];

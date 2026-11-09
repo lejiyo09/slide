@@ -44,6 +44,7 @@ const KIND_ICON: Record<Change['kind'], string> = {
   objectInserted: '＋',
   objectDeleted: '－',
   textChanged: '✎',
+  textFormatted: '𝐁',
   objectMoved: '⇲',
   objectFormatted: '🎨',
   notesChanged: '✎',

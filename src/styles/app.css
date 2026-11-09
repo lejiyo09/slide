@@ -4442,6 +4442,11 @@ button.bs-export-item:hover:not(:disabled) {
   color: #1e6b34;
   background: #def7e4;
 }
+/* 글자는 같고 서식이 바뀐 부분 */
+.cmp-diff .d-fmt {
+  background: #fff3c4;
+  border-bottom: 2px dotted #b7791f;
+}
 .cmp-slideInserted .cmp-icon,
 .cmp-objectInserted .cmp-icon {
   color: #1e7b34;

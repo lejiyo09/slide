@@ -104,4 +104,34 @@ describe('비교', () => {
     expect(slideText(r.slides[1])).toBe(slideText(a.slides[1]));
     expect(r.slides).toHaveLength(3);
   });
+
+  it('글자 서식 변경: 굵게·색·맞춤 (글자는 같음) → 바뀐 부분 표시, 적용하면 같아짐', async () => {
+    const styled = (bold: boolean, color: string, align: 'left' | 'center') =>
+      produce(original(), (d) => {
+        const o = d.slides[1].objects.find((x) => x.type === 'text') as TextObject;
+        o.text.paragraphs = [{ runs: [{ text: '매출 현황 ', fontSize: 40, color: '#000000' }, { text: '지역별', fontSize: 40, color, bold }, { text: ' 성장률 요약', fontSize: 40, color: '#000000' }], align } as TextObject['text']['paragraphs'][number]];
+      });
+    const a = styled(false, '#000000', 'left');
+    const b0 = styled(true, '#C00000', 'left');
+    const b = JSON.parse(JSON.stringify(b0).replace(/"id":"([^"]+)"/g, (_m, id) => `"id":"R${id}"`)) as Presentation;
+    const changes = comparePresentations(a, b);
+    expect(changes.map((c) => c.kind)).toEqual(['textFormatted']);
+    expect(changes[0].label).toContain('굵게·글꼴 색');
+    expect(changes[0].diff).toEqual([
+      { op: 'same', text: '매출 현황 ' },
+      { op: 'fmt', text: '지역별' },
+      { op: 'same', text: ' 성장률 요약' },
+    ]);
+    // 문단 맞춤만 바뀜 → 문단 전체
+    const c = comparePresentations(a, styled(false, '#000000', 'center'));
+    expect(c.map((x) => [x.kind, x.label.match(/\((.*)\)/)?.[1]])).toEqual([['textFormatted', '맞춤']]);
+    expect(c[0].diff).toEqual([{ op: 'fmt', text: '매출 현황 지역별 성장률 요약' }]);
+    // 적용
+    const r = produce(a, (d) => void applyChange(d, b, changes[0]));
+    expect(comparePresentations(r, b)).toEqual([]);
+    // 물려받는 값(없음)과 적힌 값은 비교하지 않음: PPTX 왕복 문서는 여전히 변경 없음
+    const { exportPptxBytes } = await import('../../services/export/pptxExport');
+    const { importPptx } = await import('../../services/import/pptxImport');
+    expect(comparePresentations(b0, (await importPptx((await exportPptxBytes(b0)).bytes)).doc)).toEqual([]);
+  });
 });

@@ -3,10 +3,11 @@
  * 다른 파일(검토본)과 현재 문서를 비교해 변경 목록을 만들고, 변경을 하나씩(또는 모두) 현재 문서에 적용한다.
  * 파일이 다르면 ID가 다르므로 슬라이드·개체는 내용 유사도로 짝짓는다 (슬라이드: 순서를 지키는 최장 공통 부분열).
  */
-import type { Presentation, Slide, SlideObject, TextBody } from '../../types/model';
+import type { Paragraph, Presentation, Slide, SlideObject, TextBody, TextRun, Theme } from '../../types/model';
+import { resolveColor, resolveFont } from '../../utils/themeColor';
 import { designLayers } from '../../engines/rendering/SlideView';
 
-export type ChangeKind = 'slideInserted' | 'slideDeleted' | 'objectInserted' | 'objectDeleted' | 'textChanged' | 'objectMoved' | 'objectFormatted' | 'notesChanged' | 'slideFormatted';
+export type ChangeKind = 'slideInserted' | 'slideDeleted' | 'objectInserted' | 'objectDeleted' | 'textChanged' | 'textFormatted' | 'objectMoved' | 'objectFormatted' | 'notesChanged' | 'slideFormatted';
 
 export interface Change {
   id: string;
@@ -23,7 +24,8 @@ export interface Change {
 }
 
 export interface DiffPart {
-  op: 'same' | 'add' | 'del';
+  /** fmt: 글자는 같고 서식이 바뀐 부분 */
+  op: 'same' | 'add' | 'del' | 'fmt';
   text: string;
 }
 
@@ -208,6 +210,12 @@ export function comparePresentations(cur: Presentation, other: Presentation): Ch
     for (const [x, y] of objs) {
       const tx = objectText(x), ty = objectText(y);
       if (tx !== ty) add({ ...base, kind: 'textChanged', objectId: x.id, otherObjectId: y.id, label: `${TYPE_NAME[x.type]} 글자 변경`, diff: diffWords(tx, ty) });
+      else {
+        // 글자는 같고 글자·문단 서식이 바뀜
+        const ba = textBodyOf(x), bb = textBodyOf(y);
+        const fd = ba && bb ? textFormatDiff(ba, bb, cur.theme, other.theme) : null;
+        if (fd) add({ ...base, kind: 'textFormatted', objectId: x.id, otherObjectId: y.id, label: `${nameOf(x)} 글자 서식 변경 (${fd.props.join('·')})`, diff: fd.diff });
+      }
       if (geomChanged(x, y)) add({ ...base, kind: 'objectMoved', objectId: x.id, otherObjectId: y.id, label: `${nameOf(x)} 위치·크기 변경` });
       if (x.type === y.type && formatKey(x, cur) !== formatKey(y, other)) add({ ...base, kind: 'objectFormatted', objectId: x.id, otherObjectId: y.id, label: `${nameOf(x)} 서식 변경` });
     }
@@ -222,6 +230,108 @@ export function comparePresentations(cur: Presentation, other: Presentation): Ch
   const order = (c: Change) => (c.slideId ? cur.slides.findIndex((s) => s.id === c.slideId) : -1) + (c.kind === 'slideInserted' ? 0.5 : 0);
   return out.sort((p, q) => order(p) - order(q));
 }
+
+/* ───────────── 글자 서식 ───────────── */
+
+/** 글자 서식 속성 (이름은 변경 목록에 보이는 말) */
+const RUN_PROPS: [keyof TextRun, string][] = [
+  ['bold', '굵게'],
+  ['italic', '기울임꼴'],
+  ['underline', '밑줄'],
+  ['strike', '취소선'],
+  ['color', '글꼴 색'],
+  ['fontSize', '글꼴 크기'],
+  ['fontFamily', '글꼴'],
+  ['highlight', '형광펜'],
+  ['link', '하이퍼링크'],
+];
+const PARA_PROPS: [keyof Paragraph, string][] = [
+  ['align', '맞춤'],
+  ['bullet', '글머리 기호'],
+  ['level', '목록 수준'],
+  ['lineSpacing', '줄 간격'],
+];
+const BOOL = new Set(['bold', 'italic', 'underline', 'strike']);
+
+/**
+ * 비교할 값: 켜고 끄는 서식(굵게 등)은 없음 = 끔, 나머지는 테마 토큰을 실제 값으로.
+ * 값이 없는(개체 틀에서 물려받는) 속성은 null → 한쪽만 값이 있으면 비교하지 않음 (PPTX를 거치면 물려받던 값이 적혀 있을 수 있음)
+ */
+function runVal(r: TextRun, k: keyof TextRun, theme: Theme): string | null {
+  const v = r[k];
+  if (BOOL.has(k as string)) return v ? '1' : '0';
+  if (v === undefined || v === null || v === '') return k === 'link' ? '' : null;
+  if (k === 'color' || k === 'highlight') return resolveColor(String(v), theme).toUpperCase();
+  if (k === 'fontFamily') return resolveFont(String(v), theme) ?? String(v);
+  if (k === 'fontSize') return String(Math.round(Number(v) * 2) / 2);
+  return String(v);
+}
+function paraVal(p: Paragraph, k: keyof Paragraph): string | null {
+  const v = p[k];
+  if (k === 'level') return String(v ?? 0);
+  if (k === 'bullet') return String(v ?? 'none');
+  if (k === 'lineSpacing') return v === undefined ? null : String(Math.round(Number(v) * 20) / 20);
+  return v === undefined ? null : String(v);
+}
+
+/** 글자마다 글자 묶음(서식) — 문단 사이는 '\n' (서식 없음) */
+function charStyles(b: TextBody): { ch: string; run: TextRun | null; para: Paragraph }[] {
+  const out: { ch: string; run: TextRun | null; para: Paragraph }[] = [];
+  b.paragraphs.forEach((p, i) => {
+    if (i) out.push({ ch: '\n', run: null, para: p });
+    for (const r of p.runs) for (const ch of r.text) out.push({ ch, run: r, para: p });
+  });
+  return out;
+}
+
+/** 글자가 같은 두 본문의 서식 차이: 바뀐 속성 이름과 바뀐 글자 범위 (같으면 null) */
+export function textFormatDiff(a: TextBody, b: TextBody, themeA: Theme, themeB: Theme): { props: string[]; diff: DiffPart[] } | null {
+  const ca = charStyles(a), cb = charStyles(b);
+  if (ca.length !== cb.length) return null;
+  const props = new Set<string>();
+  const changed: boolean[] = [];
+  for (let i = 0; i < ca.length; i++) {
+    let c = false;
+    const ra = ca[i].run, rb = cb[i].run;
+    if (ra && rb && !/\s/.test(ca[i].ch)) {
+      for (const [k, name] of RUN_PROPS) {
+        const x = runVal(ra, k, themeA), y = runVal(rb, k, themeB);
+        if (x !== null && y !== null && x !== y) {
+          props.add(name);
+          c = true;
+        }
+      }
+    }
+    changed.push(c);
+  }
+  // 문단 서식: 문단의 모든 글자를 바뀐 것으로
+  const pa = a.paragraphs, pb = b.paragraphs;
+  let pos = 0;
+  for (let i = 0; i < pa.length && i < pb.length; i++) {
+    const len = [...pa[i].runs.map((r) => r.text).join('')].length;
+    let c = false;
+    for (const [k, name] of PARA_PROPS) {
+      const x = paraVal(pa[i], k), y = paraVal(pb[i], k);
+      if (x !== null && y !== null && x !== y) {
+        props.add(name);
+        c = true;
+      }
+    }
+    if (c) for (let j = pos; j < pos + len; j++) changed[j] = true;
+    pos += len + 1;
+  }
+  if (!props.size) return null;
+  const diff: DiffPart[] = [];
+  ca.forEach((x, i) => {
+    const op = changed[i] ? 'fmt' : 'same';
+    const last = diff[diff.length - 1];
+    if (last && last.op === op) last.text += x.ch;
+    else diff.push({ op, text: x.ch });
+  });
+  return { props: [...props], diff };
+}
+
+const textBodyOf = (o: SlideObject): TextBody | null => (o.type === 'text' || o.type === 'shape' ? o.text : null);
 
 /* ───────────── 적용 ───────────── */
 
@@ -310,6 +420,7 @@ export function applyChange(d: Presentation, other: Presentation, ch: Change): b
       return true;
     }
     case 'textChanged':
+    case 'textFormatted':
     case 'objectMoved':
     case 'objectFormatted': {
       const x = slide?.objects.find((o) => o.id === ch.objectId);
@@ -320,6 +431,11 @@ export function applyChange(d: Presentation, other: Presentation, ch: Change): b
         else if (x.type === 'table' && y.type === 'table') x.rows = clone(y.rows);
         else if (x.type === 'equation' && y.type === 'equation') Object.assign(x, { latex: y.latex, mathml: y.mathml, sourceOmml: y.sourceOmml });
         else return false;
+      } else if (ch.kind === 'textFormatted') {
+        // 글자가 같으므로 검토본의 문단·글자 묶음(서식 포함)을 그대로
+        const bx = textBodyOf(x), by = textBodyOf(y);
+        if (!bx || !by || bodyText(bx) !== bodyText(by)) return false;
+        bx.paragraphs = clone(by.paragraphs);
       } else if (ch.kind === 'objectMoved') {
         Object.assign(x, { x: y.x, y: y.y, width: y.width, height: y.height, rotation: y.rotation });
       } else {

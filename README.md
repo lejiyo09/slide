@@ -13,7 +13,7 @@ npm install
 npm run dev          # 개발 서버 (http://localhost:5173)
 npm run build        # 타입 검사 + 정적 빌드 (dist/)
 npm test             # 단위 테스트 (Vitest)
-npm run test:e2e     # 브라우저 E2E (빌드 후 `npx vite preview --port 4173` 실행 상태에서, 한글 파일 이름 확인을 위해 LANG=C.UTF-8)
+npm run test:e2e     # 브라우저 E2E (빌드 후 `npx vite preview --port 4173` 실행 상태에서)
 python3 scripts/verify_equations.py  # 내보낸 수식(OMML)을 LibreOffice Writer로 검증 (libreoffice-math 필요)
 npm run verify:pptx  # 내보낸 PPTX를 python-pptx/LibreOffice로 검증
 ```
@@ -60,7 +60,7 @@ GitHub Codespaces에서도 동일하게 실행됩니다. `main`에 push하면 `.
 
 - **그림·PDF 내보내기** (파일 › 내보내기): PNG/JPEG(현재 슬라이드 또는 모두 ZIP, 1·1.5·3배), PDF(표준 1.5배/최소 크기, 숨긴 슬라이드 포함 여부).
   편집기와 같은 SlideView를 화면 밖에 그려 modern-screenshot으로 그림으로 바꾸고, 그 슬라이드에 실제로 쓰인 글꼴만 포함(내 글꼴 파일, 자체 호스팅 웹 글꼴의 필요한 조각, Google 웹 글꼴의 쓰인 글자만).
-  PDF는 자체 작성기(JPEG 페이지). 검증: 슬라이드 쇼 화면과 픽셀 비교, poppler(pdfinfo·pdfimages·pdftoppm)로 PDF 확인
+  PDF는 자체 작성기(JPEG 페이지 + 보이지 않는 글자 층). 검증: 슬라이드 쇼 화면과 픽셀 비교, poppler(pdfinfo·pdfimages·pdftoppm)로 PDF 확인
 - **인쇄** (파일 › 인쇄, Ctrl+P): 전체 페이지 슬라이드 / 슬라이드 노트 / 유인물 1·2·3·4·6·9 / 개요, 범위(1-3,5), 컬러·회색조·흑백, 숨긴 슬라이드, 테두리, 미리 보기.
   브라우저 인쇄(“PDF로 저장”)라 글자가 벡터로 남아 선택·검색 가능 (pdftotext·pdffonts로 확인)
 - **비디오로 내보내기** (파일 › 내보내기 / 슬라이드 쇼 탭): MP4(H.264 우선)·WebM(VP9), 4K/1080p/720p/480p, 24·30·60fps,
@@ -83,12 +83,24 @@ GitHub Codespaces에서도 동일하게 실행됩니다. `main`에 push하면 `.
   - 슬라이드 1000장: 열기 1049ms → 177ms, DOM 68,582 → 6,338개, 메모리 125MB → 30MB (축소판은 화면 근처에서만 그리고, 바뀐 슬라이드만 다시 그림)
   - 오프라인(PWA): 서비스 워커 설치 후 네트워크를 끊고 새로 고침·슬라이드 쇼·수식·맞춤법(한 번 받은 사전)·편집 저장 확인 (`e2e/offline.mjs`)
   - 접근성: axe-core로 모든 리본 탭·창·백스테이지·대화 상자에서 심각/치명 위반 0 (슬라이드 목록 구조, 입력 칸 이름, 명암비, 단추 이름이 보이는 글자로 시작)
+- **남은 제한 해결 (14단계 보완)**
+  - **OOXML 스키마 검증**: Open XML SDK(MIT)의 스키마 정의로 SlideLab이 만든 PPTX의 모든 파트를 검사(`src/test/ooxmlSchema.ts`, `schema.test.ts`).
+    PowerPoint·LibreOffice가 만든 파일은 위반 0(검증기 자체 확인), 잘못된 XML은 찾아냄. 이 검사로 pptxgenjs의 요소 순서·중복 오류를 찾아 고침
+  - **3D 모델 → PowerPoint 3D(am3d)**: 새로 넣거나 회전한 3D 모델도 GLB를 넣은 `am3d:model3d`(카메라·변환·조명·대체 그림)로 저장, 3D를 모르는 프로그램용 대체 그림 포함. 스키마 통과, 다시 가져오면 같은 회전
+  - **그림 PDF의 글자 선택·검색**: 그림 위에 보이지 않는 글자 층(모양 없는 TrueType 글꼴, ToUnicode). 글자마다 화면에서 잰 자리·폭에 놓아 선택 영역이 그림과 겹침 (pdftotext 위치 = 편집 화면 글자 상자)
+  - **비디오의 동영상 개체 재생**: 자동 재생 동영상을 프레임마다 해독(mediabunny)해 동영상 아래·위 층 사이에 합성, 소리도 섞음. 끝나면 마지막 프레임, 반복 설정 존중
+  - **메모 해결 상태 저장**: PowerPoint 365 최신 메모(p188: authors.xml + modernComment, 슬라이드 commentRel)로 저장. 메모 형식: 자동(해결한 메모가 있으면 최신, 없으면 LibreOffice도 읽는 기존)·기존·최신
+  - **한국어 문맥 문법**: 조사 받침 맞춤(학교을 → 학교를: hunspell로 확인), 숫자·약어 뒤 조사(2를, 10을, SQL로: 읽는 소리), AI 문법 검사(설정한 모델·GPT 중계에 문단을 보내 조사·어미·띄어쓰기·낱말 선택 오류를 받음, 원문 확인 후 표시)
+  - **문단 안 수식**: 텍스트 편집 중 수식 단추 → 커서 자리에 수식, 두 번 클릭으로 고침. PPTX는 PowerPoint와 같은 `mc:AlternateContent`(a14:m을 글자 런 사이에 / 대체 LaTeX 글자), 가져오기도 지원
+  - **비교: 글자 서식 변경**: 글자는 같고 굵게·기울임·밑줄·색·크기·글꼴·형광펜·링크·맞춤·글머리 기호·줄 간격이 바뀐 것을 바뀐 부분과 함께 표시, 적용 가능 (PPTX 왕복 차이는 변경으로 보지 않음)
+  - E2E 실행에 `LANG` 설정이 필요 없음 (브라우저 환경에 UTF-8 로캘을 직접 줌)
 - **남은 제한**
-  - 새로 만든·고친 3D 모델은 PowerPoint 파일에 그림으로 저장 (am3d 장면 정보는 PowerPoint로 확인할 수 없어 쓰지 않음)
-  - 그림 PDF는 글자를 선택할 수 없음(선택 가능한 PDF는 인쇄 › PDF로 저장), 비디오의 동영상 개체는 표지 그림으로 들어감
-  - 메모의 '해결됨'은 기존 메모 형식에 없어 PPTX에 저장되지 않음, 맞춤법의 한국어는 사전+규칙 방식이라 문맥 문법 검사는 아님
-  - 수식은 수식 개체 단위(문단 중간 수식 없음), 비교는 글자 서식(굵게 등) 변경은 따로 보여 주지 않음
-  - 실제 PowerPoint로 연 확인은 이 환경에서 하지 못함 (LibreOffice·poppler·ffmpeg 같은 독립 도구로 검증)
+  - 실제 PowerPoint로 연 확인은 이 환경에서 하지 못함 — 대신 Open XML SDK 스키마 검증 + LibreOffice·poppler·ffmpeg로 확인.
+    특히 am3d의 카메라·크기 값의 뜻(단위)과 최신 메모의 슬라이드 표지(`cId="0"`)는 PowerPoint 없이 확인할 수 없음
+  - LibreOffice는 문단 안 수식(a14:m)을 읽지 않아 대체 LaTeX 글자를 보여 줌, 최신 메모(p188)도 읽지 않음(그래서 메모 형식 '자동'은 해결한 메모가 있을 때만 최신)
+  - 문단 안 수식은 표 셀에서는 LaTeX 글자로 저장, 크기·색은 둘레 글자를 따름(PPTX에서는 문단 기본 서식)
+  - AI 문법 검사는 생성형 모델 설정이 필요(오프라인 제공자는 하지 않음)하고 문단 글자가 그 제공자로 전송됨
+  - 비디오: 클릭해서 재생하는 동영상은 표지 그림, 동영상 개체의 자르기(trim)는 없음
 
 ## 글꼴 (13단계)
 

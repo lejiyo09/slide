@@ -11,7 +11,7 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "node e2e/smoke.mjs && node e2e/stage8.mjs && node e2e/stage9.mjs && node e2e/stage10.mjs && node e2e/stage11.mjs && node e2e/stage12.mjs && node e2e/stage13.mjs && LANG=C.UTF-8 node e2e/stage14.mjs && node e2e/offline.mjs",
+    "test:e2e": "node e2e/smoke.mjs && node e2e/stage8.mjs && node e2e/stage9.mjs && node e2e/stage10.mjs && node e2e/stage11.mjs && node e2e/stage12.mjs && node e2e/stage13.mjs && node e2e/stage14.mjs && node e2e/offline.mjs",
     "verify:pptx": "python3 scripts/verify_pptx.py"
   },
   "dependencies": {
