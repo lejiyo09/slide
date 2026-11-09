@@ -178,6 +178,12 @@ try {
     const ptext = execFileSync('pdftotext', ['-f', '1', '-l', '1', pdf.path, '-'], { encoding: 'utf8' });
     const bbox = execFileSync('pdftotext', ['-bbox', '-f', '1', '-l', '1', pdf.path, '-'], { encoding: 'utf8' });
     const word = [...bbox.matchAll(/<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">인쇄<\/word>/g)][0];
+    // 편집 화면에 1번 슬라이드를 띄우고 잼 (앞 단계가 다른 슬라이드를 골랐을 수 있음)
+    await page.evaluate(() => {
+      const st = window.__SLIDELAB__.getState();
+      st.set({ activeSlideId: st.doc.slides[0].id, selectedSlideIds: [st.doc.slides[0].id] });
+    });
+    await page.waitForFunction(() => [...document.querySelectorAll('.canvas-scroller .sl-slide')].some((e) => e.textContent.includes('Print Test 인쇄')));
     const domBox = await page.evaluate(() => {
       const w = document.createTreeWalker(document.querySelector('.canvas-scroller'), NodeFilter.SHOW_TEXT);
       let n = null;
