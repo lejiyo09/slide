@@ -5,6 +5,7 @@ import { SlideView } from '../../engines/rendering/SlideView';
 import { useAnimationPlayer } from '../../engines/animation/usePlayer';
 import { buildTimeline, frameStates } from '../../engines/animation/timeline';
 import { transitionFrame } from '../../engines/transition/transitions';
+import { MorphTransitionView } from '../../engines/transition/MorphView';
 import type { Presentation, Slide } from '../../types/model';
 import { CATEGORY_COLORS } from '../ribbon/AnimTabs';
 
@@ -125,6 +126,12 @@ function TransitionPreview({ slide, doc, onDone }: { slide: Slide; doc: Presenta
       <SlideView slide={slide} doc={doc} mode="show" frames={nextFrames} />
     </div>
   );
+  if (t.type === 'morph')
+    return (
+      <div className="preview-transition" data-p={p.toFixed(2)}>
+        <MorphTransitionView doc={doc} from={prevSlide ?? null} to={slide} p={p} fromFrames={prevFrames} toFrames={nextFrames} />
+      </div>
+    );
   return (
     <div className="preview-transition" data-p={p.toFixed(2)}>
       {f.prevOnTop ? nextLayer : prevLayer}

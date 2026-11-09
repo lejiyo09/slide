@@ -23,6 +23,7 @@ export function parseTransition(el: Element): SlideTransition | null {
   const dir = child?.getAttribute('dir') ?? '';
   let type: TransitionType = 'none';
   let direction: SlideTransition['direction'];
+  let morphOption: SlideTransition['morphOption'];
   switch (child?.localName) {
     case undefined:
       type = 'none';
@@ -59,6 +60,13 @@ export function parseTransition(el: Element): SlideTransition | null {
       type = 'flip';
       direction = dir === 'r' ? 'right' : 'left';
       break;
+    case 'morph': {
+      // p159:morph option (byObject / byWord / byChar)
+      type = 'morph';
+      const opt = child.getAttribute('option');
+      morphOption = opt === 'byWord' || opt === 'byChar' ? opt : 'byObject';
+      break;
+    }
     default:
       // 지원하지 않는 전환: 페이드로 표시 (원본은 저장 시 보존)
       type = 'fade';
@@ -67,6 +75,7 @@ export function parseTransition(el: Element): SlideTransition | null {
     type,
     duration: type === 'none' ? 0 : duration,
     ...(direction ? { direction } : {}),
+    ...(morphOption ? { morphOption } : {}),
     ...(advClick ? { advanceOnClick: true } : { advanceOnClick: false }),
     ...(advTm !== undefined ? { advanceAfter: advTm } : {}),
   };

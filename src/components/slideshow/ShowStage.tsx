@@ -7,6 +7,7 @@ import { SlideView } from '../../engines/rendering/SlideView';
 import { ShowMediaContext } from '../../engines/rendering/ObjectView';
 import { buildTimeline, frameStates } from '../../engines/animation/timeline';
 import { transitionFrame } from '../../engines/transition/transitions';
+import { MorphTransitionView } from '../../engines/transition/MorphView';
 import { HIGHLIGHTER_OPACITY, inkPathD, viewToSlide, zoomTransform, type InkStroke } from '../../engines/show/showModel';
 import type { Slide } from '../../types/model';
 import type { ShowCtl } from './useShowController';
@@ -96,13 +97,18 @@ export function ShowStage({ ctl, scale, muted, interactive = true }: { ctl: Show
     const nextFrames = frameStates(slide.objects, buildTimeline(ctl.settings.noAnimation ? [] : slide.animations), { done: 0, t: null }, W, H);
     const prevLayer = layer(trans.from, f.prev, prevFrames, true);
     const nextLayer = layer(slide, f.next, nextFrames);
-    layers = (
+    layers =
+      slide.transition?.type === 'morph' ? (
+        <ShowMediaContext.Provider value={{ muted: true }}>
+          <MorphTransitionView doc={doc} from={fix(trans.from)} to={fix(slide)} p={trans.p} fromFrames={prevFrames} toFrames={nextFrames} />
+        </ShowMediaContext.Provider>
+      ) : (
       <>
         {f.prevOnTop ? nextLayer : prevLayer}
         {f.prevOnTop ? prevLayer : nextLayer}
         {f.black !== undefined && <div style={{ position: 'absolute', inset: 0, background: '#000', opacity: f.black }} />}
       </>
-    );
+      );
   } else layers = layer(slide, {}, ctl.player.frames);
 
   const cursor = !interactive

@@ -3,7 +3,7 @@ import { Play, ListOrdered, Zap, ChevronUp, ChevronDown, Plus, Star, MousePointe
 import { RibbonButton, DropdownButton, RibbonGroup, MenuItem, MenuSeparator } from '../common/Buttons';
 import { useEditor, useActiveSlide, useSelectedObjects } from '../../core/store/editorStore';
 import * as AA from '../../core/commands/animActions';
-import { TRANSITIONS, DIRECTION_NAMES } from '../../engines/transition/transitions';
+import { TRANSITIONS, DIRECTION_NAMES, MORPH_OPTIONS } from '../../engines/transition/transitions';
 import { EFFECTS, PATH_PRESETS } from '../../engines/animation/effects';
 import type { AnimationCategory, AnimationStart, Direction, TransitionType } from '../../types/model';
 
@@ -27,6 +27,7 @@ function TransitionIcon({ id }: { id: TransitionType }) {
     zoom: (<><rect x="4" y="6" width="32" height="24" fill={a} /><rect x="13" y="13" width="14" height="10" fill={b} /></>),
     rotate: (<><rect x="4" y="8" width="32" height="20" fill={a} /><rect x="12" y="10" width="16" height="14" fill={b} transform="rotate(-20 20 17)" /></>),
     flip: (<><path d="M6 8 L20 11 L20 25 L6 28 Z" fill={a} /><path d="M20 11 L34 8 L34 28 L20 25 Z" fill={b} /></>),
+    morph: (<><circle cx="11" cy="14" r="6" fill={a} /><rect x="22" y="16" width="14" height="12" rx="2" fill={b} /><path d="M16 16 Q20 12 23 19" stroke={b} strokeDasharray="2 2" fill="none" /></>),
   }[id];
   return (
     <svg width="40" height="34" viewBox="0 0 40 36" aria-hidden>
@@ -53,9 +54,13 @@ export function TransitionsTab() {
             </button>
           ))}
         </div>
-        <DropdownButton size="large" icon={<Zap size={22} />} label="효과 옵션" title="방향" disabled={!def.directions}>
+        <DropdownButton size="large" icon={<Zap size={22} />} label="효과 옵션" title={t.type === 'morph' ? '모핑 단위' : '방향'} disabled={!def.directions && t.type !== 'morph'}>
           {(close) => (
-            <div className="menu">
+            <div className="menu" data-transition-options="">
+              {t.type === 'morph' &&
+                MORPH_OPTIONS.map((m) => (
+                  <MenuItem key={m.id} label={m.name} checked={(t.morphOption ?? 'byObject') === m.id} onClick={() => (AA.updateTransition({ morphOption: m.id }), AA.previewTransition(), close())} />
+                ))}
               {def.directions?.map((d) => (
                 <MenuItem key={d} label={DIRECTION_NAMES[d]} checked={t.direction === d} onClick={() => (AA.updateTransition({ direction: d }), AA.previewTransition(), close())} />
               ))}

@@ -9,6 +9,7 @@ import { buildTimeline } from '../../engines/animation/timeline';
 const P = 'http://schemas.openxmlformats.org/presentationml/2006/main';
 const MC = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
 const P14 = 'http://schemas.microsoft.com/office/powerpoint/2010/main';
+const P159 = 'http://schemas.microsoft.com/office/powerpoint/2015/09/main';
 
 /* ───────────── 전환 ───────────── */
 
@@ -53,6 +54,14 @@ export function buildTransitionXml(t: SlideTransition | undefined): string | und
   if (!hasEffect && !adv) return undefined;
   const spd = t.duration <= 500 ? 'fast' : t.duration <= 750 ? 'med' : 'slow';
   if (!hasEffect) return `<p:transition xmlns:p="${P}"${adv}/>`;
+  // 모핑 (PowerPoint 2016+, MS-PPTX p159:morph): 모르는 프로그램은 페이드
+  if (t.type === 'morph')
+    return (
+      `<mc:AlternateContent xmlns:mc="${MC}" xmlns:p="${P}" xmlns:p14="${P14}">` +
+      `<mc:Choice xmlns:p159="${P159}" Requires="p159"><p:transition spd="${spd}" p14:dur="${Math.round(t.duration)}"${adv}><p159:morph option="${t.morphOption ?? 'byObject'}"/></p:transition></mc:Choice>` +
+      `<mc:Fallback><p:transition spd="${spd}"${adv}><p:fade/></p:transition></mc:Fallback>` +
+      `</mc:AlternateContent>`
+    );
   // PowerPoint 2010+: 정확한 재생 시간(p14:dur), 이전 버전: spd
   return (
     `<mc:AlternateContent xmlns:mc="${MC}" xmlns:p="${P}" xmlns:p14="${P14}">` +

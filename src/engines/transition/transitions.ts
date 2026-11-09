@@ -25,6 +25,14 @@ export const TRANSITIONS: TransitionDef[] = [
   { id: 'zoom', name: '확대/축소', defaultDuration: 700 },
   { id: 'rotate', name: '회전', defaultDuration: 1200 },
   { id: 'flip', name: '뒤집기', directions: ['left', 'right'], defaultDuration: 1000 },
+  { id: 'morph', name: '모핑', defaultDuration: 2000 },
+];
+
+/** 모핑 효과 옵션 (PowerPoint: 개체 / 단어 / 문자) */
+export const MORPH_OPTIONS: { id: NonNullable<SlideTransition['morphOption']>; name: string }[] = [
+  { id: 'byObject', name: '개체' },
+  { id: 'byWord', name: '단어' },
+  { id: 'byChar', name: '문자' },
 ];
 
 export const DIRECTION_NAMES: Record<string, string> = {
@@ -115,6 +123,9 @@ export function transitionFrame(t: SlideTransition, raw: number): TransitionFram
         ? { prev: { transform: `perspective(1600px) rotateY(${sign * 180 * p}deg)` }, next: { opacity: 0 } }
         : { prev: { opacity: 0 }, next: { transform: `perspective(1600px) rotateY(${sign * -180 * (1 - p)}deg)` } };
     }
+    case 'morph':
+      // 배경·디자인 층만 서서히 바뀜 (개체는 morph.ts의 장면으로 따로 그림)
+      return { prev: {}, next: { opacity: e } };
   }
 }
 

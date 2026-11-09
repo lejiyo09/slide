@@ -403,7 +403,7 @@ export interface Slide {
 /* ───────────── 전환 ───────────── */
 
 export type TransitionType =
-  | 'none' | 'fade' | 'fadeBlack' | 'push' | 'wipe' | 'split' | 'cover' | 'uncover' | 'circle' | 'zoom' | 'rotate' | 'flip';
+  | 'none' | 'fade' | 'fadeBlack' | 'push' | 'wipe' | 'split' | 'cover' | 'uncover' | 'circle' | 'zoom' | 'rotate' | 'flip' | 'morph';
 
 export type Direction = 'left' | 'right' | 'up' | 'down';
 
@@ -417,6 +417,8 @@ export interface SlideTransition {
   advanceOnClick?: boolean;
   /** 이 시간(ms) 후 자동으로 넘김 */
   advanceAfter?: number;
+  /** 모핑: 개체 / 단어 / 문자 단위 (PPTX p159:morph option, 기본 개체) */
+  morphOption?: 'byObject' | 'byWord' | 'byChar';
 }
 
 /* ───────────── 애니메이션 ───────────── */

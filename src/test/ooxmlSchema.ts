@@ -134,12 +134,22 @@ function matchOnce(p: Particle, kids: Element[], i: number, assign: Map<number, 
   return pos;
 }
 
-/** mc:AlternateContent를 Choice(또는 Fallback)의 내용으로 펼침 */
-function expand(kids: Element[], use: 'Choice' | 'Fallback'): Element[] {
+/**
+ * mc:AlternateContent를 Choice(또는 Fallback)의 내용으로 펼침.
+ * Choice가 요구하는 이름공간(Requires)의 스키마가 없으면(예: p159 모핑) 그 Choice는 검사할 수 없으므로 Fallback으로 대신하고 unknown에 남김
+ */
+function expand(kids: Element[], use: 'Choice' | 'Fallback', unknown?: Set<string>): Element[] {
+  const { knownNs } = load();
   const out: Element[] = [];
   for (const k of kids) {
     if (k.namespaceURI === MC && k.localName === 'AlternateContent') {
-      const branch = Array.from(k.children).find((c) => c.localName === use) ?? Array.from(k.children).find((c) => c.localName === 'Fallback');
+      let choice = Array.from(k.children).find((c) => c.localName === 'Choice');
+      const missing = (choice?.getAttribute('Requires') ?? '').split(/\s+/).filter(Boolean).map((p) => choice!.lookupNamespaceURI(p) ?? p).filter((ns) => !knownNs.has(ns));
+      if (missing.length) {
+        missing.forEach((ns) => unknown?.add(`${ns} (스키마 없음: mc:Choice 검사 못 함)`));
+        choice = undefined;
+      }
+      const branch = (use === 'Choice' ? choice : undefined) ?? Array.from(k.children).find((c) => c.localName === 'Fallback');
       if (branch) out.push(...Array.from(branch.children));
     } else out.push(k);
   }
@@ -187,7 +197,7 @@ export function validateElement(el: Element, typeName: string, path = '', issues
     return { issues, unknown };
   }
   for (const use of children.some((c) => c.namespaceURI === MC && c.localName === 'AlternateContent') ? (['Choice', 'Fallback'] as const) : (['Choice'] as const)) {
-    const kids = expand(children, use);
+    const kids = expand(children, use, unknown);
     const assign: Map<number, string>[] = [];
     const ends = matchParticle(t.Particle, kids, 0, assign);
     if (!ends.has(kids.length)) {

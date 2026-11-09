@@ -11,6 +11,8 @@ import { ALL_FORMATS, AudioBufferSource, BlobSource, BufferTarget, CanvasSink, C
 import type { MediaObject, Presentation, Slide, SlideObject } from '../../types/model';
 import type { Frame } from '../../engines/animation/effects';
 import { ObjectView } from '../../engines/rendering/ObjectView';
+import { buildMorphScene, MorphLayer, morphTokensFor } from '../../engines/transition/MorphView';
+import { morphEase, type MorphToken } from '../../engines/transition/morph';
 import { buildTimeline, frameStates } from '../../engines/animation/timeline';
 import { transitionFrame, type TransitionFrame } from '../../engines/transition/transitions';
 import { loadAssetUrl } from '../../hooks/useAssetUrl';
@@ -311,6 +313,44 @@ export async function exportVideo(doc: Presentation, opts: VideoExportOptions): 
     }
     return c;
   };
+  /* 모핑: 배경·디자인 그림(슬라이드마다 한 번) + 프레임마다 개체 장면을 투명하게 그려 합성 */
+  const bgCache = new Map<number, HTMLCanvasElement>();
+  const bgOf = async (index: number) => {
+    let c = bgCache.get(index);
+    if (!c) {
+      const sl = plan.slides[index].slide;
+      await r.render({ ...sl, objects: [] });
+      c = await r.capture({ scale }, `${sl.id}:bg`);
+      bgCache.set(index, c);
+    }
+    return c;
+  };
+  const morphTokenCache = new Map<number, Map<string, MorphToken[]>>();
+  const drawMorph = async (index: number, p: number) => {
+    const to = plan.slides[index].slide;
+    const from = index > 0 ? plan.slides[index - 1].slide : null;
+    const option = to.transition?.morphOption ?? 'byObject';
+    let tokens = morphTokenCache.get(index);
+    if (!tokens) morphTokenCache.set(index, (tokens = await morphTokensFor(doc, from, to, option)));
+    const scene = buildMorphScene({
+      doc,
+      from,
+      to,
+      p,
+      option,
+      fromFrames: from ? framesOf(index - 1, { done: plan.slides[index - 1].steps.length, t: null }) : undefined,
+      toFrames: framesOf(index, { done: 0, t: null }),
+      tokens,
+    });
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, width, height);
+    if (from) g.drawImage(await bgOf(index - 1), 0, 0, width, height);
+    g.globalAlpha = morphEase(Math.max(0, Math.min(1, p)));
+    g.drawImage(await bgOf(index), 0, 0, width, height);
+    g.globalAlpha = 1;
+    await r.render(to, undefined, <MorphLayer scene={scene} doc={doc} mode="thumb" />);
+    g.drawImage(await r.capture({ scale, background: null }, to.id), 0, 0, width, height);
+  };
   let layerKey = '';
   let layerCache: Awaited<ReturnType<typeof renderLayers>> | null = null;
 
@@ -322,7 +362,11 @@ export async function exportVideo(doc: Presentation, opts: VideoExportOptions): 
       if (opts.signal?.aborted) throw new DOMException('취소했습니다.', 'AbortError');
       const ms = (f * 1000) / opts.fps;
       const st = stateAt(plan, ms);
-      if (st.kind === 'transition') {
+      if (st.kind === 'transition' && plan.slides[st.index].slide.transition?.type === 'morph') {
+        await drawMorph(st.index, st.p);
+        rendered++;
+        lastKey = '';
+      } else if (st.kind === 'transition') {
         const sp = plan.slides[st.index];
         const prev = st.index > 0 ? await snapshot(st.index - 1, 'last') : null;
         const next = await snapshot(st.index, 'first');

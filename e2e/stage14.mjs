@@ -814,6 +814,105 @@ try {
     await st({ equationEditorId: null });
   }
 
+  if (want('morph')) {
+    /* ───── 모핑 전환 ───── */
+    await closeBackstage();
+    const hiddenBefore = await page.evaluate(() => {
+      const st = window.__SLIDELAB__.getState();
+      const hidden = st.doc.slides.map((s) => !!s.hidden);
+      const body = (t, size, color) => ({ paragraphs: [{ runs: [{ text: t, fontSize: size, color }], align: 'left' }], vAlign: 'middle', direction: 'horizontal', padding: { top: 4, right: 8, bottom: 4, left: 8 }, autoFit: 'none' });
+      const circle = (id, x, y, w, color) => ({ id, type: 'shape', name: '공', shape: 'ellipse', x, y, width: w, height: w, rotation: 0, fill: { type: 'solid', color }, stroke: null, text: body('', 18, '#000000') });
+      const label = (id, x, y, t) => ({ id, type: 'text', name: '제목', x, y, width: 500, height: 70, rotation: 0, fill: { type: 'none' }, stroke: null, text: body(t, 40, '#1F3864') });
+      st.commit('모핑 준비', (d) => {
+        const base = JSON.parse(JSON.stringify(d.slides[0]));
+        const mk = (id, objects, transition) => ({ ...base, id, hidden: false, notes: '', animations: [], comments: undefined, objects, ...(transition ? { transition } : { transition: undefined }) });
+        d.slides.forEach((s) => (s.hidden = true));
+        d.slides.push(mk('m1', [circle('m1c', 100, 100, 200, '#FF0000'), label('m1t', 100, 500, '분기 실적')]));
+        d.slides.push(mk('m2', [circle('m2c', 800, 300, 300, '#0000FF'), label('m2t', 600, 100, '실적 보고')], { type: 'morph', duration: 3000, advanceOnClick: true }));
+      });
+      st.set({ activeSlideId: 'm2', selectedSlideIds: ['m2'] });
+      return hidden;
+    });
+    // 리본: 전환 탭에 모핑, 효과 옵션 개체/단어/문자
+    await page.locator('.tab', { hasText: '전환' }).click();
+    check('전환 갤러리에 모핑 (선택됨)', (await page.locator('.fx-item[data-transition="morph"].is-active').count()) === 1);
+    await page.locator('.rb', { hasText: '효과 옵션' }).click();
+    const opts = await page.locator('[data-transition-options] .menu-item').allTextContents();
+    check('모핑 효과 옵션: 개체·단어·문자', opts.map((x) => x.trim()).join(',') === '개체,단어,문자', opts.join(','));
+    await page.keyboard.press('Escape');
+    // 슬라이드 쇼: 전환 중 공이 앞 자리와 새 자리 사이를 움직이고 색이 섞임
+    const sampleShow = async (sel) => {
+      await page.evaluate(() => window.__SLIDELAB__.getState().set({ activeSlideId: 'm1', selectedSlideIds: ['m1'] }));
+      await page.keyboard.press('Shift+F5');
+      await page.waitForSelector('.slideshow .show-stage');
+      await page.waitForTimeout(300);
+      await page.keyboard.press('ArrowRight');
+      await page.waitForSelector('.show-stage[data-transition="running"]');
+      const samples = [];
+      for (let i = 0; i < 12; i++) {
+        samples.push(
+          await page.evaluate((sel) => {
+            const stage = document.querySelector('.show-stage');
+            if (!stage || !stage.dataset.transition) return null;
+            const k = stage.getBoundingClientRect().width / 1280;
+            const s0 = stage.getBoundingClientRect();
+            const el = document.querySelector(sel);
+            if (!el) return { missing: true };
+            const r = el.getBoundingClientRect();
+            const fillEl = el.querySelector('svg [fill]:not([fill="none"])') ?? el.querySelector('svg path, svg ellipse');
+            return { cx: (r.left + r.width / 2 - s0.left) / k, w: r.width / k, fill: fillEl ? getComputedStyle(fillEl).fill : null, tokens: [...document.querySelectorAll('[data-morph-token]')].map((t) => [t.dataset.morphToken, Number(getComputedStyle(t).opacity).toFixed(2)]) };
+          }, sel),
+        );
+        await page.waitForTimeout(200);
+      }
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !window.__SLIDELAB__.getState().slideshow);
+      return samples.filter((x) => x && !x.missing);
+    };
+    const sm = await sampleShow('[data-obj-id="mp:m2c"]');
+    const mids = sm.filter((x) => x.cx > 210 && x.cx < 940);
+    const increasing = sm.every((x, i) => i === 0 || x.cx >= sm[i - 1].cx - 0.5);
+    const mixed = sm.some((x) => /rgb\((\d+), 0, (\d+)\)/.test(x.fill ?? '') && Number(x.fill.match(/rgb\((\d+)/)[1]) > 20 && Number(x.fill.match(/, (\d+)\)/)[1]) > 20);
+    check('쇼: 모핑 중 공이 앞 자리→새 자리로 이동(중간 위치·크기), 색이 섞임', mids.length >= 3 && increasing && mixed && mids.some((x) => x.w > 205 && x.w < 295), JSON.stringify(sm.slice(0, 6).map((x) => [Math.round(x.cx), Math.round(x.w), x.fill])));
+    // 단어 옵션: 같은 단어 '실적'은 이동, '분기'는 사라지고 '보고'는 나타남
+    await page.evaluate(() => window.__SLIDELAB__.getState().commit('모핑 단어', (d) => (d.slides.find((s) => s.id === 'm2').transition.morphOption = 'byWord')));
+    const sw = await sampleShow('[data-obj-id="mp:m2t"]');
+    const tk = sw.find((x) => x.tokens.length >= 3 && x.tokens.some(([t, o]) => t === '보고' && o > 0 && o < 1));
+    check('쇼: 단어 단위 모핑 (실적=이동, 분기=사라짐, 보고=나타남)', !!tk && tk.tokens.some(([t, o]) => t === '실적' && o === '1.00') && tk.tokens.some(([t]) => t === '분기'), JSON.stringify(tk?.tokens ?? sw.map((x) => x.tokens).slice(0, 3)));
+    // 비디오: 슬라이드 1(2초) 뒤 모핑 3초 → 3.5초(중간)에는 공의 중간 자리가 보라색
+    await page.evaluate(() => window.__SLIDELAB__.getState().commit('모핑 개체', (d) => (d.slides.find((s) => s.id === 'm2').transition.morphOption = 'byObject')));
+    await openExport();
+    await page.locator('[data-video-seconds]').fill('2');
+    await page.locator('select[aria-label="비디오 형식"]').selectOption('webm');
+    await page.locator('select[aria-label="비디오 품질"]').selectOption('720');
+    const mv = await download(() => page.locator('[data-export-video-go]').click(), 's14-morph.webm');
+    const pxAt = (t, x, y) => [...execFileSync('ffmpeg', ['-v', 'error', '-ss', String(t), '-i', mv.path, '-frames:v', '1', '-vf', `crop=2:2:${x}:${y}`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'])].slice(0, 3);
+    // 공 중심: (200,200) → (950,450), 3.5초 = 진행률 0.5 → 가감속 0.5 → (575,325), 지름 250 → 글자와 겹치지 않는 (620,300)을 봄
+    const midPx = pxAt(3.5, 620, 300), startPx = pxAt(1.0, 200, 200), endPx = pxAt(5.6, 950, 450);
+    const purple = midPx[0] > 80 && midPx[0] < 180 && midPx[2] > 80 && midPx[2] < 180 && midPx[1] < 60;
+    check('비디오: 모핑 중간 프레임 = 중간 자리·섞인 색, 처음 빨강·끝 파랑', purple && startPx[0] > 200 && startPx[2] < 60 && endPx[2] > 200 && endPx[0] < 60, `${midPx} / ${startPx} / ${endPx}`);
+    // PPTX
+    const [dlM] = await Promise.all([page.waitForEvent('download'), page.locator('.bs-export-item', { hasText: 'PowerPoint' }).click()]);
+    await dlM.saveAs(`${OUT}/s14-morph.pptx`);
+    const zm = await JSZip.loadAsync(readFileSync(`${OUT}/s14-morph.pptx`));
+    const names = Object.keys(zm.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
+    let morphXml = '';
+    for (const n of names) {
+      const x = await zm.file(n).async('string');
+      if (x.includes('p159:morph')) morphXml = x;
+    }
+    check('PPTX: p159:morph + 대체 페이드', /<p159:morph option="byObject"\/>[\s\S]*<mc:Fallback><p:transition[^>]*><p:fade\/>/.test(morphXml));
+    await closeBackstage();
+    await page.evaluate((hidden) => {
+      window.__SLIDELAB__.getState().commit('모핑 정리', (d) => {
+        d.slides = d.slides.filter((s) => s.id !== 'm1' && s.id !== 'm2');
+        d.slides.forEach((s, i) => (s.hidden = hidden[i]));
+      });
+      const st = window.__SLIDELAB__.getState();
+      st.set({ activeSlideId: st.doc.slides[0].id, selectedSlideIds: [st.doc.slides[0].id] });
+    }, hiddenBefore);
+  }
+
   if (want('perf')) {
     /* ───── 성능: 슬라이드 1000장 ───── */
     await closeBackstage();
