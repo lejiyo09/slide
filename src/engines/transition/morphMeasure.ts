@@ -8,11 +8,13 @@ import { createRoot } from 'react-dom/client';
 import type { Presentation, Slide } from '../../types/model';
 import { SlideView } from '../rendering/SlideView';
 import { cssColorToHex } from '../../utils/color';
-import type { MorphOption, MorphToken } from './morph';
+import { segmentText, type MorphOption, type MorphToken } from './morph';
 
 type Doc = Pick<Presentation, 'size' | 'theme' | 'assets' | 'layouts' | 'master'>;
 
-/** React가 렌더하는 중에는 flushSync를 쓸 수 없으므로 다음 작업 차례에 그려서 잰다 */
+/** 글자를 단어 또는 그래핌으로 나눔 (morph.ts와 같은 규칙) */
+export const segmentsOf = (text: string, option: MorphOption) => segmentText(text, option);
+
 export async function measureMorphTokens(doc: Doc, slide: Slide, option: MorphOption, ids?: Set<string>): Promise<Map<string, MorphToken[]>> {
   const out = new Map<string, MorphToken[]>();
   if (option === 'byObject' || typeof document === 'undefined') return out;
@@ -42,36 +44,22 @@ export async function measureMorphTokens(doc: Doc, slide: Slide, option: MorphOp
           fontStyle: cs.fontStyle,
           color: cssColorToHex(cs.color) ?? '#000000',
           ...(cs.textDecorationLine && cs.textDecorationLine !== 'none' ? { textDecoration: cs.textDecorationLine } : {}),
+          ...(cs.letterSpacing && cs.letterSpacing !== 'normal' ? { letterSpacing: cs.letterSpacing } : {}),
         };
-        let cur: MorphToken | null = null;
-        const flush = () => {
-          if (cur) tokens.push(cur);
-          cur = null;
-        };
+        // 단어: Intl.Segmenter(단어) / 문자: Intl.Segmenter(그래핌 = 이모지·결합 문자도 한 글자). 공백은 건너뜀
         let i = 0;
-        for (const ch of node.data) {
-          range.setStart(node, i);
-          range.setEnd(node, i + ch.length);
-          i += ch.length;
-          if (/\s/.test(ch)) {
-            flush();
-            continue;
-          }
-          const rects = range.getClientRects();
-          const r = rects[rects.length - 1];
-          if (!r || r.width <= 0) continue;
-          const box = { x: r.left - base.left, y: r.top - base.top, width: r.width, height: r.height };
-          // 단어: 같은 줄에서 이어지는 글자를 묶음 / 문자: 글자마다
-          const c = cur as MorphToken | null;
-          if (option === 'byWord' && c && Math.abs(box.y - c.y) < box.height / 2) {
-            c.text += ch;
-            c.width = box.x + box.width - c.x;
-            continue;
-          }
-          flush();
-          cur = { text: ch, ...box, style };
+        for (const seg of segmentsOf(node.data, option)) {
+          const from = i;
+          i += seg.length;
+          if (/^\s+$/.test(seg)) continue;
+          range.setStart(node, from);
+          range.setEnd(node, from + seg.length);
+          const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0);
+          if (!rects.length) continue;
+          // 줄이 바뀌며 둘로 나뉜 단어는 첫 줄 부분의 상자를 씀
+          const r = rects[0];
+          tokens.push({ text: seg, x: r.left - base.left, y: r.top - base.top, width: r.width, height: r.height, style });
         }
-        flush();
       }
       out.set(id, tokens);
     }

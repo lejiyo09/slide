@@ -138,6 +138,13 @@ interface BaseObject {
   flipH?: boolean;
   flipV?: boolean;
   opacity?: number; // 0..1, 기본 1
+  /**
+   * 모핑 전환에서 다른 슬라이드의 개체와 같은 개체로 이어 주는 식별자 (id와 다름: id는 슬라이드마다 고유).
+   * 없으면 id를 쓴다. 슬라이드 복제·다른 슬라이드로 복사하면 이어받고, 같은 슬라이드에서 복제하면 새로 받는다.
+   */
+  morphKey?: string;
+  /** 모핑에서 짝짓지 않음 (사용자가 '연결 안 함'을 고름) */
+  morphExclude?: boolean;
   locked?: boolean;
   hidden?: boolean;
   /** PPTX에서 가져온 개체의 원본 cNvPr id (애니메이션 대상 참조 유지용) */
@@ -419,6 +426,10 @@ export interface SlideTransition {
   advanceAfter?: number;
   /** 모핑: 개체 / 단어 / 문자 단위 (PPTX p159:morph option, 기본 개체) */
   morphOption?: 'byObject' | 'byWord' | 'byChar';
+  /** 모핑 가감속 (기본 easeInOut, PPTX에는 저장되지 않음) */
+  easing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' | 'cubicBezier';
+  /** easing === 'cubicBezier'일 때 제어점 [x1, y1, x2, y2] (CSS cubic-bezier와 같음) */
+  bezier?: [number, number, number, number];
 }
 
 /* ───────────── 애니메이션 ───────────── */

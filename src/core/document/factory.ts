@@ -212,14 +212,23 @@ export function createPresentation(title = '제목 없는 프레젠테이션', t
   };
 }
 
-/** 객체 깊은 복제 + 새 ID 부여 */
-export function cloneObject<T extends SlideObject>(obj: T, offset = 0): T {
+/** 모핑에서 쓰는 개체 식별자 (morphKey가 없으면 id) */
+export const morphKeyOf = (o: Pick<SlideObject, 'id' | 'morphKey'>) => o.morphKey ?? o.id;
+
+/**
+ * 객체 깊은 복제 + 새 ID 부여.
+ * keepMorphKey: 다른 슬라이드의 같은 개체로 이어지게 모핑 식별자를 이어받음 (슬라이드 복제·다른 슬라이드로 붙여넣기).
+ * 아니면(같은 슬라이드에서 복제) 새 개체로 보고 모핑 식별자를 지움 → 새 id가 식별자가 됨
+ */
+export function cloneObject<T extends SlideObject>(obj: T, offset = 0, keepMorphKey = false): T {
   const copy = deepClone(obj) as T;
-  const reId = (o: SlideObject) => {
+  const reId = (o: SlideObject, src: SlideObject) => {
+    if (keepMorphKey) o.morphKey = morphKeyOf(src);
+    else delete o.morphKey;
     o.id = newId();
-    if (o.type === 'group') o.children.forEach(reId);
+    if (o.type === 'group' && src.type === 'group') o.children.forEach((c, i) => reId(c, src.children[i]));
   };
-  reId(copy);
+  reId(copy, obj);
   copy.x += offset;
   copy.y += offset;
   return copy;
@@ -230,7 +239,8 @@ export function cloneSlide(slide: Slide): Slide {
   copy.id = newId();
   const idMap = new Map<string, string>();
   copy.objects = copy.objects.map((o) => {
-    const c = cloneObject(o);
+    // 복제한 슬라이드의 개체는 원본과 같은 모핑 식별자 (복제 후 옮기면 모핑으로 이어짐)
+    const c = cloneObject(o, 0, true);
     idMap.set(o.id, c.id);
     return c;
   });

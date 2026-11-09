@@ -11,8 +11,8 @@ import { ALL_FORMATS, AudioBufferSource, BlobSource, BufferTarget, CanvasSink, C
 import type { MediaObject, Presentation, Slide, SlideObject } from '../../types/model';
 import type { Frame } from '../../engines/animation/effects';
 import { ObjectView } from '../../engines/rendering/ObjectView';
-import { buildMorphScene, MorphLayer, morphTokensFor } from '../../engines/transition/MorphView';
-import { morphEase, type MorphToken } from '../../engines/transition/morph';
+import { MorphLayer, morphTokensFor, planMorph } from '../../engines/transition/MorphView';
+import { morphFrame, type MorphPlan } from '../../engines/transition/morph';
 import { buildTimeline, frameStates } from '../../engines/animation/timeline';
 import { transitionFrame, type TransitionFrame } from '../../engines/transition/transitions';
 import { loadAssetUrl } from '../../hooks/useAssetUrl';
@@ -325,27 +325,22 @@ export async function exportVideo(doc: Presentation, opts: VideoExportOptions): 
     }
     return c;
   };
-  const morphTokenCache = new Map<number, Map<string, MorphToken[]>>();
+  const morphPlans = new Map<number, MorphPlan>();
   const drawMorph = async (index: number, p: number) => {
     const to = plan.slides[index].slide;
     const from = index > 0 ? plan.slides[index - 1].slide : null;
-    const option = to.transition?.morphOption ?? 'byObject';
-    let tokens = morphTokenCache.get(index);
-    if (!tokens) morphTokenCache.set(index, (tokens = await morphTokensFor(doc, from, to, option)));
-    const scene = buildMorphScene({
-      doc,
-      from,
-      to,
-      p,
-      option,
-      fromFrames: from ? framesOf(index - 1, { done: plan.slides[index - 1].steps.length, t: null }) : undefined,
-      toFrames: framesOf(index, { done: 0, t: null }),
-      tokens,
-    });
+    let mp = morphPlans.get(index);
+    if (!mp) {
+      // 전환 하나에 한 번: 글자 묶음 재기 + 짝짓기·경로 계획
+      const tokens = await morphTokensFor(doc, from, to, to.transition?.morphOption ?? 'byObject');
+      mp = planMorph({ doc, from, to, fromFrames: from ? framesOf(index - 1, { done: plan.slides[index - 1].steps.length, t: null }) : undefined, toFrames: framesOf(index, { done: 0, t: null }), tokens });
+      morphPlans.set(index, mp);
+    }
+    const scene = morphFrame(mp, p);
     g.fillStyle = '#000';
     g.fillRect(0, 0, width, height);
     if (from) g.drawImage(await bgOf(index - 1), 0, 0, width, height);
-    g.globalAlpha = morphEase(Math.max(0, Math.min(1, p)));
+    g.globalAlpha = mp.ease(Math.max(0, Math.min(1, p)));
     g.drawImage(await bgOf(index), 0, 0, width, height);
     g.globalAlpha = 1;
     await r.render(to, undefined, <MorphLayer scene={scene} doc={doc} mode="thumb" />);

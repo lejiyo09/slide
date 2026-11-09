@@ -4,7 +4,7 @@
  */
 import { getActiveSlide, getSelectedObjects, useEditor } from '../store/editorStore';
 import * as C from './commands';
-import { cloneObject, cloneSlide, createImage, createLine, createShape, createTextBox, type SlideLayout } from '../document/factory';
+import { cloneObject, cloneSlide, morphKeyOf, createImage, createLine, createShape, createTextBox, type SlideLayout } from '../document/factory';
 import type { Asset, Presentation, ShapeKind, SlideObject } from '../../types/model';
 import { fileToAsset, pickFiles } from '../../services/storage/files';
 import * as M from './masterActions';
@@ -242,8 +242,10 @@ export function paste() {
   if (!clip) return false;
   if (clip.kind === 'objects') {
     const n = clip.pasteCount + 1;
-    const copies = clip.objects.map((o) => cloneObject(o, 20 * n));
     const slide = getActiveSlide();
+    // 다른 슬라이드로 붙여넣으면 모핑 식별자를 이어받고, 같은 식별자가 이미 있는 슬라이드(같은 슬라이드 복사)면 새로
+    const keys = new Set(slide.objects.map(morphKeyOf));
+    const copies = clip.objects.map((o) => cloneObject(o, keys.has(morphKeyOf(o)) ? 20 * n : 0, !keys.has(morphKeyOf(o))));
     s.commit('붙여넣기', (d) => {
       Object.assign(d.assets, clip.assets);
       C.addObjects(d, slide.id, copies);
