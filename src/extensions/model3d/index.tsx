@@ -1,6 +1,6 @@
 /**
  * 3D 모델 확장 (PowerPoint: 삽입 › 3D 모델). GLB / glTF(데이터 포함 한 파일)를 넣고 회전·확대를 조절한다.
- * 슬라이드 썸네일·인쇄·PDF·비디오·PPTX 대체 그림은 회전 설정으로 그린 대체 그림(PNG)을 쓴다.
+ * PPTX에는 PowerPoint 3D 모델(am3d, GLB 포함)로 저장하고, 썸네일·인쇄·PDF·비디오·PPTX 대체 그림은 회전 설정으로 그린 PNG를 쓴다.
  */
 import { lazy, useState } from 'react';
 import { Box } from 'lucide-react';
@@ -51,18 +51,22 @@ export async function createModelObject(file: File, slideSize: { width: number; 
     width: w,
     height: h,
     rotation: 0,
-    data: { ...view },
+    data: { ...view, bbox: model.userData.bbox },
     assetId: modelAsset.id,
     posterId: poster.id,
   };
   return { obj, assets: [modelAsset, poster] };
 }
 
+/** 마지막으로 그린 모델의 경계 상자 (가져온 3D 모델을 처음 고칠 때 data.bbox 채우기) */
+const lastBox = new Map<string, unknown>();
+
 async function refreshPoster(o: ExtensionObject, doc: Pick<Presentation, 'assets'>): Promise<string | null> {
   const S = await sceneModule();
   if (!S.webglAvailable() || !o.assetId) return null;
   const a = doc.assets[o.assetId];
   const model = await S.loadModel(a?.blobKey ?? o.assetId, () => modelBytes(doc, o));
+  lastBox.set(o.id, model.userData.bbox);
   return S.posterOf(model, S.viewOf(o.data), o.width, o.height);
 }
 
@@ -86,7 +90,11 @@ function Model3DProperties({ obj }: { obj: ExtensionObject }) {
       const png = cur?.type === 'extension' ? await refreshPoster(cur, s.doc) : null;
       if (png && cur?.type === 'extension' && cur.posterId) {
         const pid = cur.posterId;
-        st().updateGesture((d) => void (d.assets[pid] = { ...d.assets[pid], dataUrl: png }));
+        const box = lastBox.get(cur.id);
+        st().updateGesture((d) => {
+          d.assets[pid] = { ...d.assets[pid], dataUrl: png };
+          if (box && !cur.data.bbox) C.updateObjects(d, getActiveSlide().id, [cur.id], (o) => o.type === 'extension' && void (o.data = { ...o.data, bbox: box }));
+        });
       }
     } finally {
       st().endGesture();
@@ -119,7 +127,7 @@ function Model3DProperties({ obj }: { obj: ExtensionObject }) {
       >
         3D 모델 보기 다시 설정
       </button>
-      <p className="pp-hint">슬라이드 축소판·인쇄·PDF·비디오와 PowerPoint 파일에는 이 각도로 그린 그림이 들어갑니다.</p>
+      <p className="pp-hint">PowerPoint 파일에는 3D 모델(GLB)과 이 각도가 그대로 들어갑니다. 슬라이드 축소판·인쇄·PDF·비디오에는 이 각도로 그린 그림이 들어갑니다.</p>
     </div>
   );
 }

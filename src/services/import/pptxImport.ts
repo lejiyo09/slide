@@ -1000,6 +1000,13 @@ async function parseElement(el: Element, ctx: ShapeCtx, skipPlaceholders: boolea
 
 const REL_MODEL3D = 'http://schemas.microsoft.com/office/2017/06/relationships/model3d';
 
+/** am3d:trans/am3d:rot (60000분의 1도) → 회전 */
+function readModelRotation(m3d: Element | undefined) {
+  const rot = m3d ? descendants(m3d, 'rot')[0] : undefined;
+  const deg = (k: string) => Math.round(((numAttr(rot ?? null, k) ?? 0) / 60000) * 100) / 100;
+  return { rotX: deg('ax'), rotY: deg('ay'), rotZ: deg('az') };
+}
+
 /** PowerPoint 3D 모델 → 3D 모델 확장 개체 (GLB는 IndexedDB, 대체 그림은 Fallback 그림). 바꾸지 않으면 원본 XML 그대로 저장 */
 async function parseModel3D(alt: Element, choice: Element, ctx: ShapeCtx, tf: Xform): Promise<ExtensionObject | null> {
   const gf = kids(choice).find((c) => c.localName === 'graphicFrame');
@@ -1030,7 +1037,7 @@ async function parseModel3D(alt: Element, choice: Element, ctx: ShapeCtx, tf: Xf
     height: Math.max(1, geo.height),
     rotation: geo.rotation,
     // PowerPoint가 그린 대체 그림을 그대로 보여 줌 (회전을 바꾸면 SlideLab이 다시 그림)
-    data: { rotX: 0, rotY: 0, rotZ: 0, zoom: 1, usePoster: true },
+    data: { ...readModelRotation(m3d), zoom: 1, usePoster: true },
     assetId: modelId,
     ...(posterId ? { posterId } : {}),
   };

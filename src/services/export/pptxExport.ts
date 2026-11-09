@@ -18,6 +18,7 @@ import { KEEP_PREFIX, postProcessPptx, type SlidePlan } from './preserve';
 import { planEmbeddedFonts, type EmbedPlanFont } from '../fonts/embed';
 import { EQ_IMAGE_RID, equationShapeXml } from './equationXml';
 import { buildLegacyComments } from './commentsXml';
+import { M3D_GLB_RID, M3D_POSTER_RID, model3dXml, REL_IMAGE, REL_MODEL3D, type ModelBox } from './model3dXml';
 import { buildTransitionXml } from './animXml';
 import { OoxmlPackage } from '../import/ooxml';
 import { getBlob, getPackage } from '../storage/db';
@@ -397,14 +398,47 @@ export async function buildPptx(source: Presentation, opts: BuildOptions = {}): 
           break;
         }
         case 'extension': {
-          // 확장 개체(3D 모델 등): 대체 그림으로 저장 (가져온 원본이 그대로면 위에서 원본 XML로 복원됨)
+          // 확장 개체(3D 모델 등): 3D 모델은 PowerPoint 3D(am3d) + 대체 그림, 그 밖은 대체 그림 (가져온 원본이 그대로면 위에서 원본 XML로 복원됨)
           const poster = o.posterId ? doc.assets[o.posterId]?.dataUrl : '';
           if (!poster) {
             warn(`${o.name}: 대체 그림이 없어 저장하지 못했습니다.`);
             break;
           }
+          let box = o.data.bbox as ModelBox | undefined;
+          const glbAsset = o.kind === 'model3d' && o.assetId ? doc.assets[o.assetId] : undefined;
+          const glbUrl = glbAsset ? (glbAsset.blobKey ? (opts.loadMedia ? await opts.loadMedia(glbAsset) : null) : glbAsset.dataUrl) : null;
+          if (o.kind === 'model3d' && glbUrl && !box) {
+            // 경계 상자가 없으면(가져온 3D 모델 등) 모델을 해석해 구함
+            try {
+              const bin = Uint8Array.from(atob(glbUrl.slice(glbUrl.indexOf(',') + 1)), (c) => c.charCodeAt(0));
+              const ab = new ArrayBuffer(bin.length);
+              new Uint8Array(ab).set(bin);
+              const { parseModel } = await import('../../extensions/model3d/scene');
+              box = (await parseModel(ab)).userData.bbox as ModelBox;
+            } catch {
+              box = undefined;
+            }
+          }
+          if (o.kind === 'model3d' && box && glbUrl) {
+            const marker = `${KEEP_PREFIX}${o.id}`;
+            const bytesOf = (url: string) => Uint8Array.from(atob(url.slice(url.indexOf(',') + 1)), (c) => c.charCodeAt(0));
+            plan.markers.set(marker, {
+              xml: model3dXml(o, box),
+              part: '',
+              label: '3D 모델',
+              generated: {
+                files: {
+                  [M3D_GLB_RID]: { data: bytesOf(glbUrl), ext: 'glb', contentType: 'model/gltf-binary', relType: REL_MODEL3D },
+                  [M3D_POSTER_RID]: { data: bytesOf(poster), ext: 'png', contentType: 'image/png', relType: REL_IMAGE },
+                },
+              },
+            });
+            slide.addShape('rect' as PptxGenJS.ShapeType, { ...pos, flipH: undefined, flipV: undefined, objectName: marker });
+            emit();
+            break;
+          }
           slide.addImage({ ...pos, data: poster, altText: o.name });
-          warn('3D 모델은 PowerPoint 파일에 그림으로 저장됩니다 (PowerPoint에서 가져온 3D 모델은 바꾸지 않으면 원래대로 저장).');
+          if (o.kind === 'model3d') warn(`${o.name}: 3D 모델 파일을 읽지 못해 그림으로 저장했습니다.`);
           emit();
           break;
         }

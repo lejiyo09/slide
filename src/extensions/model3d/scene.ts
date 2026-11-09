@@ -14,6 +14,14 @@ export interface Model3DData {
   zoom: number;
 }
 
+/** 원래 모델 단위(glTF는 미터)의 경계 상자 중심과 가장 긴 변 */
+export interface ModelBox {
+  cx: number;
+  cy: number;
+  cz: number;
+  size: number;
+}
+
 export const DEFAULT_VIEW: Model3DData = { rotX: 15, rotY: -30, rotZ: 0, zoom: 1 };
 
 export function viewOf(data: Record<string, unknown>): Model3DData {
@@ -30,6 +38,8 @@ export async function parseModel(bytes: ArrayBuffer): Promise<THREE.Object3D> {
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const s = 1 / Math.max(size.x, size.y, size.z);
+  // PPTX 3D(am3d) 내보내기용: 원래 모델 단위의 중심·가장 긴 변
+  const bbox: ModelBox = { cx: center.x, cy: center.y, cz: center.z, size: Math.max(size.x, size.y, size.z) };
   const pivot = new THREE.Group();
   root.position.sub(center);
   const holder = new THREE.Group();
@@ -38,6 +48,7 @@ export async function parseModel(bytes: ArrayBuffer): Promise<THREE.Object3D> {
   pivot.add(holder);
   // 어느 방향으로 돌려도 상자 안에 들어가도록 경계 구 반지름을 기억
   pivot.userData.radius = new THREE.Box3().setFromObject(pivot).getBoundingSphere(new THREE.Sphere()).radius || 0.87;
+  pivot.userData.bbox = bbox;
   return pivot;
 }
 

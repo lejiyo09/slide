@@ -598,7 +598,14 @@ try {
     const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('.bs-export-item', { hasText: 'PowerPoint' }).click()]);
     await dl.saveAs(`${OUT}/s14-model3d.pptx`);
     const z = await JSZip.loadAsync(readFileSync(`${OUT}/s14-model3d.pptx`));
-    check('PPTX: 대체 그림으로 저장 + 안내', /<p:pic>[\s\S]*descr="cube"/.test(await z.file('ppt/slides/slide1.xml').async('string')) && (await page.locator('.bs-warnings').textContent()).includes('3D 모델은'));
+    {
+      const sx = await z.file('ppt/slides/slide1.xml').async('string');
+      const rels = await z.file('ppt/slides/_rels/slide1.xml.rels').async('string');
+      const glbName = rels.match(/relationships\/model3d" Target="\.\.\/media\/([^"]+\.glb)"/)?.[1];
+      const glbLen = glbName ? (await z.file(`ppt/media/${glbName}`).async('uint8array')).length : -1;
+      const warn = (await page.locator('.bs-warnings').count()) ? await page.locator('.bs-warnings').textContent() : '';
+      check('PPTX: PowerPoint 3D 모델(am3d) + GLB + 대체 그림(Fallback)', /Requires="am3d"[\s\S]*<am3d:model3d r:embed="rIdSL\d+">[\s\S]*<mc:Fallback><p:pic>[\s\S]*descr="cube"/.test(sx) && glbLen === readFileSync('src/extensions/model3d/__fixtures__/cube.glb').length && !warn.includes('그림으로 저장'), `glb=${glbLen}`);
+    }
     // .slidelab에 GLB 포함
     const [dl2] = await Promise.all([page.waitForEvent('download'), page.locator('.bs-export-item', { hasText: 'SlideLab 문서' }).click()]);
     await dl2.saveAs(`${OUT}/s14-model3d.slidelab`);

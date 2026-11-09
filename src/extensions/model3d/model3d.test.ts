@@ -8,6 +8,7 @@ import { createPresentation } from '../../core/document/factory';
 import { exportPptxBytes } from '../../services/export/pptxExport';
 import { importPptx } from '../../services/import/pptxImport';
 import type { ExtensionObject } from '../../types/model';
+import { validateXml } from '../../test/ooxmlSchema';
 
 const glb = readFileSync('src/extensions/model3d/__fixtures__/cube.glb');
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
@@ -86,16 +87,46 @@ describe('3D 모델', () => {
     expect((await out.file(`ppt/media/${glbTarget}`)!.async('uint8array')).length).toBe(glb.length);
   });
 
-  it('회전을 바꾼 3D 모델·새 3D 모델은 대체 그림으로 저장', async () => {
-    const r = await importPptx(await pptxWith3D());
+  it('회전을 바꾼 3D 모델 → PowerPoint 3D(am3d)로 새로 저장: GLB·대체 그림·회전, 스키마 통과, 다시 가져오면 같은 회전', async () => {
+    const src = await pptxWith3D();
+    const r = await importPptx(src);
+    expect((r.doc.slides[0].objects[0] as ExtensionObject).data).toMatchObject({ rotX: 15, rotY: -30, rotZ: 0 });
+    // 가져온 GLB를 data URL로 (브라우저에서는 IndexedDB에서 읽음)
+    const glbB64 = Buffer.from(r.blobs[0].data).toString('base64');
     const edited = produce(r.doc, (d) => {
       const m = d.slides[0].objects[0] as ExtensionObject;
       m.data = { ...m.data, rotY: 45, usePoster: false };
     });
-    const { bytes, warnings } = await exportPptxBytes(edited, { sourcePackage: await pptxWith3D() });
-    const sx = await (await JSZip.loadAsync(bytes)).file('ppt/slides/slide1.xml')!.async('string');
-    expect(sx).not.toContain('am3d:model3d');
-    expect(sx).toMatch(/<p:pic>[\s\S]*<a:blip r:embed=/);
-    expect(warnings.join(' ')).toContain('그림으로 저장');
+    const { bytes, warnings } = await exportPptxBytes(edited, { sourcePackage: src, loadMedia: async () => `data:model/gltf-binary;base64,${glbB64}` });
+    const z = await JSZip.loadAsync(bytes);
+    const sx = await z.file('ppt/slides/slide1.xml')!.async('string');
+    expect(sx).toMatch(/<mc:Choice[^>]*Requires="am3d"[^>]*><p:graphicFrame>[\s\S]*<am3d:model3d r:embed="rIdSL\d+">/);
+    expect(sx).toContain(`<am3d:rot ax="900000" ay="2700000" az="0"/>`);
+    expect(sx).toMatch(/<mc:Fallback><p:pic>[\s\S]*<a:blip r:embed="rIdSL\d+"\/>/);
+    expect(validateXml(sx)).toEqual([]);
+    const rels = await z.file('ppt/slides/_rels/slide1.xml.rels')!.async('string');
+    const glbTarget = rels.match(/relationships\/model3d" Target="\.\.\/media\/([^"]+\.glb)"/)![1];
+    expect((await z.file(`ppt/media/${glbTarget}`)!.async('uint8array')).length).toBe(glb.length);
+    // raster와 Fallback이 같은 대체 그림 관계를 씀
+    const posterRids = [...sx.matchAll(/<a:blip r:embed="(rIdSL\d+)"/g)].map((m) => m[1]);
+    expect(new Set(posterRids).size).toBe(1);
+    expect(await z.file('[Content_Types].xml')!.async('string')).toContain('Extension="glb" ContentType="model/gltf-binary"');
+    expect(warnings.join(' ')).not.toContain('그림으로 저장');
+    const back = await importPptx(bytes);
+    expect((back.doc.slides[0].objects[0] as ExtensionObject).data).toMatchObject({ rotX: 15, rotY: 45, rotZ: 0 });
+  });
+
+  it('새로 넣은 3D 모델도 am3d로 (경계 상자로 크기·중심 맞춤)', async () => {
+    const doc = produce(createPresentation('3D'), (d) => {
+      d.assets.glb = { id: 'glb', mime: 'model/gltf-binary', dataUrl: `data:model/gltf-binary;base64,${glb.toString('base64')}` };
+      d.assets.poster = { id: 'poster', mime: 'image/png', dataUrl: `data:image/png;base64,${PNG}` };
+      d.slides[0].objects = [{ id: 'm', type: 'extension', kind: 'model3d', name: 'cube', x: 100, y: 50, width: 400, height: 300, rotation: 0, data: { rotX: 10, rotY: 20, rotZ: 0, zoom: 1, bbox: { cx: 0, cy: 0, cz: 0, size: 2 } }, assetId: 'glb', posterId: 'poster' } as ExtensionObject];
+    });
+    const z = await JSZip.loadAsync((await exportPptxBytes(doc)).bytes);
+    const sx = await z.file('ppt/slides/slide1.xml')!.async('string');
+    expect(validateXml(sx)).toEqual([]);
+    // 가장 긴 변(2m) → viewportSz(400px = 3810000 EMU)
+    expect(sx).toContain('<am3d:sx n="3810000" d="72000000"/>');
+    expect(sx).toContain('<am3d:objViewport viewportSz="3810000"/>');
   });
 });

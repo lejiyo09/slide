@@ -18,9 +18,17 @@ export interface PreservedXml {
   part: string;
   label: string;
   /** SlideLab이 만든 XML (원본 패키지 없이 씀): 그림 자리(r:embed 값) → PNG 바이트 */
-  generated?: { images: Record<string, Uint8Array> };
+  generated?: { images?: Record<string, Uint8Array>; files?: Record<string, GeneratedFile> };
 }
 import { NS, OoxmlPackage, kid, kids, path, relativePath, relsPathFor } from '../import/ooxml';
+
+/** 직접 만든 XML이 참조하는 파일 (예: 3D 모델 GLB) */
+export interface GeneratedFile {
+  data: Uint8Array;
+  ext: string;
+  contentType: string;
+  relType: string;
+}
 
 export const KEEP_PREFIX = '__SLIDELAB_KEEP__';
 
@@ -182,22 +190,32 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
         const id = c?.getAttribute('id') ?? String(freshId++);
         // Choice와 Fallback의 도형은 같은 도형이므로 같은 ID (PowerPoint·LibreOffice와 같음)
         for (const n of Array.from(node.getElementsByTagNameNS(NS.p, 'cNvPr'))) n.setAttribute('id', id);
-        for (const blip of Array.from(node.getElementsByTagNameNS(NS.a, 'blip'))) {
-          const key = blip.getAttributeNS(NS.r, 'embed') ?? '';
-          const png = obj.generated.images[key];
-          if (!png) continue;
-          let media: string;
-          do media = `ppt/media/slGen${++counter}.png`;
-          while (out.file(media));
-          out.file(media, png);
-          const rid = `rIdSL${++relSeq}`;
-          const relEl = rdoc.createElementNS(NS.pr, 'Relationship');
-          relEl.setAttribute('Id', rid);
-          relEl.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
-          relEl.setAttribute('Target', relativePath(slidePath, media));
-          rdoc.documentElement.appendChild(relEl);
-          blip.setAttributeNS(NS.r, 'r:embed', rid);
-          ensureDefault('png', 'image/png');
+        // 자리 표시 관계 ID(r:embed 등) → 새 파트 + 관계 (같은 자리는 한 번만: 3D 대체 그림은 raster와 Fallback이 같이 씀)
+        const files: Record<string, GeneratedFile> = { ...(obj.generated.files ?? {}) };
+        for (const [k, png] of Object.entries(obj.generated.images ?? {})) files[k] = { data: png, ext: 'png', contentType: 'image/png', relType: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image' };
+        const made = new Map<string, string>();
+        for (const el of [node, ...Array.from(node.getElementsByTagName('*'))]) {
+          for (const attr of Array.from(el.attributes)) {
+            if (attr.namespaceURI !== NS.r) continue;
+            const f = files[attr.value];
+            if (!f) continue;
+            let rid = made.get(attr.value);
+            if (!rid) {
+              let media: string;
+              do media = `ppt/media/slGen${++counter}.${f.ext}`;
+              while (out.file(media));
+              out.file(media, f.data);
+              rid = `rIdSL${++relSeq}`;
+              const relEl = rdoc.createElementNS(NS.pr, 'Relationship');
+              relEl.setAttribute('Id', rid);
+              relEl.setAttribute('Type', f.relType);
+              relEl.setAttribute('Target', relativePath(slidePath, media));
+              rdoc.documentElement.appendChild(relEl);
+              ensureDefault(f.ext, f.contentType);
+              made.set(attr.value, rid);
+            }
+            attr.value = rid;
+          }
         }
         spTree.replaceChild(node, marker);
         if (elementAt) elementAt[elementAt.indexOf(marker)] = node;
