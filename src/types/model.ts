@@ -512,6 +512,8 @@ export interface Presentation {
   customShows?: CustomShow[];
   /** PPTX로 저장할 때 내 글꼴을 파일에 포함 (presentation.xml embedTrueTypeFonts, 기본 켬) */
   embedFonts?: boolean;
+  /** PPTX 메모 형식: 자동(해결한 메모가 있으면 최신) / 기존(PowerPoint 2019 이하·LibreOffice) / 최신(PowerPoint 365, 해결 상태 저장) */
+  commentFormat?: 'auto' | 'legacy' | 'modern';
   createdAt: number;
   updatedAt: number;
   version: 1;

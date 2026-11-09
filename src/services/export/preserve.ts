@@ -11,7 +11,7 @@ import JSZip from 'jszip';
 import type { Animation, Fill } from '../../types/model';
 import { buildTimingXml } from './animXml';
 import { FONT_SLOTS, type EmbedPlanFont } from '../fonts/embed';
-import { CT_COMMENT_AUTHORS, CT_COMMENTS, REL_COMMENT_AUTHORS, REL_COMMENTS, type LegacyCommentsXml } from './commentsXml';
+import { COMMENT_REL_EXT_URI, CT_COMMENT_AUTHORS, CT_COMMENTS, CT_MODERN_AUTHORS, CT_MODERN_COMMENTS, P188_NS, REL_COMMENT_AUTHORS, REL_COMMENTS, REL_MODERN_AUTHORS, REL_MODERN_COMMENTS, SLIDE_ID_PLACEHOLDER, type CommentsPlan } from './commentsXml';
 
 export interface PreservedXml {
   xml: string;
@@ -20,7 +20,7 @@ export interface PreservedXml {
   /** SlideLab이 만든 XML (원본 패키지 없이 씀): 그림 자리(r:embed 값) → PNG 바이트 */
   generated?: { images?: Record<string, Uint8Array>; files?: Record<string, GeneratedFile> };
 }
-import { NS, OoxmlPackage, kid, kids, path, relativePath, relsPathFor } from '../import/ooxml';
+import { NS, OoxmlPackage, kid, kids, path, relativePath, relsPathFor, resolvePath } from '../import/ooxml';
 
 /** 직접 만든 XML이 참조하는 파일 (예: 3D 모델 GLB) */
 export interface GeneratedFile {
@@ -386,7 +386,7 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
   if (pres) await writePresentationSettings(out, pres);
   // 6) 포함 글꼴 (ppt/fonts/*.fntdata + p:embeddedFontLst)
   if (pres?.embeddedFonts?.length) await writeEmbeddedFonts(out, ctDoc, pres.embeddedFonts);
-  // 7) 메모 (ppt/commentAuthors.xml + ppt/comments/commentN.xml)
+  // 7) 메모 (기존: ppt/commentAuthors.xml + ppt/comments/commentN.xml / 최신: ppt/authors.xml + ppt/comments/modernComment_*.xml)
   if (pres?.comments) await writeComments(out, ctDoc, pres.comments);
 
   // 8) 스키마 정리: pptxgenjs가 만드는 순서·중복 오류 바로잡기 (Open XML SDK 스키마 검증으로 찾음)
@@ -451,11 +451,11 @@ export interface PresentationPlan {
   themeEastAsian?: { major: string | null; minor: string | null };
   /** 포함 글꼴 (EOT) */
   embeddedFonts?: EmbedPlanFont[];
-  /** 메모 (기존 메모 형식) */
-  comments?: LegacyCommentsXml | null;
+  /** 메모 (기존 또는 최신 형식) */
+  comments?: CommentsPlan | null;
 }
 
-async function addRel(out: JSZip, part: string, type: string, target: string) {
+async function addRel(out: JSZip, part: string, type: string, target: string): Promise<string> {
   const relsPath = relsPathFor(part);
   const rdoc = parse(out.file(relsPath) ? await out.file(relsPath)!.async('string') : `<Relationships xmlns="${NS.pr}"/>`);
   const used = new Set(Array.from(rdoc.documentElement.children).map((n) => n.getAttribute('Id')));
@@ -467,6 +467,7 @@ async function addRel(out: JSZip, part: string, type: string, target: string) {
   el.setAttribute('Target', relativePath(part, target));
   rdoc.documentElement.appendChild(el);
   out.file(relsPath, serialize(rdoc));
+  return `rIdCm${i}`;
 }
 
 function addOverride(ctDoc: Document, part: string, type: string) {
@@ -476,7 +477,8 @@ function addOverride(ctDoc: Document, part: string, type: string) {
   ctDoc.documentElement.appendChild(o);
 }
 
-async function writeComments(out: JSZip, ctDoc: Document, c: LegacyCommentsXml) {
+async function writeComments(out: JSZip, ctDoc: Document, c: CommentsPlan) {
+  if (c.format === 'modern') return writeModernComments(out, ctDoc, c);
   out.file('ppt/commentAuthors.xml', c.authorsXml);
   await addRel(out, 'ppt/presentation.xml', REL_COMMENT_AUTHORS, 'ppt/commentAuthors.xml');
   addOverride(ctDoc, 'ppt/commentAuthors.xml', CT_COMMENT_AUTHORS);
@@ -488,6 +490,44 @@ async function writeComments(out: JSZip, ctDoc: Document, c: LegacyCommentsXml) 
     out.file(part, xml);
     await addRel(out, slidePath, REL_COMMENTS, part);
     addOverride(ctDoc, part, CT_COMMENTS);
+  }
+}
+
+/** 최신 메모: 슬라이드 ID(presentation.xml sldIdLst)를 채우고, 슬라이드 p:extLst에 p188:commentRel 추가 */
+async function writeModernComments(out: JSZip, ctDoc: Document, c: Extract<CommentsPlan, { format: 'modern' }>) {
+  const presPath = 'ppt/presentation.xml';
+  const pres = parse(await out.file(presPath)!.async('string'));
+  const presRels = parse(await out.file(relsPathFor(presPath))!.async('string'));
+  const targetOf = new Map(Array.from(presRels.documentElement.children).map((r) => [r.getAttribute('Id'), resolvePath(presPath, r.getAttribute('Target') ?? '')]));
+  const idOf = new Map<string, string>();
+  for (const s of Array.from(pres.getElementsByTagNameNS(NS.p, 'sldId'))) {
+    const t = targetOf.get(s.getAttributeNS(NS.r, 'id'));
+    if (t) idOf.set(t, s.getAttribute('id') ?? '256');
+  }
+  out.file('ppt/authors.xml', c.authorsXml);
+  await addRel(out, presPath, REL_MODERN_AUTHORS, 'ppt/authors.xml');
+  addOverride(ctDoc, 'ppt/authors.xml', CT_MODERN_AUTHORS);
+  for (let i = 0; i < c.slides.length; i++) {
+    const xml = c.slides[i];
+    const slidePath = `ppt/slides/slide${i + 1}.xml`;
+    if (!xml || !out.file(slidePath)) continue;
+    const sldId = idOf.get(slidePath) ?? String(256 + i);
+    const part = `ppt/comments/modernComment_${Number(sldId).toString(16).toUpperCase()}_0.xml`;
+    out.file(part, xml.split(SLIDE_ID_PLACEHOLDER).join(sldId));
+    const rid = await addRel(out, slidePath, REL_MODERN_COMMENTS, part);
+    addOverride(ctDoc, part, CT_MODERN_COMMENTS);
+    // 슬라이드 → 메모 파트 연결 (p:extLst는 p:sld의 마지막 자식)
+    const sdoc = parse(await out.file(slidePath)!.async('string'));
+    const root = sdoc.documentElement;
+    let ext = kid(root, 'extLst');
+    if (!ext) ext = root.appendChild(sdoc.createElementNS(NS.p, 'p:extLst'));
+    const e = sdoc.createElementNS(NS.p, 'p:ext');
+    e.setAttribute('uri', COMMENT_REL_EXT_URI);
+    const rel = sdoc.createElementNS(P188_NS, 'p188:commentRel');
+    rel.setAttributeNS(NS.r, 'r:id', rid);
+    e.appendChild(rel);
+    ext.appendChild(e);
+    out.file(slidePath, serialize(sdoc));
   }
 }
 

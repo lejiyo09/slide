@@ -477,8 +477,15 @@ try {
     const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('.bs-export-item', { hasText: 'PowerPoint' }).click()]);
     await dl.saveAs(`${OUT}/s14-comments.pptx`);
     const z = await JSZip.loadAsync(readFileSync(`${OUT}/s14-comments.pptx`));
-    const c1 = await z.file('ppt/comments/comment1.xml')?.async('string');
-    check('PPTX: 메모 3개(답글 포함) + 작성자', !!c1 && (c1.match(/<p:cm /g) ?? []).length === 3 && c1.includes('p15:parentCm') && (await z.file('ppt/commentAuthors.xml').async('string')).includes('name="김민지"') && !!z.file('ppt/comments/comment2.xml'));
+    const m1 = await z.file('ppt/comments/modernComment_100_0.xml')?.async('string');
+    check('PPTX(자동 → 해결한 메모가 있어 최신 메모): 해결 상태 + 답글 + 작성자', !!m1 && (m1.match(/<p188:cm /g) ?? []).length === 2 && (m1.match(/status="resolved"/g) ?? []).length === 1 && m1.includes('<p188:reply ') && (await z.file('ppt/authors.xml').async('string')).includes('name="김민지"') && !z.file('ppt/commentAuthors.xml'));
+    await page.locator('[data-comment-format]').selectOption('legacy');
+    const [dlL] = await Promise.all([page.waitForEvent('download'), page.locator('.bs-export-item', { hasText: 'PowerPoint' }).click()]);
+    await dlL.saveAs(`${OUT}/s14-comments-legacy.pptx`);
+    const zL = await JSZip.loadAsync(readFileSync(`${OUT}/s14-comments-legacy.pptx`));
+    const c1 = await zL.file('ppt/comments/comment1.xml')?.async('string');
+    check('PPTX(기존 메모 선택): 메모 3개(답글 포함) + 작성자', !!c1 && (c1.match(/<p:cm /g) ?? []).length === 3 && c1.includes('p15:parentCm') && (await zL.file('ppt/commentAuthors.xml').async('string')).includes('name="김민지"') && !!zL.file('ppt/comments/comment2.xml'));
+    await page.locator('[data-comment-format]').selectOption('auto');
     await closeBackstage();
     // 모든 메모 삭제
     await page.locator('.tab', { hasText: '검토' }).click();

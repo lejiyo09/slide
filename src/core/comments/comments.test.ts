@@ -7,6 +7,8 @@ import { addSlide } from '../commands/commands';
 import { addComment, adjacentComment, deleteAllComments, deleteComment, initialsOf, relativeTime, replyToComment, setResolved } from './comments';
 import { exportPptxBytes } from '../../services/export/pptxExport';
 import { importPptx } from '../../services/import/pptxImport';
+import { commentFormatFor } from '../../services/export/commentsXml';
+import { validateXml } from '../../test/ooxmlSchema';
 
 function deck() {
   return produce(createPresentation('메모'), (d) => {
@@ -113,5 +115,46 @@ describe('PPTX 메모', () => {
     expect(c).toHaveLength(1);
     expect(c[0]).toMatchObject({ author: '박서준', initials: '박서', text: '첫 줄\n둘째 줄', x: 100, y: 50, resolved: true, created: '2026-10-30T08:15:00.000Z' });
     expect(c[0].replies.map((x) => [x.author, x.text])).toEqual([['Lee', 'Done']]);
+  });
+
+  it('최신 메모로 내보내기: 해결 상태·답글·작성자 저장, 스키마 통과, 다시 가져오면 같음', async () => {
+    const doc = produce(deck(), (d) => setResolved(d, d.slides[0].id, d.slides[0].comments![0].id, true));
+    // 자동: 해결한 메모가 있으면 최신, 없으면 기존 (LibreOffice·PowerPoint 2019 호환)
+    expect(commentFormatFor(doc)).toBe('modern');
+    expect(commentFormatFor(deck())).toBe('legacy');
+    expect(commentFormatFor({ ...deck(), commentFormat: 'modern' })).toBe('modern');
+    expect(commentFormatFor({ ...doc, commentFormat: 'legacy' })).toBe('legacy');
+    const { bytes } = await exportPptxBytes(doc);
+    writeFileSync('test-output/comments-modern.pptx', bytes);
+    const zip = await JSZip.loadAsync(bytes);
+    expect(zip.file('ppt/commentAuthors.xml')).toBeNull();
+    const authors = await zip.file('ppt/authors.xml')!.async('string');
+    expect(authors).toMatch(/<p188:author id="\{[0-9A-F-]{36}\}" name="김민지" initials="김민" userId="김민지" providerId="None"\/>/);
+    const names = Object.keys(zip.files).filter((n) => n.startsWith('ppt/comments/') && !zip.files[n].dir);
+    expect(names.sort()).toEqual(['ppt/comments/modernComment_100_0.xml', 'ppt/comments/modernComment_101_0.xml']);
+    const c1 = await zip.file('ppt/comments/modernComment_100_0.xml')!.async('string');
+    expect(c1).toMatch(/<p188:cm id="\{[^"]+\}" authorId="\{[^"]+\}" created="2026-11-01T09:00:00.000" status="resolved"><pc:sldMkLst [^>]*><pc:docMk\/><pc:sldMk cId="0" sldId="256"\/><\/pc:sldMkLst><p188:pos x="952500" y="476250"\/><p188:replyLst><p188:reply /);
+    expect((c1.match(/status="resolved"/g) ?? []).length).toBe(1);
+    const slide1 = await zip.file('ppt/slides/slide1.xml')!.async('string');
+    const rid = slide1.match(/<p:ext uri="\{6950BFC3-D8DA-4A85-94F7-54DA5524770B\}"><p188:commentRel [^>]*r:id="(rIdCm\d+)"/)![1];
+    expect(await zip.file('ppt/slides/_rels/slide1.xml.rels')!.async('string')).toContain(`Id="${rid}" Type="http://schemas.microsoft.com/office/2018/10/relationships/comments" Target="../comments/modernComment_100_0.xml"`);
+    expect(await zip.file('ppt/_rels/presentation.xml.rels')!.async('string')).toMatch(/relationships\/authors" Target="authors.xml"/);
+    const ct = await zip.file('[Content_Types].xml')!.async('string');
+    expect(ct).toContain('PartName="/ppt/authors.xml" ContentType="application/vnd.ms-powerpoint.authors+xml"');
+    expect(ct).toContain('PartName="/ppt/comments/modernComment_100_0.xml" ContentType="application/vnd.ms-powerpoint.comments+xml"');
+    // Open XML SDK 스키마
+    for (const x of [authors, c1, slide1, await zip.file('ppt/comments/modernComment_101_0.xml')!.async('string')]) expect(validateXml(x)).toEqual([]);
+    // 다시 가져오기
+    const back = await importPptx(bytes);
+    const cm = back.doc.slides[0].comments!;
+    expect(cm.map((c) => [c.author, c.initials, c.text, Math.round(c.x), Math.round(c.y), !!c.resolved, c.replies.map((r) => [r.author, r.text])])).toEqual([
+      ['김민지', '김민', '제목을 더 짧게 & <굵게>', 100, 50, true, [['Alex Kim', '좋아요, 고칠게요.']]],
+      ['Alex Kim', 'AK', '그림 출처 넣기', 600, 300, false, []],
+    ]);
+    expect(cm[0].created).toBe('2026-11-01T09:00:00.000Z');
+    expect(back.doc.slides[1].comments!.map((c) => c.text)).toEqual(['빈 슬라이드?']);
+    // 같은 문서를 다시 저장해도 메모 ID가 같음 (고정 GUID)
+    const again = await JSZip.loadAsync((await exportPptxBytes(doc)).bytes);
+    expect(await again.file('ppt/comments/modernComment_100_0.xml')!.async('string')).toBe(c1);
   });
 });

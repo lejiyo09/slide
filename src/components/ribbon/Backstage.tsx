@@ -264,6 +264,22 @@ function ExportPage() {
             파일의 글꼴 포함 <span className="muted">— 이 문서에 쓴 '내 글꼴'(직접 추가·오프라인 보관한 글꼴)을 PPTX에 넣어, 글꼴이 없는 컴퓨터에서도 같은 모양으로 보이게 합니다. 포함이 제한된 글꼴은 넣지 않습니다.</span>
           </span>
         </label>
+        <label className="bs-export-option">
+          <span>
+            메모 형식{' '}
+            <select
+              value={doc.commentFormat ?? 'auto'}
+              onChange={(e) => useEditor.getState().commit('메모 형식 설정', (d) => void (d.commentFormat = e.target.value as 'auto' | 'legacy' | 'modern'))}
+              aria-label="PPTX 메모 형식"
+              data-comment-format=""
+            >
+              <option value="auto">자동</option>
+              <option value="legacy">기존 메모 (PowerPoint 2019 이하·LibreOffice)</option>
+              <option value="modern">최신 메모 (PowerPoint 365)</option>
+            </select>{' '}
+            <span className="muted">— 자동: 해결한 메모가 있으면 해결 상태를 저장할 수 있는 최신 메모로, 없으면 어디서나 열리는 기존 메모로 저장합니다. LibreOffice는 최신 메모를 읽지 못합니다.</span>
+          </span>
+        </label>
         <button type="button" className="bs-export-item" onClick={() => void exportNative(doc).then((r) => r.skippedFonts.length && useEditor.getState().toast(`포함이 제한된 글꼴은 파일에 넣지 않았습니다: ${r.skippedFonts.join(', ')}`, 'warning'))}>
           <FileJson size={28} />
           <span>

@@ -1,9 +1,12 @@
 /**
  * PPTX 메모
- * 내보내기: 기존 메모 형식 (PowerPoint 2007~2019, LibreOffice가 읽고 쓰는 형식, PowerPoint 365도 읽음)
- *   ppt/commentAuthors.xml (p:cmAuthorLst) + ppt/comments/commentN.xml (p:cmLst/p:cm)
- *   위치 p:pos는 마스터 단위(1/576인치 = 슬라이드 px × 6), 답글은 p15:threadingInfo/p15:parentCm (PowerPoint 2013+)
- *   '해결됨'은 기존 형식에 없어 저장되지 않는다.
+ * 내보내기 (문서 설정 '메모 형식': 자동 = 해결한 메모가 있으면 최신, 없으면 기존)
+ *   기존 메모 (PowerPoint 2007~2019, LibreOffice가 읽고 쓰는 형식, PowerPoint 365도 읽음):
+ *     ppt/commentAuthors.xml (p:cmAuthorLst) + ppt/comments/commentN.xml (p:cmLst/p:cm)
+ *     위치 p:pos는 마스터 단위(1/576인치 = 슬라이드 px × 6), 답글은 p15:threadingInfo/p15:parentCm (PowerPoint 2013+). '해결됨'은 이 형식에 없음.
+ *   최신 메모 (PowerPoint 365, MS-PPTX p188): ppt/authors.xml (p188:authorLst) + ppt/comments/modernComment_*.xml (p188:cmLst)
+ *     메모마다 status="resolved"(해결됨)·답글(p188:replyLst)·위치(p188:pos, EMU)·슬라이드 표지(pc:sldMkLst),
+ *     슬라이드는 p:extLst의 p188:commentRel로 메모 파트를 가리킴. 요소 순서·필수 속성은 Open XML SDK 스키마로 검증.
  * 가져오기: 기존 메모(답글 포함) + 최신 메모(PowerPoint 365: ppt/comments/modernComment_*.xml, ppt/authors.xml — p188 이름공간)
  */
 import type { Presentation, SlideComment } from '../../types/model';
@@ -68,6 +71,92 @@ export function buildLegacyComments(slides: Presentation['slides']): LegacyComme
   if (!count) return null;
   const list = [...authors.entries()].map(([name, a]) => `<p:cmAuthor id="${a.id}" name="${esc(name)}" initials="${esc(a.initials)}" lastIdx="${a.lastIdx}" clrIdx="${a.id % 8}"/>`);
   return { authorsXml: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<p:cmAuthorLst xmlns:p="${P_NS}">${list.join('')}</p:cmAuthorLst>`, slides: out, count };
+}
+
+/* ───────────── 최신 메모 (p188) ───────────── */
+
+export const CT_MODERN_COMMENTS = 'application/vnd.ms-powerpoint.comments+xml';
+export const CT_MODERN_AUTHORS = 'application/vnd.ms-powerpoint.authors+xml';
+const PC_NS = 'http://schemas.microsoft.com/office/powerpoint/2013/main/command';
+/** p:sld 확장: 최신 메모 관계 (MS-PPTX commentRel) */
+export const COMMENT_REL_EXT_URI = '{6950BFC3-D8DA-4A85-94F7-54DA5524770B}';
+/** 슬라이드 ID 자리 (presentation.xml을 읽은 뒤 채움) */
+export const SLIDE_ID_PLACEHOLDER = '__SLIDELAB_SLDID__';
+
+/** 글자 → 고정 GUID ({8-4-4-4-12}, 같은 글자면 같은 값: 다시 저장해도 ID가 바뀌지 않음) */
+export function stableGuid(seed: string): string {
+  let h = '';
+  for (let k = 0; k < 4; k++) {
+    let x = 0x811c9dc5 ^ (k * 0x9e3779b9);
+    for (let i = 0; i < seed.length; i++) x = Math.imul(x ^ seed.charCodeAt(i), 0x01000193);
+    h += (x >>> 0).toString(16).padStart(8, '0');
+  }
+  h = h.toUpperCase();
+  return `{${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}}`;
+}
+
+const txBody = (text: string) =>
+  `<p188:txBody><a:bodyPr/><a:lstStyle/>${text
+    .split('\n')
+    .map((line) => (line ? `<a:p><a:r><a:rPr lang="ko-KR"/><a:t>${esc(line)}</a:t></a:r></a:p>` : '<a:p/>'))
+    .join('')}</p188:txBody>`;
+
+export interface ModernCommentsXml {
+  authorsXml: string;
+  /** 내보낸 슬라이드 순서대로 (메모 없으면 undefined). 슬라이드 ID는 SLIDE_ID_PLACEHOLDER */
+  slides: (string | undefined)[];
+  count: number;
+}
+
+export function buildModernComments(slides: Presentation['slides']): ModernCommentsXml | null {
+  const authors = new Map<string, { id: string; initials: string }>();
+  const author = (name: string, initials: string) => {
+    const key = name || '알 수 없음';
+    let a = authors.get(key);
+    if (!a) authors.set(key, (a = { id: stableGuid(`author:${key}`), initials: initials || key.slice(0, 2) }));
+    return a;
+  };
+  const head = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n`;
+  const ns = `xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p188="${P188_NS}"`;
+  let count = 0;
+  const out = slides.map((s) => {
+    if (!s.comments?.length) return undefined;
+    const cms = s.comments.map((c) => {
+      const a = author(c.author, c.initials);
+      count += 1 + c.replies.length;
+      const replies = c.replies.length
+        ? `<p188:replyLst>${c.replies
+            .map((r) => `<p188:reply id="${stableGuid(`reply:${r.id}`)}" authorId="${author(r.author, r.initials).id}" created="${dt(r.created)}">${txBody(r.text)}</p188:reply>`)
+            .join('')}</p188:replyLst>`
+        : '';
+      return (
+        `<p188:cm id="${stableGuid(`cm:${c.id}`)}" authorId="${a.id}" created="${dt(c.created)}"${c.resolved ? ' status="resolved"' : ''}>` +
+        `<pc:sldMkLst xmlns:pc="${PC_NS}"><pc:docMk/><pc:sldMk cId="0" sldId="${SLIDE_ID_PLACEHOLDER}"/></pc:sldMkLst>` +
+        `<p188:pos x="${Math.round(c.x * 9525)}" y="${Math.round(c.y * 9525)}"/>${replies}${txBody(c.text)}</p188:cm>`
+      );
+    });
+    return `${head}<p188:cmLst ${ns}>${cms.join('')}</p188:cmLst>`;
+  });
+  if (!count) return null;
+  const list = [...authors.entries()].map(([name, a]) => `<p188:author id="${a.id}" name="${esc(name)}" initials="${esc(a.initials)}" userId="${esc(name)}" providerId="None"/>`);
+  return { authorsXml: `${head}<p188:authorLst ${ns}>${list.join('')}</p188:authorLst>`, slides: out, count };
+}
+
+/** 문서 설정 → 실제로 쓸 메모 형식 (자동: 해결한 메모가 있으면 최신) */
+export function commentFormatFor(doc: Pick<Presentation, 'slides' | 'commentFormat'>): 'legacy' | 'modern' {
+  if (doc.commentFormat === 'legacy' || doc.commentFormat === 'modern') return doc.commentFormat;
+  return doc.slides.some((s) => s.comments?.some((c) => c.resolved)) ? 'modern' : 'legacy';
+}
+
+export type CommentsPlan = ({ format: 'legacy' } & LegacyCommentsXml) | ({ format: 'modern' } & ModernCommentsXml);
+
+export function buildComments(doc: Pick<Presentation, 'slides' | 'commentFormat'>): CommentsPlan | null {
+  if (commentFormatFor(doc) === 'modern') {
+    const m = buildModernComments(doc.slides);
+    return m ? { format: 'modern', ...m } : null;
+  }
+  const l = buildLegacyComments(doc.slides);
+  return l ? { format: 'legacy', ...l } : null;
 }
 
 /* ───────────── 가져오기 ───────────── */
