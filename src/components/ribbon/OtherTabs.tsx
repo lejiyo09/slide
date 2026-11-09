@@ -4,6 +4,7 @@ import {
   Table2, BarChart3, Smile, Link2, Film, Volume2, LayoutTemplate, Type as TypeIcon, Settings2, PanelsTopLeft, Sparkles,
   Sigma, SpellCheck, GitCompare, MessageSquarePlus, MessagesSquare, ChevronLeft, ChevronRight, Trash2, Eye, EyeOff,
 } from 'lucide-react';
+import { openInlineMathEditor } from '../../editors/text/inlineMath';
 import { goToComment, startNewComment } from '../comments/CommentsPane';
 import { openSpellPane } from '../spell/SpellPane';
 import { startCompare } from '../compare/ComparePane';
@@ -101,7 +102,7 @@ export function InsertTab() {
         <RibbonButton size="large" icon={<Type size={26} />} label="텍스트 상자" title="텍스트 상자 그리기 (클릭 또는 드래그)" onClick={() => set({ insertTool: { kind: 'text' } })} />
       </RibbonGroup>
       <RibbonGroup label="기호">
-        <RibbonButton size="large" icon={<Sigma size={26} />} label="수식" title="수식 삽입 (LaTeX 입력, PowerPoint 수식으로 저장)" onClick={() => set({ equationEditorId: 'new' })} />
+        <RibbonButton size="large" icon={<Sigma size={26} />} label="수식" title="수식 삽입 (LaTeX 입력, PowerPoint 수식으로 저장) — 텍스트를 편집 중이면 커서 자리에 문단 안 수식으로" onClick={() => void (openInlineMathEditor() || set({ equationEditorId: 'new' }))} />
       </RibbonGroup>
       <RibbonGroup label="3D">
         {listExtensions()

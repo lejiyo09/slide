@@ -6,7 +6,8 @@
  *     <span style="...">텍스트</span>
  *   </div>
  */
-import type { HAlign, Paragraph, TextRun, TextRunStyle, BulletType, Theme } from '../../types/model';
+import { MATH_RUN_TEXT, type HAlign, type InlineMath, type Paragraph, type TextRun, type TextRunStyle, type BulletType, type Theme } from '../../types/model';
+import { sanitizeMathml } from '../../services/math/omml';
 import { resolveColor, resolveFont, resolveTokensDeep } from '../../utils/themeColor';
 import { cssColorToHex } from '../../utils/color';
 import { ptToPx, pxToPt, round } from '../../utils/units';
@@ -89,6 +90,7 @@ export function paragraphsToHtml(rawParagraphs: Paragraph[], theme?: Theme): str
             .map((r) => {
               const raw = rawParagraphs[i].runs.filter((x) => x.text.length > 0)[runs.indexOf(r)] ?? r;
               const tk = tokenAttrs(raw);
+              if (r.math) return inlineMathHtml(r.math, `${tk} style="${styleAttr(runCss(r))}"`);
               return r.link
                 ? `<a href="${escapeHtml(r.link).replace(/"/g, '&quot;')}" data-link="1" ${tk} style="${styleAttr(runCss(r))}">${escapeHtml(r.text)}</a>`
                 : `<span ${tk} style="${styleAttr(runCss(r))}">${escapeHtml(r.text)}</span>`;
@@ -108,6 +110,16 @@ export function paragraphsToHtml(rawParagraphs: Paragraph[], theme?: Theme): str
       return `<div ${attrs}>${inner}</div>`;
     })
     .join('');
+}
+
+/** 문단 안 수식용 MathML: 줄을 바꾸는 display="block"을 빼고 글줄 안(inline)으로 */
+export const inlineMathml = (mathml: string) =>
+  sanitizeMathml(mathml).replace(/<math\b[^>]*>/, (tag) => tag.replace(/\s+display="block"/, '').replace(/\s+style="[^"]*"/, '').replace(/\s+class="tml-display"/, ''));
+
+/** 문단 안 수식 → 편집기 HTML: 고칠 수 없는 한 덩어리(contenteditable=false), 수식 정보는 data-math에 */
+export function inlineMathHtml(math: InlineMath, attrs = ''): string {
+  const data = encodeURIComponent(JSON.stringify(math));
+  return `<span class="sl-math-inline" contenteditable="false" data-math="${data}" ${attrs}>${inlineMathml(math.mathml)}</span>`;
 }
 
 /* ───────────── DOM → 모델 ───────────── */
@@ -184,7 +196,7 @@ function paragraphFromNodes(nodes: Node[], el: HTMLElement, fallback: TextRunSty
   const runs: TextRun[] = [];
   const push = (text: string, style: TextRunStyle & { link?: string }) => {
     const last = runs[runs.length - 1];
-    if (last && sameStyle(last, style)) last.text += text;
+    if (last && !last.math && sameStyle(last, style)) last.text += text;
     else runs.push({ text, ...style });
   };
   const linkOf = (n: Node): string | undefined => {
@@ -203,6 +215,16 @@ function paragraphFromNodes(nodes: Node[], el: HTMLElement, fallback: TextRunSty
     }
     if (n.nodeType !== Node.ELEMENT_NODE) return;
     const e = n as HTMLElement;
+    if (e.dataset?.math) {
+      // 문단 안 수식: 한 런 (같은 서식 런과 합치지 않음)
+      try {
+        const math = JSON.parse(decodeURIComponent(e.dataset.math)) as InlineMath;
+        runs.push({ text: MATH_RUN_TEXT, ...styleOfTextNode(e, el), math });
+      } catch {
+        /* 잘못된 표식은 무시 */
+      }
+      return;
+    }
     if (e.tagName === 'BR') {
       if (!emptyStyle) emptyStyle = styleOfTextNode(e, el);
       return;

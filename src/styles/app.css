@@ -4510,3 +4510,9 @@ button.bs-export-item:hover:not(:disabled) {
   z-index: 1000;
   background: #000;
 }
+
+/* 문단 안 수식: 글줄 안에 놓이고, 수식 글꼴은 안쪽 math에만 (런의 글꼴·크기·색은 바깥 span) */
+.sl-math-inline { display: inline; white-space: nowrap; }
+.sl-math-inline math { font-family: "STIX Two Math", "Cambria Math", "Latin Modern Math", math; }
+.sl-editing .sl-math-inline { cursor: pointer; border-radius: 2px; }
+.sl-editing .sl-math-inline:hover { outline: 1px dashed var(--accent, #2b579a); }

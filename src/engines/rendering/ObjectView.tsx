@@ -1,12 +1,12 @@
-import { createContext, memo, Suspense, useContext, useMemo, type CSSProperties, type ReactNode } from 'react';
-import type { Asset, EquationObject, ExtensionObject, Fill, ImageObject, LineObject, MediaObject, Paragraph, ShapeObject, SlideObject, Stroke, TableObject, TextBody, TextObject, Theme, UnsupportedObject } from '../../types/model';
+import { createContext, memo, Suspense, useContext, useEffect, useMemo, type CSSProperties, type ReactNode } from 'react';
+import type { Asset, EquationObject, ExtensionObject, Fill, ImageObject, LineObject, MediaObject, Paragraph, ShapeObject, SlideObject, Stroke, TableObject, TextBody, TextObject, TextRun, Theme, UnsupportedObject } from '../../types/model';
 import { ChartView } from './ChartView';
 import { useAssetUrl } from '../../hooks/useAssetUrl';
 import { DEFAULT_THEME } from '../../themes/themes';
 import { customPath, shapePath, shapeTextInset } from './shapeGeometry';
 import { hexToRgba } from '../../utils/color';
 import { ptToPx } from '../../utils/units';
-import { computeNumbers, cssObjectToReact, paragraphCss, runCss } from '../../editors/text/richText';
+import { computeNumbers, cssObjectToReact, inlineMathml, paragraphCss, runCss } from '../../editors/text/richText';
 import { resolveTokensDeep } from '../../utils/themeColor';
 import { patternDataUrl } from './patterns';
 import { frameToCss } from '../animation/timeline';
@@ -111,6 +111,13 @@ export function dashArray(stroke: Stroke): string | undefined {
 
 /* ───────────── 텍스트 ───────────── */
 
+/** 문단 안 수식: 런의 글자 크기·색으로 MathML을 글줄 안에 그림 */
+function InlineMathView({ run }: { run: TextRun }) {
+  const html = useMemo(() => inlineMathml(run.math!.mathml), [run.math]);
+  useEffect(() => ensureMathFont(), []);
+  return <span className="sl-math-inline" data-latex={run.math!.latex} style={cssObjectToReact(runCss(run))} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
 export function TextBodyView({ body, style }: { body: TextBody; style?: CSSProperties }) {
   const nums = computeNumbers(body.paragraphs);
   return (
@@ -130,7 +137,9 @@ function ParagraphView({ p, num }: { p: Paragraph; num: string | null }) {
     <div className="sl-p" data-bullet={p.bullet ?? 'none'} data-level={p.level ?? 0} data-num={num ?? undefined} data-char={p.bullet === 'bullet' ? p.bulletChar : undefined} style={cssObjectToReact(paragraphCss(p))}>
       {runs.length ? (
         runs.map((r, i) =>
-          r.link ? (
+          r.math ? (
+            <InlineMathView key={i} run={r} />
+          ) : r.link ? (
             <span key={i} data-link={r.link} className="sl-run-link" style={cssObjectToReact(runCss(r))}>
               {r.text}
             </span>

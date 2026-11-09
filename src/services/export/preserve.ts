@@ -8,8 +8,9 @@
  *  4. 슬라이드 전환/애니메이션(timing) XML 재삽입 (대상이 사라진 애니메이션은 제외하고 경고)
  */
 import JSZip from 'jszip';
-import type { Animation, Fill } from '../../types/model';
+import type { Animation, Fill, InlineMath } from '../../types/model';
 import { buildTimingXml } from './animXml';
+import { applyInlineMath } from './inlineMathXml';
 import { FONT_SLOTS, type EmbedPlanFont } from '../fonts/embed';
 import { COMMENT_REL_EXT_URI, CT_COMMENT_AUTHORS, CT_COMMENTS, CT_MODERN_AUTHORS, CT_MODERN_COMMENTS, P188_NS, REL_COMMENT_AUTHORS, REL_COMMENTS, REL_MODERN_AUTHORS, REL_MODERN_COMMENTS, SLIDE_ID_PLACEHOLDER, type CommentsPlan } from './commentsXml';
 
@@ -389,6 +390,14 @@ export async function postProcessPptx(bytes: Uint8Array, plans: SlidePlan[], sou
   // 7) 메모 (기존: ppt/commentAuthors.xml + ppt/comments/commentN.xml / 최신: ppt/authors.xml + ppt/comments/modernComment_*.xml)
   if (pres?.comments) await writeComments(out, ctDoc, pres.comments);
 
+  // 7b) 문단 안 수식 (a14:m)
+  if (pres?.inlineMath?.length) {
+    for (const name of Object.keys(out.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))) {
+      const xml = await out.file(name)!.async('string');
+      if (xml.includes('[[SLM:')) out.file(name, applyInlineMath(xml, pres.inlineMath));
+    }
+  }
+
   // 8) 스키마 정리: pptxgenjs가 만드는 순서·중복 오류 바로잡기 (Open XML SDK 스키마 검증으로 찾음)
   await normalizeOoxml(out);
 
@@ -453,6 +462,8 @@ export interface PresentationPlan {
   embeddedFonts?: EmbedPlanFont[];
   /** 메모 (기존 또는 최신 형식) */
   comments?: CommentsPlan | null;
+  /** 문단 안 수식 (자리 표시 글자 [[SLM:n]]의 n번째) */
+  inlineMath?: InlineMath[];
 }
 
 async function addRel(out: JSZip, part: string, type: string, target: string): Promise<string> {

@@ -7,6 +7,7 @@ import { htmlToParagraphs, paragraphsToHtml, renumberDom } from './richText';
 import { setEditorSession, getEditorSession } from './editorSession';
 import { takePendingCaretPoint } from './caret';
 import { applyFormat } from './formatting';
+import { openInlineMathEditor } from './inlineMath';
 import { textContainerStyle, textDirClass, textInnerStyle } from '../../engines/rendering/ObjectView';
 
 /**
@@ -177,7 +178,12 @@ export function TextEditor({ obj, slideId, selectAll, cell }: { obj: EditableObj
 
   const body = bodyOf(obj, cell);
   return (
-    <div style={cell ? { position: 'relative' } : textContainerStyle(body)} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+    <div style={cell ? { position: 'relative' } : textContainerStyle(body)} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => {
+        e.stopPropagation();
+        // 문단 안 수식 두 번 클릭 → 수식 편집
+        const m = (e.target as Element).closest?.('.sl-math-inline') as HTMLElement | null;
+        if (m && ref.current?.contains(m)) openInlineMathEditor(m);
+      }}>
       <div
         ref={ref}
         className={`sl-text-inner sl-editing ${textDirClass(body)}`}

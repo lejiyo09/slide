@@ -420,6 +420,67 @@ try {
     }, pngBytes.toString('base64'));
     check('대체 그림: 2배 해상도, 투명 배경 위 수식', alpha.w >= eq.width * 2 - 2 && alpha.ink > 300 && alpha.clear > alpha.ink, JSON.stringify(alpha));
     await closeBackstage();
+    // 문단 안 수식: 텍스트 편집 중 커서 자리에 넣기 → 화면·모델·PPTX, 두 번 클릭으로 고치기
+    const subId = await page.evaluate(() => {
+      const st = window.__SLIDELAB__.getState();
+      const sub = st.doc.slides[0].objects.find((o) => o.ph?.type === 'subTitle');
+      st.commit('문단 안 수식 준비', (d) => (d.slides[0].objects.find((o) => o.id === sub.id).text.paragraphs = [{ runs: [{ text: '원의 넓이는 ', fontSize: 28 }] }]));
+      st.setEditingText(sub.id);
+      return sub.id;
+    });
+    await page.waitForSelector('.sl-editing');
+    // 커서를 글 끝에
+    await page.evaluate(() => {
+      const ed = document.querySelector('.sl-editing');
+      ed.focus();
+      const w = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT);
+      let t = null;
+      while (w.nextNode()) t = w.currentNode;
+      const r = document.createRange();
+      r.setStart(t, t.data.length);
+      r.collapse(true);
+      const sel = getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+    });
+    await page.locator('.tab', { hasText: '삽입' }).click();
+    await page.locator('.rb', { hasText: '수식' }).click();
+    await page.waitForSelector('[data-eq-inline]');
+    await page.locator('[data-eq-latex]').fill('A=\\pi r^{2}');
+    await page.locator('.dialog .btn.primary').click();
+    await page.waitForSelector('.sl-editing .sl-math-inline math msup');
+    await page.keyboard.type(' 입니다.');
+    await page.keyboard.press('Escape');
+    const runs = await page.evaluate((id) => window.__SLIDELAB__.getState().doc.slides[0].objects.find((o) => o.id === id).text.paragraphs[0].runs, subId);
+    const joined = runs.map((r) => (r.math ? `$${r.math.latex}$` : r.text)).join('');
+    check('문단 안 수식: 커서 자리에 넣고 이어서 입력', joined === '원의 넓이는 $A=\\pi r^{2}$ 입니다.' && runs.find((r) => r.math)?.fontSize === 28, joined);
+    const inl = await page.evaluate((id) => {
+      const m = document.querySelector(`.canvas-scroller [data-obj-id="${id}"] .sl-math-inline`);
+      const t = [...document.querySelectorAll(`.canvas-scroller [data-obj-id="${id}"] .sl-p span`)].find((x) => x.textContent.includes('원의 넓이는'));
+      if (!m || !t) return null;
+      const a = m.getBoundingClientRect(), b = t.getBoundingClientRect();
+      return { sameLine: a.top < b.bottom && a.bottom > b.top, after: a.left >= b.right - 1, font: getComputedStyle(m.querySelector("math")).fontFamily };
+    }, subId);
+    await page.locator(`.canvas-scroller [data-obj-id="${subId}"]`).screenshot({ path: `${OUT}/s14-inline-math.png` });
+    check('문단 안 수식: 글줄 안에 그려짐 (같은 줄, 글자 뒤, 수식 글꼴)', inl?.sameLine && inl.after && inl.font.includes('STIX Two Math'), JSON.stringify(inl));
+    await page.evaluate((id) => window.__SLIDELAB__.getState().setEditingText(id), subId);
+    await page.waitForSelector('.sl-editing .sl-math-inline');
+    await page.locator('.sl-editing .sl-math-inline').dblclick();
+    await page.waitForSelector('[data-eq-inline]');
+    check('두 번 클릭 → 문단 안 수식 편집 (원래 LaTeX)', (await page.locator('[data-eq-latex]').inputValue()) === 'A=\\pi r^{2}');
+    await page.locator('[data-eq-latex]').fill('A=\\pi r^{2}+1');
+    await page.locator('.dialog .btn.primary').click();
+    await page.waitForFunction(() => document.querySelector('.sl-editing .sl-math-inline math')?.textContent.includes('1'));
+    await page.keyboard.press('Escape');
+    const runs2 = await page.evaluate((id) => window.__SLIDELAB__.getState().doc.slides[0].objects.find((o) => o.id === id).text.paragraphs[0].runs, subId);
+    const joined2 = runs2.map((r) => (r.math ? `$${r.math.latex}$` : r.text)).join('');
+    check('고친 수식 반영, 앞뒤 글자 그대로', joined2 === '원의 넓이는 $A=\\pi r^{2}+1$ 입니다.', joined2);
+    await openExport();
+    const [dlI] = await Promise.all([page.waitForEvent('download'), page.locator('.bs-export-item', { hasText: 'PowerPoint' }).click()]);
+    await dlI.saveAs(`${OUT}/s14-inline-math.pptx`);
+    const sxI = await (await JSZip.loadAsync(readFileSync(`${OUT}/s14-inline-math.pptx`))).file('ppt/slides/slide1.xml').async('string');
+    check('PPTX: 문단 안 a14:m (글자 런 사이) + 대체 글자', /<a:t>원의 넓이는 <\/a:t><\/a:r><a14:m><m:oMath [^>]*>[\s\S]*<m:sSup>[\s\S]*?<\/a14:m><a:r>[\s\S]*?<a:t> 입니다.<\/a:t>/.test(sxI) && /<mc:Fallback><p:sp>[\s\S]*<a:t>A=\\pi r\^\{2\}\+1<\/a:t>/.test(sxI) && !sxI.includes('[[SLM:'));
+    await closeBackstage();
   }
 
   if (want('comments')) {

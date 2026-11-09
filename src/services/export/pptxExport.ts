@@ -6,7 +6,7 @@
  * (향후 7단계에서 원본 XML 보존이 가능한 자체 OOXML 작성기로 확장 예정)
  */
 import PptxGenJS from 'pptxgenjs';
-import type { Asset, ChartObject, EquationObject, Fill, GroupObject, Paragraph, Presentation, ShapeKind, ShapeObject, SlideObject, Stroke, TableObject, TextBody } from '../../types/model';
+import type { Asset, ChartObject, EquationObject, Fill, GroupObject, Paragraph, Presentation, ShapeKind, ShapeObject, SlideObject, Stroke, TableObject, TextBody, InlineMath } from '../../types/model';
 import { isPristine, mediaPlaybackSignature } from '../../core/document/fingerprint';
 import { buildShowPrXml, customShowPlan } from './showXml';
 import { showSettingsOf } from '../../engines/show/showModel';
@@ -18,6 +18,7 @@ import { KEEP_PREFIX, postProcessPptx, type SlidePlan } from './preserve';
 import { planEmbeddedFonts, type EmbedPlanFont } from '../fonts/embed';
 import { EQ_IMAGE_RID, equationShapeXml } from './equationXml';
 import { buildComments } from './commentsXml';
+import { inlineMathToken } from './inlineMathXml';
 import { M3D_GLB_RID, M3D_POSTER_RID, model3dXml, REL_IMAGE, REL_MODEL3D, type ModelBox } from './model3dXml';
 import { buildTransitionXml } from './animXml';
 import { OoxmlPackage } from '../import/ooxml';
@@ -120,7 +121,8 @@ interface BuildOptions {
 
 type TextRunProps = PptxGenJS.TextProps;
 
-function paragraphsToRuns(body: TextBody): TextRunProps[] {
+/** math: 문단 안 수식을 모을 목록 (없으면 LaTeX 글자로) */
+function paragraphsToRuns(body: TextBody, math?: InlineMath[]): TextRunProps[] {
   const out: TextRunProps[] = [];
   body.paragraphs.forEach((p: Paragraph, pi) => {
     const isLast = pi === body.paragraphs.length - 1;
@@ -143,7 +145,7 @@ function paragraphsToRuns(body: TextBody): TextRunProps[] {
     runs.forEach((r, ri) => {
       const lastRun = ri === runs.length - 1;
       out.push({
-        text: r.text,
+        text: r.math ? (math ? inlineMathToken(math.push(r.math) - 1) : r.math.latex) : r.text,
         options: {
           ...paraOpts,
           fontFace: r.fontFamily,
@@ -234,7 +236,7 @@ function flatten(objs: SlideObject[]): { obj: SlideObject; groups: GroupTag[] }[
   return out;
 }
 
-export async function buildPptx(source: Presentation, opts: BuildOptions = {}): Promise<{ pptx: PptxGenJS; warnings: string[]; plans: SlidePlan[] }> {
+export async function buildPptx(source: Presentation, opts: BuildOptions = {}): Promise<{ pptx: PptxGenJS; warnings: string[]; plans: SlidePlan[]; inlineMath: InlineMath[] }> {
   // 테마 토큰(@accent1, @heading 등)을 실제 값으로 (PowerPoint 쪽 테마는 내보낸 개체에 고정 값으로 기록)
   const doc = resolveTokensDeep(source, source.theme);
   const warnings = new Set<string>();
@@ -251,6 +253,7 @@ export async function buildPptx(source: Presentation, opts: BuildOptions = {}): 
   let currentSection: string | undefined;
 
   const plans: SlidePlan[] = [];
+  const inlineMath: InlineMath[] = [];
   for (const [slideIndex, s] of doc.slides.entries()) {
     const secName = sectionOf.get(s.id);
     if (secName) {
@@ -349,7 +352,7 @@ export async function buildPptx(source: Presentation, opts: BuildOptions = {}): 
           // 가져온 도형의 원래 프리셋(근사 표시된 경우)을 그대로 기록
           if (o.type === 'shape' && o.sourcePreset) shapeName = o.sourcePreset;
           const points = o.type === 'shape' && o.shape === 'custom' ? geometryToPoints(o, warn) : undefined;
-          slide.addText(paragraphsToRuns(o.text), {
+          slide.addText(paragraphsToRuns(o.text, inlineMath), {
             ...pos,
             ...textBodyOpts(o.text),
             shape: shapeName as PptxGenJS.ShapeType,
@@ -473,7 +476,7 @@ export async function buildPptx(source: Presentation, opts: BuildOptions = {}): 
     }
     if (s.notes) slide.addNotes(s.notes);
   }
-  return { pptx, warnings: [...warnings], plans };
+  return { pptx, warnings: [...warnings], plans, inlineMath };
 }
 
 const borderOpt = (s: Stroke | null): PptxGenJS.BorderProps =>
@@ -486,7 +489,7 @@ function tableRows(t: TableObject): PptxGenJS.TableRow[] {
       .map((cell) => {
         const p = cell.text.padding;
         return {
-          text: paragraphsToRuns(cell.text) as PptxGenJS.TableCell[],
+          text: paragraphsToRuns(cell.text) as PptxGenJS.TableCell[], // 표 셀 안 수식은 LaTeX 글자로
           options: {
             colspan: cell.colSpan,
             rowspan: cell.rowSpan,
@@ -557,7 +560,7 @@ export async function exportPptxBytes(
   doc: Presentation,
   opts: BuildOptions & { sourcePackage?: ArrayBuffer | Uint8Array | Blob | null; embeddedFonts?: EmbedPlanFont[] } = {},
 ): Promise<{ bytes: Uint8Array; warnings: string[] }> {
-  const { pptx, warnings, plans } = await buildPptx(doc, { ...opts, sourceAvailable: !!opts.sourcePackage });
+  const { pptx, warnings, plans, inlineMath } = await buildPptx(doc, { ...opts, sourceAvailable: !!opts.sourcePackage });
   const raw = (await pptx.write({ outputType: 'uint8array', compression: true })) as Uint8Array;
   const extra: string[] = [];
   const source = opts.sourcePackage ? await OoxmlPackage.load(opts.sourcePackage) : null;
@@ -567,6 +570,7 @@ export async function exportPptxBytes(
     themeEastAsian: { major: koreanCapable(doc.theme.fonts.heading) ? doc.theme.fonts.heading : null, minor: koreanCapable(doc.theme.fonts.body) ? doc.theme.fonts.body : null },
     embeddedFonts: opts.embeddedFonts,
     comments: buildComments(doc),
+    inlineMath,
   };
   const bytes = await postProcessPptx(raw, plans, source, (m) => extra.push(m), pres);
   return { bytes, warnings: [...new Set([...warnings, ...extra])] };

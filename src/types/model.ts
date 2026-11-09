@@ -52,7 +52,19 @@ export interface TextRun extends TextRunStyle {
   text: string;
   /** 하이퍼링크 URL */
   link?: string;
+  /** 문단 안 수식 (PowerPoint: 텍스트 상자 안 수식, PPTX a14:m). text는 MATH_RUN_TEXT 한 글자 */
+  math?: InlineMath;
 }
+
+/** 문단 안 수식: LaTeX가 원본, MathML은 화면 표시용, OMML은 가져온 원본(바꾸지 않았으면 그대로 저장) */
+export interface InlineMath {
+  latex: string;
+  mathml: string;
+  sourceOmml?: { xml: string; latex: string };
+}
+
+/** 문단 안 수식 런의 글자 (개체 대체 문자: 글자 위치 계산·검색·맞춤법 검사에서 한 글자로 건너뜀) */
+export const MATH_RUN_TEXT = '\uFFFC';
 
 export type HAlign = 'left' | 'center' | 'right' | 'justify';
 export type VAlign = 'top' | 'middle' | 'bottom';

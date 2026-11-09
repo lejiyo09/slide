@@ -14,6 +14,7 @@ import type {
   Section, ShapeKind, ShapeObject, Slide, SlideObject, Stroke, TextBody, TextObject, TextRun, Theme, UnsupportedKind, UnsupportedObject, VAlign,
   TableObject, TableCell, CellBorders, ChartObject, ChartType, MediaObject, MasterSlide, PlaceholderType, SlideTransition, Animation, EquationObject, SlideComment, ExtensionObject,
 } from '../../types/model';
+import { MATH_RUN_TEXT } from '../../types/model';
 import type { Rel } from './ooxml';
 import { contentFingerprint, mediaPlaybackSignature } from '../../core/document/fingerprint';
 import { parseTiming, parseTransition } from './animImport';
@@ -762,6 +763,15 @@ function buildTextBody(txBody: Element | null, chain: TextStyleChain, ctx: Shape
     for (const c of kids(p)) {
       if (c.localName === 'r' || c.localName === 'fld') runs.push(toRun(kid(c, 'rPr'), kid(c, 't')?.textContent ?? ''));
       else if (c.localName === 'br') runs.push(toRun(kid(c, 'rPr'), '\n'));
+      else if (c.localName === 'm') {
+        // 문단 안 수식 (a14:m › m:oMath / m:oMathPara)
+        for (const m of kids(c)) {
+          if (m.localName !== 'oMathPara' && m.localName !== 'oMath') continue;
+          const latex = tidyLatex(ommlToLatex(m));
+          const { mathml } = latexToMathml(latex);
+          runs.push({ ...toRun(descendants(m, 'rPr').find((x) => x.namespaceURI === NS.a) ?? kid(p, 'endParaRPr'), MATH_RUN_TEXT), math: { latex, mathml, sourceOmml: { xml: serializeElement(m), latex } } });
+        }
+      }
     }
     // 연속된 같은 서식 런 병합
     const merged: TextRun[] = [];
@@ -801,7 +811,7 @@ function buildTextBody(txBody: Element | null, chain: TextStyleChain, ctx: Shape
 }
 
 const sameRunStyle = (a: TextRun, b: TextRun) =>
-  a.fontFamily === b.fontFamily && a.fontSize === b.fontSize && !!a.bold === !!b.bold && !!a.italic === !!b.italic &&
+  !a.math && !b.math && a.fontFamily === b.fontFamily && a.fontSize === b.fontSize && !!a.bold === !!b.bold && !!a.italic === !!b.italic &&
   !!a.underline === !!b.underline && !!a.strike === !!b.strike && a.color === b.color && a.highlight === b.highlight;
 
 /* ───────────── 기하 ───────────── */
@@ -974,8 +984,12 @@ async function parseElement(el: Element, ctx: ShapeCtx, skipPlaceholders: boolea
       }
       if (choice && descendants(choice, 'oMath').length) {
         for (const c of kids(choice)) {
-          const eq = c.localName === 'sp' ? parseEquation(c, ctx, tf) : null;
+          if (c.localName !== 'sp') continue;
+          const eq = parseEquation(c, ctx, tf);
           if (eq) return eq;
+          // 글자 + 문단 안 수식: Choice의 텍스트 상자 그대로
+          const t = await parseSp(c, ctx, skipPlaceholders, tf, groupFill);
+          if (t) return t;
         }
       }
       // 호환 대체 콘텐츠: Fallback(가장 호환성 높은 표현)을 사용
@@ -1081,6 +1095,8 @@ function parseEquation(sp: Element, ctx: ShapeCtx, tf: Xform): EquationObject | 
     if (line.trim()) lines.push(line);
   }
   if (!mathEls.length) return null;
+  // 글자와 수식이 섞인 텍스트 상자는 문단 안 수식이 있는 텍스트 상자로
+  if (plainText) return null;
   const latex = tidyLatex(lines.join(' \\\\ '));
   const { mathml, error } = latexToMathml(latex);
   if (error) ctx.report.warnings.push(`수식 일부를 해석하지 못했습니다 (${base.name || '수식'}): ${error}`);
