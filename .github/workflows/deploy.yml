@@ -20,6 +20,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # PDF 작성기 테스트가 poppler(pdfinfo)로 결과 파일을 독립 검증
+      - run: sudo apt-get update -q && sudo apt-get install -y -q poppler-utils
       - run: npm test
       - run: npm run build
         env:
