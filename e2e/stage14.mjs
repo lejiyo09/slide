@@ -300,6 +300,42 @@ try {
     const v2 = p2.streams.find((x) => x.codec_type === 'video');
     check('MP4: 854×480, 기록 무시 → 2초 + 1초 + 2초', p2.format.format_name.includes('mp4') && v2.width === 854 && v2.height === 480 && Math.abs(Number(p2.format.duration) - 5) < 0.15 && !p2.streams.some((x) => x.codec_type === 'audio'), `${p2.format.format_name} ${v2.codec_name} ${v2.width}×${v2.height} ${p2.format.duration}s`);
     check('결과 안내', (await page.locator('[data-video-result]').textContent()).includes('854×480'));
+    // 자동 재생 동영상 개체: 빨강(0–1초)·초록(1–2초)·파랑(2–3초) + 660Hz 소리, 위에 검은 사각형이 일부를 가림
+    const webmB64 = readFileSync('e2e/fixtures/rgb-3s.webm').toString('base64');
+    const hiddenBefore = await page.evaluate((b64) => {
+      const st = window.__SLIDELAB__.getState();
+      const hidden = st.doc.slides.map((s) => !!s.hidden);
+      st.commit('동영상 개체', (d) => {
+        d.assets['vid'] = { id: 'vid', mime: 'video/webm', dataUrl: `data:video/webm;base64,${b64}`, name: 'rgb.webm' };
+        d.slides.forEach((s, i) => (s.hidden = i > 0));
+        d.slides[0].objects.push({ id: 'vid-obj', type: 'media', kind: 'video', name: '동영상', assetId: 'vid', x: 640, y: 360, width: 480, height: 270, rotation: 0, autoPlay: true });
+        d.slides[0].objects.push({ id: 'vid-cover', type: 'shape', name: '가림', shape: 'rect', x: 600, y: 320, width: 120, height: 120, rotation: 0, fill: { type: 'solid', color: '#000000' }, stroke: null, text: { paragraphs: [{ runs: [{ text: '' }] }], vAlign: 'middle', direction: 'horizontal', padding: { top: 4, right: 8, bottom: 4, left: 8 }, autoFit: 'none' } });
+      });
+      return hidden;
+    }, webmB64);
+    await openExport();
+    await page.locator('[data-video-seconds]').fill('4');
+    await page.locator('select[aria-label="비디오 형식"]').selectOption('webm');
+    await page.locator('select[aria-label="비디오 품질"]').selectOption('720');
+    const vo = await download(() => page.locator('[data-export-video-go]').click(), 's14-video-obj.webm');
+    const px = (t, x, y) => [...execFileSync('ffmpeg', ['-v', 'error', '-ss', String(t), '-i', vo.path, '-frames:v', '1', '-vf', `crop=2:2:${x}:${y}`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'])].slice(0, 3);
+    const name = ([r, g, b]) => (r > 180 && g < 80 && b < 80 ? 'R' : g > 180 && r < 80 && b < 80 ? 'G' : b > 180 && r < 80 && g < 80 ? 'B' : r < 40 && g < 40 && b < 40 ? 'K' : `(${r},${g},${b})`);
+    const seq = [0.5, 1.5, 2.5, 3.6].map((t) => name(px(t, 900, 500))).join('');
+    const cover = [0.5, 1.5, 2.5].map((t) => name(px(t, 690, 410))).join('');
+    check('비디오: 동영상 개체 재생 (빨강→초록→파랑, 끝나면 마지막 프레임)', seq === 'RGBB', seq);
+    check('비디오: 동영상 위 개체는 동영상 위에 그대로 (층 합성)', cover === 'KKK', cover);
+    {
+      const r = spawnSync('ffmpeg', ['-v', 'info', '-ss', '0.2', '-t', '2.6', '-i', vo.path, '-af', 'volumedetect', '-vn', '-f', 'null', '-'], { encoding: 'utf8' });
+      const vol = Number(r.stderr.match(/mean_volume:\s*(-?[\d.]+|-inf)/)?.[1] ?? -99);
+      check('비디오: 동영상 소리도 섞임', vol > -30, `${vol}dB`);
+    }
+    await page.evaluate((hidden) => {
+      window.__SLIDELAB__.getState().commit('동영상 개체 제거', (d) => {
+        d.slides.forEach((s, i) => (s.hidden = hidden[i]));
+        d.slides[0].objects = d.slides[0].objects.filter((o) => o.id !== 'vid-obj' && o.id !== 'vid-cover');
+        delete d.assets['vid'];
+      });
+    }, hiddenBefore);
     await closeBackstage();
   }
 

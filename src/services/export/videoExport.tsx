@@ -2,10 +2,15 @@
  * 비디오로 내보내기 (PowerPoint: 파일 › 내보내기 › 비디오 만들기).
  * 프레임: SlideRasterizer로 그린 슬라이드(애니메이션 상태 포함). 정지 구간은 같은 그림을 재사용하고,
  * 전환은 앞뒤 슬라이드 그림 두 장을 캔버스에서 합성한다 (transitions.ts와 같은 진행 함수).
- * 인코딩: WebCodecs + mediabunny (MP4: H.264 우선, WebM: VP9 우선). 소리: 내레이션·자동 재생 오디오를 섞음.
+ * 인코딩: WebCodecs + mediabunny (MP4: H.264 우선, WebM: VP9 우선). 소리: 내레이션·자동 재생 오디오·동영상 소리를 섞음.
+ * 자동 재생 동영상 개체: 슬라이드를 동영상 아래 층(배경 포함)과 위 층(투명)으로 나눠 그려 두고,
+ * 프레임마다 그 사이에 동영상의 그 시각 프레임(mediabunny CanvasSink로 해독)을 합성한다.
+ * 동영상은 전환이 끝나면 처음부터 재생, 끝나면 마지막 프레임에 멈춤(반복이면 반복), 다음 슬라이드로 넘어가면 멈춤.
  */
-import { AudioBufferSource, BufferTarget, CanvasSource, getFirstEncodableAudioCodec, getFirstEncodableVideoCodec, Mp4OutputFormat, Output, QUALITY_HIGH, WebMOutputFormat, type AudioCodec, type VideoCodec } from 'mediabunny';
-import type { MediaObject, Presentation, Slide } from '../../types/model';
+import { ALL_FORMATS, AudioBufferSource, BlobSource, BufferTarget, CanvasSink, CanvasSource, getFirstEncodableAudioCodec, getFirstEncodableVideoCodec, Input, Mp4OutputFormat, Output, QUALITY_HIGH, WebMOutputFormat, type AudioCodec, type VideoCodec } from 'mediabunny';
+import type { MediaObject, Presentation, Slide, SlideObject } from '../../types/model';
+import type { Frame } from '../../engines/animation/effects';
+import { ObjectView } from '../../engines/rendering/ObjectView';
 import { buildTimeline, frameStates } from '../../engines/animation/timeline';
 import { transitionFrame, type TransitionFrame } from '../../engines/transition/transitions';
 import { loadAssetUrl } from '../../hooks/useAssetUrl';
@@ -82,10 +87,69 @@ export function drawTransition(g: CanvasRenderingContext2D, w: number, h: number
   }
 }
 
+/* ───────────── 동영상 개체 ───────────── */
+
+/** 비디오에서 재생할 동영상 개체 (자동 재생, 쇼 중 숨기기 아님) */
+export function playingVideos(slide: Slide): MediaObject[] {
+  return slide.objects.filter((o): o is MediaObject => o.type === 'media' && o.kind === 'video' && !!o.autoPlay && !o.hideInShow);
+}
+
+/** 동영상 개체 사이사이의 층: [동영상 아래(배경 포함), 첫 동영상 위, …] — 개체 순서(z) 기준 */
+export function videoLayers(slide: Slide, videos: MediaObject[]): SlideObject[][] {
+  const ids = new Set(videos.map((v) => v.id));
+  const layers: SlideObject[][] = [[]];
+  for (const o of slide.objects) {
+    if (ids.has(o.id)) layers.push([]);
+    else layers[layers.length - 1].push(o);
+  }
+  return layers;
+}
+
+/** 슬라이드 시각(초) → 동영상 시각 (반복이면 되감기, 아니면 끝에서 멈춤) */
+export function videoTime(t: number, duration: number, loop: boolean): number {
+  if (!(duration > 0)) return 0;
+  if (loop) return ((t % duration) + duration) % duration;
+  return Math.min(Math.max(0, t), Math.max(0, duration - 1e-3));
+}
+
+interface VideoTrackSink {
+  sink: CanvasSink;
+  duration: number;
+}
+
+async function openVideo(doc: Presentation, o: MediaObject, w: number, h: number): Promise<VideoTrackSink | null> {
+  try {
+    const asset = doc.assets[o.assetId];
+    const url = asset ? await loadAssetUrl(asset) : null;
+    if (!url) return null;
+    const blob = await (await fetch(url)).blob();
+    const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
+    const track = await input.getPrimaryVideoTrack();
+    if (!track || !(await track.canDecode())) return null;
+    const sink = new CanvasSink(track, { width: Math.max(2, Math.round(w)), height: Math.max(2, Math.round(h)), fit: 'fill', poolSize: 2 });
+    return { sink, duration: await input.computeDuration() };
+  } catch {
+    return null;
+  }
+}
+
+/** 동영상 프레임을 개체 자리에 (개체 회전 + 애니메이션 상태: 보임·불투명도·이동·크기·회전) */
+function drawVideoFrame(g: CanvasRenderingContext2D, img: CanvasImageSource, o: MediaObject, frame: Frame | undefined, scale: number) {
+  if (frame?.visible === false || (frame?.opacity ?? 1) <= 0) return;
+  g.save();
+  g.globalAlpha = frame?.opacity ?? 1;
+  const cx = (o.x + o.width / 2 + (frame?.tx ?? 0)) * scale, cy = (o.y + o.height / 2 + (frame?.ty ?? 0)) * scale;
+  g.translate(cx, cy);
+  g.rotate((((o.rotation ?? 0) + (frame?.rotate ?? 0)) * Math.PI) / 180);
+  g.scale(frame?.sx ?? 1, frame?.sy ?? 1);
+  g.drawImage(img, (-o.width / 2) * scale, (-o.height / 2) * scale, o.width * scale, o.height * scale);
+  g.restore();
+}
+
 /* ───────────── 소리 ───────────── */
 
 function audioObjects(slide: Slide, narrationOnly: boolean): MediaObject[] {
-  return slide.objects.filter((o): o is MediaObject => o.type === 'media' && o.kind === 'audio' && (o.narration ? true : !narrationOnly && !!o.autoPlay));
+  return slide.objects.filter((o): o is MediaObject => o.type === 'media' && ((o.kind === 'audio' && (o.narration ? true : !narrationOnly && !!o.autoPlay)) || (!narrationOnly && o.kind === 'video' && playingVideos(slide).includes(o))));
 }
 
 async function decode(ctx: BaseAudioContext, url: string): Promise<AudioBuffer | null> {
@@ -116,14 +180,14 @@ async function narrationLengths(doc: Presentation): Promise<{ ms: Record<string,
 }
 
 async function mixAudio(plan: VideoPlan, buffers: Map<string, AudioBuffer>, useNarration: boolean): Promise<AudioBuffer | null> {
-  const items: { buf: AudioBuffer; at: number; until: number }[] = [];
+  const items: { buf: AudioBuffer; at: number; until: number; loop: boolean }[] = [];
   for (const sp of plan.slides) {
     const at = (sp.start + sp.transitionMs) / 1000;
     const until = (sp.start + sp.transitionMs + sp.holdMs) / 1000;
     for (const o of audioObjects(sp.slide, false)) {
       if (o.narration && !useNarration) continue;
       const b = buffers.get(o.id);
-      if (b) items.push({ buf: b, at, until });
+      if (b) items.push({ buf: b, at, until, loop: !!o.loop });
     }
   }
   if (!items.length) return null;
@@ -132,9 +196,13 @@ async function mixAudio(plan: VideoPlan, buffers: Map<string, AudioBuffer>, useN
   for (const it of items) {
     const src = ctx.createBufferSource();
     src.buffer = it.buf;
+    src.loop = it.loop;
     src.connect(ctx.destination);
     // 다음 슬라이드로 넘어가면 멈춤 (PowerPoint 기본: 슬라이드 넘기면 소리 정지)
-    src.start(it.at, 0, Math.max(0, it.until - it.at));
+    if (it.loop) {
+      src.start(it.at);
+      src.stop(it.until);
+    } else src.start(it.at, 0, Math.max(0, it.until - it.at));
   }
   return ctx.startRendering();
 }
@@ -169,26 +237,82 @@ export async function exportVideo(doc: Presentation, opts: VideoExportOptions): 
 
   const r = new SlideRasterizer(doc);
   const scale = width / doc.size.width;
-  // 슬라이드 그림 캐시: 전환에 쓰는 '처음 상태'/'끝 상태'
-  const snapshots = new Map<string, HTMLCanvasElement>();
-  const renderState = async (index: number, play: { done: number; t: number | null }) => {
+  // 동영상 개체 (슬라이드 순서별): 열 수 없거나 해독할 수 없으면 표지 그림 그대로
+  const videos = new Map<number, { obj: MediaObject; track: VideoTrackSink }[]>();
+  for (let i = 0; i < plan.slides.length; i++) {
+    const list: { obj: MediaObject; track: VideoTrackSink }[] = [];
+    for (const o of playingVideos(plan.slides[i].slide)) {
+      const track = await openVideo(doc, o, o.width * scale, o.height * scale);
+      if (track) list.push({ obj: o, track });
+    }
+    if (list.length) videos.set(i, list);
+  }
+  const framesOf = (index: number, play: { done: number; t: number | null }) => {
     const slide = plan.slides[index].slide;
-    const frames = frameStates(slide.objects, buildTimeline(slide.animations), play, doc.size.width, doc.size.height);
-    await r.render(slide, frames);
-    return r.capture({ scale }, slide.id);
+    return frameStates(slide.objects, buildTimeline(slide.animations), play, doc.size.width, doc.size.height);
   };
+  /** 층 그림: 동영상이 없으면 [슬라이드], 있으면 [동영상 아래(배경 포함), 위 층(투명)…] */
+  const renderLayers = async (index: number, play: { done: number; t: number | null }): Promise<{ layers: (HTMLCanvasElement | null)[]; frames: Map<string, Frame> }> => {
+    const slide = plan.slides[index].slide;
+    const frames = framesOf(index, play);
+    const vids = videos.get(index);
+    if (!vids) {
+      await r.render(slide, frames);
+      return { layers: [await r.capture({ scale }, slide.id)], frames };
+    }
+    const groups = videoLayers(slide, vids.map((v) => v.obj));
+    const shown = new Set(vids.map((v) => v.obj.id));
+    // 열지 못한 동영상(표지 그림)은 아래 층에 그대로 남도록 위에서 이미 빠져 있음 → 열린 것만 층을 나눔
+    const layers: (HTMLCanvasElement | null)[] = [];
+    await r.render({ ...slide, objects: groups[0].filter((o) => !shown.has(o.id)) }, frames);
+    layers.push(await r.capture({ scale }, slide.id));
+    for (const objs of groups.slice(1)) {
+      if (!objs.length) {
+        layers.push(null);
+        continue;
+      }
+      await r.render(slide, frames, (
+        <div style={{ position: 'absolute', left: 0, top: 0, width: doc.size.width, height: doc.size.height, overflow: 'hidden' }}>
+          {objs.map((o) => <ObjectView key={o.id} obj={o} assets={doc.assets} theme={doc.theme} mode="thumb" frame={frames.get(o.id)} />)}
+        </div>
+      ));
+      layers.push(await r.capture({ scale, background: null }, slide.id));
+    }
+    return { layers, frames };
+  };
+  /** 층 + 동영상 프레임(슬라이드 표시 후 t초) 합성 */
+  const compose = async (target: CanvasRenderingContext2D, index: number, st: { layers: (HTMLCanvasElement | null)[]; frames: Map<string, Frame> }, t: number) => {
+    const vids = videos.get(index);
+    target.drawImage(st.layers[0]!, 0, 0, width, height);
+    if (!vids) return;
+    for (let k = 0; k < vids.length; k++) {
+      const v = vids[k];
+      const w = await v.track.sink.getCanvas(videoTime(t, v.track.duration, !!v.obj.loop));
+      if (w) drawVideoFrame(target, w.canvas, v.obj, st.frames.get(v.obj.id), scale);
+      const over = st.layers[k + 1];
+      if (over) target.drawImage(over, 0, 0, width, height);
+    }
+  };
+  // 슬라이드 그림 캐시: 전환에 쓰는 '처음 상태'/'끝 상태' (동영상은 처음/마지막 시각 프레임을 합성해 둠)
+  const snapshots = new Map<string, HTMLCanvasElement>();
   const snapshot = async (index: number, which: 'first' | 'last') => {
     const key = `${index}:${which}`;
     let c = snapshots.get(key);
     if (!c) {
       const sp = plan.slides[index];
-      c = await renderState(index, which === 'first' ? { done: 0, t: null } : { done: sp.steps.length, t: null });
+      const st = await renderLayers(index, which === 'first' ? { done: 0, t: null } : { done: sp.steps.length, t: null });
+      c = document.createElement('canvas');
+      c.width = width;
+      c.height = height;
+      await compose(c.getContext('2d')!, index, st, which === 'first' ? 0 : sp.holdMs / 1000);
       snapshots.set(key, c);
       // 오래된 그림은 버림 (메모리)
       for (const k of snapshots.keys()) if (Number(k.split(':')[0]) < index - 1) snapshots.delete(k);
     }
     return c;
   };
+  let layerKey = '';
+  let layerCache: Awaited<ReturnType<typeof renderLayers>> | null = null;
 
   const totalFrames = Math.max(1, Math.ceil((plan.totalMs / 1000) * opts.fps));
   let lastKey = '';
@@ -206,9 +330,18 @@ export async function exportVideo(doc: Presentation, opts: VideoExportOptions): 
         lastKey = '';
       } else {
         const key = stateKey(st, opts.fps);
-        if (key !== lastKey) {
-          const sp = plan.slides[st.index];
-          const img = st.play.t === null && st.play.done === 0 ? await snapshot(st.index, 'first') : st.play.t === null && st.play.done === sp.steps.length ? await snapshot(st.index, 'last') : await renderState(st.index, st.play);
+        const sp = plan.slides[st.index];
+        if (videos.has(st.index)) {
+          // 동영상이 있는 슬라이드: 층은 상태가 바뀔 때만 새로 그리고, 동영상 프레임은 매 프레임 합성
+          if (key !== layerKey || !layerCache) {
+            layerCache = await renderLayers(st.index, st.play);
+            layerKey = key;
+            rendered++;
+          }
+          await compose(g, st.index, layerCache, (ms - sp.start - sp.transitionMs) / 1000);
+          lastKey = '';
+        } else if (key !== lastKey) {
+          const img = st.play.t === null && st.play.done === 0 ? await snapshot(st.index, 'first') : st.play.t === null && st.play.done === sp.steps.length ? await snapshot(st.index, 'last') : (await renderLayers(st.index, st.play)).layers[0]!;
           g.drawImage(img, 0, 0, width, height);
           rendered++;
           lastKey = key;
