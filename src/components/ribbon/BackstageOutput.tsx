@@ -234,7 +234,7 @@ export function PdfImageExport() {
         <FileText size={28} />
         <span>
           <strong>PDF 문서 (.pdf)</strong>
-          <span className="muted">슬라이드를 그림으로 담은 PDF를 바로 내려받습니다. 글자를 선택할 수 있는 PDF는 인쇄 › “PDF로 저장”을 쓰세요.</span>
+          <span className="muted">슬라이드를 그림으로 담은 PDF를 바로 내려받습니다. 그림 위에 보이지 않는 글자 층이 있어 글자를 선택·검색·복사할 수 있습니다.</span>
           <span className="bs-form-row">
             <select value={pdfQuality} onChange={(e) => setPdfQuality(e.target.value as 'standard')} aria-label="PDF 품질">
               <option value="standard">표준 (온라인 게시 및 인쇄)</option>

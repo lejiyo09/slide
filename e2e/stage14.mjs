@@ -173,6 +173,26 @@ try {
     execFileSync('pdftoppm', ['-png', '-r', '72', '-f', '1', '-l', '1', pdf.path, `${OUT}/s14-pdfpage`]);
     const d = await imageDiff(`${OUT}/s14-pdfpage-1.png`, `${OUT}/s14-ref-0.png`);
     check('PDF 1쪽(poppler로 그림) = 화면', d.diff < 7, d.diff.toFixed(2));
+    // 보이지 않는 글자 층: 글자 추출 + 위치가 편집기 화면의 글자 상자와 같음
+    const ptext = execFileSync('pdftotext', ['-f', '1', '-l', '1', pdf.path, '-'], { encoding: 'utf8' });
+    const bbox = execFileSync('pdftotext', ['-bbox', '-f', '1', '-l', '1', pdf.path, '-'], { encoding: 'utf8' });
+    const word = [...bbox.matchAll(/<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">인쇄<\/word>/g)][0];
+    const domBox = await page.evaluate(() => {
+      const w = document.createTreeWalker(document.querySelector('.canvas-scroller'), NodeFilter.SHOW_TEXT);
+      let n = null;
+      while (w.nextNode()) if (w.currentNode.data.includes('인쇄')) { n = w.currentNode; break; }
+      const el = n?.parentElement;
+      if (!n) return null;
+      const r = document.createRange();
+      r.setStart(n, n.data.indexOf('인쇄'));
+      r.setEnd(n, n.data.length);
+      const b = r.getBoundingClientRect(), slide = el.closest('.sl-slide');
+      const s = slide.getBoundingClientRect();
+      const k = 960 / s.width;
+      return { x0: (b.left - s.left) * k, x1: (b.right - s.left) * k, y0: (b.top - s.top) * k, y1: (b.bottom - s.top) * k };
+    });
+    const near = word && domBox && Math.abs(+word[1] - domBox.x0) < 4 && Math.abs(+word[3] - domBox.x1) < 4 && Math.abs(+word[2] - domBox.y0) < 6 && Math.abs(+word[4] - domBox.y1) < 6;
+    check('PDF 글자 층: 글자 추출(선택·검색) + 위치 = 화면 글자 상자(pt)', ptext.includes('Print Test 인쇄') && ptext.includes('Subtitle line') && near, `${JSON.stringify(ptext.trim())} pdf=${word?.slice(1, 5).map((v) => (+v).toFixed(0))} dom=${domBox && Object.values(domBox).map((v) => v.toFixed(0))}`);
     await page.locator('[data-export-pdf] .fm-check input').check();
     const pdf2 = await download(() => page.locator('[data-export-pdf-go]').click(), 's14-export-hidden.pdf');
     check('PDF: 숨긴 슬라이드 포함 → 3쪽', /Pages:\s+3\n/.test(execFileSync('pdfinfo', [pdf2.path], { encoding: 'utf8' })));

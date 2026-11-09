@@ -86,10 +86,82 @@ export class SlideRasterizer {
     });
   }
 
+  /** 그린 슬라이드의 글자 위치 (px, 슬라이드 왼쪽 위 기준) — 그림 PDF의 보이지 않는 글자 층용 */
+  textRuns(): TextRun[] {
+    return collectTextRuns(this.host);
+  }
+
   destroy() {
     this.root.unmount();
     this.host.remove();
   }
+}
+
+export interface TextRun {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  text: string;
+  /** 글자(코드 포인트)마다 [왼쪽, 오른쪽] (px). 공백은 앞 글자 오른쪽~다음 글자 왼쪽 */
+  boxes: [number, number][];
+}
+
+/**
+ * 글자 노드마다 글자 하나씩의 화면 상자(Range)를 재서 같은 줄의 글자를 한 묶음으로 만든다.
+ * 줄 바꿈(글자 상자의 위쪽이 줄 높이의 절반 넘게 바뀜)마다 새 묶음. 앞뒤 공백은 빼고 가운데 공백은 남김.
+ * 회전한 개체는 화면 상자가 기울어진 글자마다 달라 짧은 묶음으로 나뉜다(검색·복사는 됨).
+ */
+export function collectTextRuns(root: HTMLElement): TextRun[] {
+  const base = root.getBoundingClientRect();
+  const out: TextRun[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const range = document.createRange();
+  for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
+    const value = node.data;
+    if (!value.trim()) continue;
+    const el = node.parentElement;
+    if (!el || el.closest('script, style')) continue;
+    const cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+    let cur: { x0: number; x1: number; top: number; bottom: number; text: string; space: boolean; boxes: [number, number][] } | null = null;
+    const flush = () => {
+      if (cur && cur.text) out.push({ x: cur.x0 - base.left, y: cur.top - base.top, width: cur.x1 - cur.x0, height: cur.bottom - cur.top, text: cur.text, boxes: cur.boxes.map(([a, b]) => [a - base.left, b - base.left]) });
+      cur = null;
+    };
+    let i = 0;
+    for (const ch of value) {
+      const len = ch.length;
+      range.setStart(node, i);
+      range.setEnd(node, i + len);
+      i += len;
+      if (/\s/.test(ch)) {
+        if (cur) cur.space = true;
+        continue;
+      }
+      const rects = range.getClientRects();
+      const r = rects[rects.length - 1];
+      if (!r || r.width <= 0 || r.height <= 0) continue;
+      if (cur && (Math.abs(r.top - cur.top) > r.height / 2 || r.left < cur.x0 - 1)) flush();
+      if (!cur) {
+        cur = { x0: r.left, x1: r.right, top: r.top, bottom: r.bottom, text: ch, space: false, boxes: [[r.left, r.right]] };
+        continue;
+      }
+      if (cur.space) {
+        cur.text += ' ';
+        cur.boxes.push([cur.x1, r.left]);
+      }
+      cur.text += ch;
+      cur.boxes.push([r.left, r.right]);
+      cur.space = false;
+      cur.x1 = Math.max(cur.x1, r.right);
+      cur.top = Math.min(cur.top, r.top);
+      cur.bottom = Math.max(cur.bottom, r.bottom);
+    }
+    flush();
+  }
+  range.detach();
+  return out;
 }
 
 export function canvasToBlob(canvas: HTMLCanvasElement, type: 'image/png' | 'image/jpeg', quality = 0.92): Promise<Blob> {

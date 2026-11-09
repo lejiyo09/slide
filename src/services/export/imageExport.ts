@@ -1,7 +1,7 @@
 /**
  * 그림·PDF로 내보내기 (PowerPoint: 파일 › 내보내기 › 파일 형식 변경 / PDF/XPS 문서 만들기)
  * - 그림: PNG/JPEG, 현재 슬라이드 또는 모든 슬라이드(ZIP, "슬라이드1.png"…)
- * - PDF: 슬라이드마다 그림 한 페이지 (표준 1.5배·JPEG 92% / 최소 크기 1배·JPEG 75%), 숨긴 슬라이드 포함 여부
+ * - PDF: 슬라이드마다 그림 한 페이지 (표준 1.5배·JPEG 92% / 최소 크기 1배·JPEG 75%) + 보이지 않는 글자 층(선택·검색), 숨긴 슬라이드 포함 여부
  */
 import JSZip from 'jszip';
 import type { Presentation } from '../../types/model';
@@ -76,7 +76,8 @@ export async function exportPdf(doc: Presentation, opts: PdfExportOptions): Prom
       const canvas = await r.capture({ scale });
       const jpeg = new Uint8Array(await (await canvasToBlob(canvas, 'image/jpeg', q)).arrayBuffer());
       // 1px = 0.75pt (96dpi 기준) → 1280×720px 슬라이드 = 960×540pt (PowerPoint 16:9와 같음)
-      pages.push({ width: doc.size.width * 0.75, height: doc.size.height * 0.75, jpeg, pixelWidth: canvas.width, pixelHeight: canvas.height });
+      const text = r.textRuns().map((t) => ({ x: t.x * 0.75, y: t.y * 0.75, width: t.width * 0.75, height: t.height * 0.75, text: t.text, boxes: t.boxes.map(([a, b]) => [a * 0.75, b * 0.75] as [number, number]) }));
+      pages.push({ width: doc.size.width * 0.75, height: doc.size.height * 0.75, jpeg, pixelWidth: canvas.width, pixelHeight: canvas.height, text });
       opts.onProgress?.(i + 1, slides.length);
     }
   } finally {
