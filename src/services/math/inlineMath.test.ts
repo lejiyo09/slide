@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import JSZip from 'jszip';
 import { produce } from 'immer';
 import { latexToMathml } from './equation';
@@ -10,6 +10,9 @@ import { applyInlineMath, inlineMathToken } from '../export/inlineMathXml';
 import { createPresentation } from '../../core/document/factory';
 import { MATH_RUN_TEXT, type TextObject, type TextRun } from '../../types/model';
 import { validateXml } from '../../test/ooxmlSchema';
+
+/** LibreOffice(soffice)가 있는지 */
+const HAS_SOFFICE = spawnSync('soffice', ['--version'], { stdio: 'ignore' }).status === 0;
 
 const mathRun = (latex: string, extra: Partial<TextRun> = {}): TextRun => ({ text: MATH_RUN_TEXT, fontSize: 24, color: '#1F3864', ...extra, math: { latex, mathml: latexToMathml(latex).mathml } });
 
@@ -31,7 +34,7 @@ describe('문단 안 수식 (a14:m)', () => {
     expect(out).toMatch(/<mc:Fallback><p:sp>[\s\S]*<a:t>x\^\{2\}<\/a:t>[\s\S]*<\/mc:Fallback><\/mc:AlternateContent><p:sp><a:t>다른/);
   });
 
-  it('PPTX 내보내기: 스키마 통과, LibreOffice는 대체 글자, 다시 가져오면 같은 글자·수식', async () => {
+  it('PPTX 내보내기: 스키마 통과, (LibreOffice가 있으면) 대체 글자, 다시 가져오면 같은 글자·수식', async () => {
     const { bytes } = await exportPptxBytes(deck());
     mkdirSync('test-output', { recursive: true });
     writeFileSync('test-output/inline-math.pptx', bytes);
@@ -40,12 +43,14 @@ describe('문단 안 수식 (a14:m)', () => {
     expect(sx).not.toContain('[[SLM:');
     expect((sx.match(/<a14:m>/g) ?? []).length).toBe(2);
     expect(validateXml(sx)).toEqual([]);
-    // LibreOffice: 문단 안 a14:m을 읽지 않아 Fallback(LaTeX 글자)을 보여 줌 — 자리 표시 글자가 아니라 읽을 수 있는 대체 글자
-    execFileSync('soffice', ['--headless', '--convert-to', 'pdf', '--outdir', 'test-output', 'test-output/inline-math.pptx'], { stdio: 'ignore', timeout: 120000 });
-    const txt = execFileSync('pdftotext', ['test-output/inline-math.pdf', '-'], { encoding: 'utf8' });
-    expect(txt).toContain('원의 넓이는');
-    expect(txt).not.toContain('SLM');
-    expect(txt.replace(/\s/g, '')).toContain('A=\\pir^{2}');
+    // LibreOffice가 설치된 환경에서만 (CI 배포 서버에는 없음): 문단 안 a14:m을 읽지 않아 Fallback(LaTeX 글자)을 보여 줌
+    if (HAS_SOFFICE) {
+      execFileSync('soffice', ['--headless', '--convert-to', 'pdf', '--outdir', 'test-output', 'test-output/inline-math.pptx'], { stdio: 'ignore', timeout: 120000 });
+      const txt = execFileSync('pdftotext', ['test-output/inline-math.pdf', '-'], { encoding: 'utf8' });
+      expect(txt).toContain('원의 넓이는');
+      expect(txt).not.toContain('SLM');
+      expect(txt.replace(/\s/g, '')).toContain('A=\\pir^{2}');
+    }
     // 다시 가져오기: 텍스트 상자(수식 개체 아님) + 수식 런
     const back = await importPptx(bytes);
     const t = back.doc.slides[0].objects.find((o) => (o.type === 'text' || o.type === 'shape') && o.text.paragraphs.some((p) => p.runs.some((r) => r.math))) as TextObject;
