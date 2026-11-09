@@ -50,7 +50,7 @@ export const SlideView = memo(function SlideView({ slide, doc, editingTextId, ed
 });
 
 /** 고정 폭에 맞춰 축소된 슬라이드 (축소판, 슬라이드 쇼 등) */
-export function ScaledSlide({ slide, doc, width, className }: { slide: Slide; doc: Presentation; width: number; className?: string }) {
+export function ScaledSlide({ slide, doc, width, className }: { slide: Slide; doc: Pick<Presentation, 'size' | 'theme' | 'assets' | 'layouts' | 'master'>; width: number; className?: string }) {
   const scale = width / doc.size.width;
   return (
     <div className={className} style={{ position: 'relative', width, height: doc.size.height * scale, overflow: 'hidden' }}>

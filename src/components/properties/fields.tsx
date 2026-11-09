@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Popover, usePopover } from '../common/Popover';
 import { ColorPanel } from '../common/ColorPicker';
@@ -77,10 +77,22 @@ export function Section({ title, children, defaultOpen = true }: { title: string
 }
 
 export function Row({ label, children }: { label: string; children: ReactNode }) {
+  const id = useId();
+  const ctrl = useRef<HTMLDivElement>(null);
+  // 행 이름을 이름 없는 입력 칸에 연결 (화면 읽기 프로그램이 '투명도 슬라이더'처럼 읽도록)
+  useLayoutEffect(() => {
+    ctrl.current?.querySelectorAll('input, select, textarea').forEach((el) => {
+      if (!el.hasAttribute('aria-label') && !el.hasAttribute('aria-labelledby') && !(el as HTMLInputElement).labels?.length) el.setAttribute('aria-labelledby', id);
+    });
+  });
   return (
     <div className="pp-row">
-      <span className="pp-row-label">{label}</span>
-      <div className="pp-row-ctrl">{children}</div>
+      <span className="pp-row-label" id={id}>
+        {label}
+      </span>
+      <div className="pp-row-ctrl" ref={ctrl}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -91,7 +103,7 @@ export function ColorField({ value, onChange, allowNone, title }: { value: strin
   const shown = value ? resolveColor(value, theme) : null;
   return (
     <>
-      <button ref={p.anchorRef} type="button" className="color-field" title={title} aria-label={title} onClick={p.toggle}>
+      <button ref={p.anchorRef} type="button" className="color-field" title={title} aria-label={`${title}: ${value ? (isColorToken(value) ? describeColor(value) : value) : '없음'}`} onClick={p.toggle}>
         <span className="cf-swatch" style={{ background: shown ?? 'transparent' }} data-none={!value || undefined} />
         <span className="cf-text">{value ? (isColorToken(value) ? describeColor(value) : value) : '없음'}</span>
         <ChevronDown size={12} />

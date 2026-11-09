@@ -2,6 +2,10 @@ import type { ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Popover, usePopover } from './Popover';
 
+/** 접근 가능한 이름: 보이는 글자로 시작하고 설명을 덧붙임 (음성 제어로 보이는 글자를 말해도 찾게, WCAG 2.5.3) */
+export const accessibleName = (label: string | undefined, title: string) =>
+  !label || title === label || new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=[\\s(:,·]|$)`).test(title) ? title : `${label}: ${title}`;
+
 interface BtnProps {
   icon?: ReactNode;
   label?: string;
@@ -23,7 +27,7 @@ export function RibbonButton({ icon, label, title, onClick, active, disabled, si
       type="button"
       className={`rb rb-${size} ${active ? 'is-active' : ''} ${className ?? ''}`}
       title={shortcut ? `${title} (${shortcut})` : title}
-      aria-label={title}
+      aria-label={accessibleName(label, title)}
       aria-pressed={active}
       disabled={disabled}
       onMouseDown={(e) => e.preventDefault()}
@@ -55,7 +59,7 @@ export function DropdownButton({
         type="button"
         className={`rb rb-${size} rb-dropdown ${p.open || active ? 'is-active' : ''}`}
         title={title}
-        aria-label={title}
+        aria-label={accessibleName(label, title)}
         aria-haspopup="menu"
         aria-expanded={p.open}
         disabled={disabled}
@@ -86,7 +90,7 @@ export function SplitButton({
   const p = usePopover();
   return (
     <span className={`rb-split rb-split-${size}`}>
-      <button type="button" className={`rb rb-${size}`} title={title} aria-label={title} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={onClick}>
+      <button type="button" className={`rb rb-${size}`} title={title} aria-label={accessibleName(label, title)} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={onClick}>
         {icon && <span className="rb-icon">{icon}</span>}
         {label && <span className="rb-label">{label}</span>}
       </button>

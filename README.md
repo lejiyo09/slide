@@ -13,7 +13,8 @@ npm install
 npm run dev          # 개발 서버 (http://localhost:5173)
 npm run build        # 타입 검사 + 정적 빌드 (dist/)
 npm test             # 단위 테스트 (Vitest)
-npm run test:e2e     # 브라우저 E2E (빌드 후 `npx vite preview --port 4173` 실행 상태에서)
+npm run test:e2e     # 브라우저 E2E (빌드 후 `npx vite preview --port 4173` 실행 상태에서, 한글 파일 이름 확인을 위해 LANG=C.UTF-8)
+python3 scripts/verify_equations.py  # 내보낸 수식(OMML)을 LibreOffice Writer로 검증 (libreoffice-math 필요)
 npm run verify:pptx  # 내보낸 PPTX를 python-pptx/LibreOffice로 검증
 ```
 
@@ -30,15 +31,15 @@ GitHub Codespaces에서도 동일하게 실행됩니다. `main`에 push하면 `.
 | 5 | 텍스트·도형·이미지 삽입/편집 | 완료 (아래 상세) |
 | 6 | 실행 취소/다시 실행, 자동 저장, 버전 기록 | 완료 |
 | 7 | PPTX 가져오기/내보내기 | **완료** (아래 "PPTX 호환성" 참고) |
-| 8 | 표, 차트, 미디어 | **완료** (아래 "표·차트·미디어" 참고) · 수식/3D는 14단계 |
+| 8 | 표, 차트, 미디어 | **완료** (아래 "표·차트·미디어" 참고) · 수식·3D는 14단계에서 완료 |
 | 9 | 디자인·테마·마스터 | **완료** (아래 "디자인·테마·슬라이드 마스터" 참고) |
 | 10 | 애니메이션·전환 엔진 | **완료** (아래 "전환·애니메이션" 참고) |
-| 11 | 발표 도구 | **완료** (아래 "발표 도구" 참고) · 비디오로 내보내기는 14단계 |
+| 11 | 발표 도구 | **완료** (아래 "발표 도구" 참고) · 비디오로 내보내기는 14단계에서 완료 |
 | 12 | AI 기능 | **완료** (아래 "AI 도우미" 참고) |
 | 13 | 글꼴: 내려받은 글꼴 파일 추가, 기본 글꼴 확대 | **완료** (아래 "글꼴" 참고) |
-| 14 | 전체 테스트·최적화 (PDF/비디오 내보내기, 수식, 맞춤법 등 포함) | 예정 |
+| 14 | 전체 테스트·최적화 (PDF/그림/비디오 내보내기, 인쇄, 수식, 메모, 맞춤법, 비교, 3D) | **완료** (아래 "14단계" 참고) |
 
-미구현 기능은 리본에서 비활성 "준비 중 · N단계" 그룹으로 표시되며, 작동하는 것처럼 보이지 않도록 했습니다.
+14단계로 리본의 "준비 중" 그룹은 모두 실제 기능으로 바뀌었습니다.
 
 ### 구현된 기능
 - **슬라이드**: 추가(레이아웃 6종), 복제, 삭제, 드래그/단축키로 순서 변경, 다중 선택(Ctrl/Shift), 숨기기, 구역(추가·이름 변경·제거·접기), 축소판, 여러 슬라이드 보기, 복사/붙여넣기
@@ -54,6 +55,40 @@ GitHub Codespaces에서도 동일하게 실행됩니다. `main`에 push하면 `.
 - **슬라이드 쇼**: 처음부터/현재부터, 전체 화면, 키보드(→ ← Space PgUp/Dn Home End, 번호+Enter), 검은/흰 화면(B/W), 숨김 슬라이드 건너뛰기, 발표자 보기·펜·레이저·확대 등 (아래 "발표 도구")
 - **PWA**: 매니페스트, 서비스 워커(오프라인 실행), 설치 버튼, 새 버전 알림, `.pptx`/`.slidelab` 파일 핸들러 선언
 - **기타**: 다크 모드, 상황별 탭(도형 서식/그림 서식), 키보드 단축키
+
+## 14단계: 내보내기·인쇄·수식·메모·맞춤법·비교·3D, 최적화
+
+- **그림·PDF 내보내기** (파일 › 내보내기): PNG/JPEG(현재 슬라이드 또는 모두 ZIP, 1·1.5·3배), PDF(표준 1.5배/최소 크기, 숨긴 슬라이드 포함 여부).
+  편집기와 같은 SlideView를 화면 밖에 그려 modern-screenshot으로 그림으로 바꾸고, 그 슬라이드에 실제로 쓰인 글꼴만 포함(내 글꼴 파일, 자체 호스팅 웹 글꼴의 필요한 조각, Google 웹 글꼴의 쓰인 글자만).
+  PDF는 자체 작성기(JPEG 페이지). 검증: 슬라이드 쇼 화면과 픽셀 비교, poppler(pdfinfo·pdfimages·pdftoppm)로 PDF 확인
+- **인쇄** (파일 › 인쇄, Ctrl+P): 전체 페이지 슬라이드 / 슬라이드 노트 / 유인물 1·2·3·4·6·9 / 개요, 범위(1-3,5), 컬러·회색조·흑백, 숨긴 슬라이드, 테두리, 미리 보기.
+  브라우저 인쇄(“PDF로 저장”)라 글자가 벡터로 남아 선택·검색 가능 (pdftotext·pdffonts로 확인)
+- **비디오로 내보내기** (파일 › 내보내기 / 슬라이드 쇼 탭): MP4(H.264 우선)·WebM(VP9), 4K/1080p/720p/480p, 24·30·60fps,
+  기록된 시간·내레이션 사용 또는 슬라이드당 시간, 전환·애니메이션·클릭 단계(남는 시간에 고르게), 내레이션·자동 재생 오디오 섞기.
+  정지 구간은 프레임을 다시 쓰고 전환은 캔버스에서 합성해 빠름. ffprobe·ffmpeg로 코덱·길이·프레임·소리 위치 확인
+- **수식** (삽입 › 수식): LaTeX 입력 + 즉시 미리 보기, 기본 제공 수식·구조·기호 단추, 크기·색·맞춤, 더블클릭 편집.
+  Temml(MathML) + STIX Two Math 글꼴. PPTX에는 PowerPoint와 같은 `mc:AlternateContent`(a14:m OMML + 대체 그림)로 저장하고, 가져온 수식은 OMML → LaTeX로 편집 가능
+  (바꾸지 않으면 원본 OMML 유지). LibreOffice가 만든 수식 PPTX를 가져오고, 내보낸 OMML 12종을 LibreOffice Writer가 수식 개체로 읽는 것을 확인(`scripts/verify_equations.py`)
+- **메모** (검토 › 메모): 새 메모(선택한 개체에 연결), 답글, 해결/다시 열기, 편집·삭제, 이전/다음, 슬라이드 위 말풍선, 모든 메모 삭제.
+  PPTX는 기존 메모 형식(commentAuthors + commentN, p15 답글)으로 저장 — LibreOffice가 읽음을 확인. PowerPoint 365 최신 메모(p188)도 가져옴
+- **맞춤법 검사** (검토 › 맞춤법 검사, F7): Hunspell(WebAssembly) + 한국어 사전(hunspell-dict-ko) + 영어 사전, 국립국어원 규범 기반 한국어 규칙
+  (되/돼, 안/않, -ㄹ게, -습니다, 의존 명사 띄어쓰기, 자주 틀리는 낱말), 반복 단어. 변경/모두 변경/무시/모두 무시/사전에 추가, 노트 포함, 입력할 때 검사(브라우저)
+- **비교** (검토 › 비교): 다른 버전의 .pptx/.slidelab과 비교 — 슬라이드·개체를 내용으로 짝지어 삽입/삭제/글자(낱말 단위 차이)/위치·크기/서식/노트/배경 변경을 보여 주고 하나씩·모두 적용.
+  PPTX 저장 형식 차이(개체 틀→도형, 상속 배경, 그림 ID, 수식 LaTeX 표기)는 변경으로 보지 않음
+- **3D 모델 + 확장 개체 인터페이스** (삽입 › 3D 모델): `src/extensions/registry.ts`에 개체 종류를 등록하면 리본·서식 창·렌더러·내보내기에 연결됨.
+  첫 확장은 GLB/glTF 3D 모델(three.js): 회전 X/Y/Z·확대, 썸네일·인쇄·PDF·비디오·PPTX에는 그 각도의 대체 그림. PowerPoint 3D 모델(am3d)을 가져오고, 바꾸지 않으면 원본 그대로 저장
+- **.slidelab**: IndexedDB에 따로 두던 동영상·오디오·내레이션·3D 파일을 이제 함께 저장 (이전에는 빠져 있던 문제 수정)
+- **최적화·품질**
+  - 시작 번들 837KB → 639KB(gzip 263KB → 202KB): 큰 기능(슬라이드 쇼, AI 창, 내보내기, 수식, 맞춤법, 3D)은 쓸 때 불러옴
+  - 슬라이드 1000장: 열기 1049ms → 177ms, DOM 68,582 → 6,338개, 메모리 125MB → 30MB (축소판은 화면 근처에서만 그리고, 바뀐 슬라이드만 다시 그림)
+  - 오프라인(PWA): 서비스 워커 설치 후 네트워크를 끊고 새로 고침·슬라이드 쇼·수식·맞춤법(한 번 받은 사전)·편집 저장 확인 (`e2e/offline.mjs`)
+  - 접근성: axe-core로 모든 리본 탭·창·백스테이지·대화 상자에서 심각/치명 위반 0 (슬라이드 목록 구조, 입력 칸 이름, 명암비, 단추 이름이 보이는 글자로 시작)
+- **남은 제한**
+  - 새로 만든·고친 3D 모델은 PowerPoint 파일에 그림으로 저장 (am3d 장면 정보는 PowerPoint로 확인할 수 없어 쓰지 않음)
+  - 그림 PDF는 글자를 선택할 수 없음(선택 가능한 PDF는 인쇄 › PDF로 저장), 비디오의 동영상 개체는 표지 그림으로 들어감
+  - 메모의 '해결됨'은 기존 메모 형식에 없어 PPTX에 저장되지 않음, 맞춤법의 한국어는 사전+규칙 방식이라 문맥 문법 검사는 아님
+  - 수식은 수식 개체 단위(문단 중간 수식 없음), 비교는 글자 서식(굵게 등) 변경은 따로 보여 주지 않음
+  - 실제 PowerPoint로 연 확인은 이 환경에서 하지 못함 (LibreOffice·poppler·ffmpeg 같은 독립 도구로 검증)
 
 ## 글꼴 (13단계)
 
@@ -126,7 +161,7 @@ GitHub Codespaces에서도 동일하게 실행됩니다. `main`에 push하면 `.
   `presentation.xml`의 `p:custShowLst`, 자동 재생 미디어(`mediacall` playFrom + `p:audio/p:video` cMediaNode, showWhenStopped·반복)를 저장하고 다시 가져옵니다.
   pptxgenjs가 오디오도 `a:videoFile`로 기록하는 문제를 후처리에서 `a:audioFile`로 바로잡았습니다. LibreOffice로 변환해 재구성한 쇼·반복·자동 재생 명령이 인식되는지 확인했습니다.
 - **제한**: 발표자 보기 사용 여부는 SlideLab 문서에만 저장(PowerPoint는 파일이 아닌 앱 설정), 잉크는 PowerPoint 잉크(InkML)가 아닌 자유형 도형으로 저장,
-  녹화 중 카메라·잉크 재생 녹화와 비디오로 내보내기는 미지원(14단계), 키오스크의 5분 무입력 자동 재시작 미지원
+  녹화 중 카메라·잉크 재생 녹화 미지원(비디오로 내보내기는 14단계에서 지원), 키오스크의 5분 무입력 자동 재시작 미지원
 
 ## 전환·애니메이션 (10단계)
 
@@ -232,14 +267,21 @@ src/
 | immer | 11 | MIT | 불변 갱신·스냅샷 |
 | idb | 8 | ISC | IndexedDB 래퍼 |
 | pptxgenjs | 4 | MIT | PPTX 생성 (지연 로딩) |
-| jszip | 3 | MIT (MIT/GPL 이중) | PPTX 검증·향후 가져오기 |
+| jszip | 3 | MIT (MIT/GPL 이중) | PPTX 읽기·쓰기, ZIP |
 | nanoid | 5 | MIT | ID |
 | lucide-react | 1.x | ISC | 아이콘 |
 | vite-plugin-pwa (Workbox) | 2 | MIT | PWA |
 | @anthropic-ai/sdk | 1.1.0 | Apache-2.0 | Claude 제공자 (선택, 지연 로딩) |
 | woff2-encoder | 2.0.0 | MIT | WOFF2 → TTF 복원 (WebAssembly, `woff2-encoder/decompress`만 지연 로딩) |
 | libeot (코드 이식) | – | MPL-2.0 | `src/services/fonts/mtx/` MTX 압축 해제 (원본 파일 단위 MPL 유지) |
-| vitest, jsdom, fake-indexeddb | – | MIT/Apache-2.0 | 테스트 |
+| modern-screenshot | 4.7.0 | MIT | 슬라이드 → 그림 (그림·PDF·비디오·대체 그림) |
+| mediabunny | 1.62.1 | MPL-2.0 | MP4/WebM 만들기 (WebCodecs) |
+| temml | 0.14.0 | MIT | LaTeX → MathML |
+| @fontsource/stix-two-math | 5.3.0 | OFL-1.1 | 수식 글꼴 |
+| hunspell-asm | 4.0.2 | MIT | 맞춤법 (Hunspell WebAssembly, ESM 빌드의 CommonJS 호출은 Vite 변환으로 수정) |
+| dictionary-ko / dictionary-en | 2.0.0 / 4.0.0 | MPL-1.1(택1) / MIT·BSD | 한국어·영어 사전 |
+| three | 0.186.1 | MIT | 3D 모델 |
+| vitest, jsdom, fake-indexeddb, axe-core | – | MIT/Apache-2.0/MPL-2.0 | 테스트·접근성 검사 |
 
 모두 npm 레지스트리에서 실재·버전·라이선스를 확인했습니다. 유료 API(GPT·Claude)는 선택 사항이며, 키가 없어도 편집기와 기본 AI 엔진은 그대로 동작합니다.
 

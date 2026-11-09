@@ -12,7 +12,6 @@ import { compareScripts, digestSlides, fixIssue, lintDesign, splitSlideInDraft, 
 import { TEMPLATES } from '../../themes/templates';
 import { COLOR_SCHEMES, FONT_SCHEMES } from '../../themes/schemes';
 import { createTextBox, paragraph, plainText } from '../document/factory';
-import { docxToText } from '../../services/ai/offline/document';
 
 const st = () => useEditor.getState();
 
@@ -70,7 +69,11 @@ export async function readDocumentFile(file: File): Promise<DocumentInput> {
     for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
     return { name, pdfBase64: btoa(bin) };
   }
-  if (/\.docx$/i.test(name)) return { name, text: await docxToText(await file.arrayBuffer()) };
+  if (/\.docx$/i.test(name)) {
+    // Word 문서를 붙일 때만 압축 해제 라이브러리를 불러옴
+    const { docxToText } = await import('../../services/ai/offline/document');
+    return { name, text: await docxToText(await file.arrayBuffer()) };
+  }
   return { name, text: await file.text() };
 }
 

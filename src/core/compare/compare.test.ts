@@ -84,7 +84,8 @@ describe('비교', () => {
     expect(a.slides.map(slideText)).toEqual(b.slides.map(slideText));
     expect(a.slides[1].notes).toBe('매출은 15% 늘었습니다');
     // 현재 문서의 ID 체계 유지 (검토본 ID를 그대로 가져오지 않음)
-    expect(a.slides.flatMap((s) => s.objects).some((o) => o.id.startsWith('R'))).toBe(false);
+    const revisedIds = new Set(b.slides.flatMap((s) => [s.id, ...s.objects.map((o) => o.id)]));
+    expect(a.slides.flatMap((s) => [s.id, ...s.objects.map((o) => o.id)]).filter((id) => revisedIds.has(id))).toEqual([]);
   });
 
   it('PPTX로 저장했다 다시 연 같은 문서는 변경 없음 (저장 형식 차이 무시)', async () => {

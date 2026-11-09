@@ -42,14 +42,14 @@ export function Backstage() {
         <BsNav icon={<History size={18} />} label="버전 기록" active={page === 'history'} onClick={() => setPage('history')} />
         <BsNav icon={<Info size={18} />} label="정보" active={page === 'info'} onClick={() => setPage('info')} />
       </nav>
-      <main className="bs-main">
+      <div className="bs-main">
         {page === 'new' && <NewPage close={close} />}
         {page === 'open' && <OpenPage close={close} />}
         {page === 'print' && <PrintPage />}
         {page === 'export' && <ExportPage />}
         {page === 'history' && <HistoryPage close={close} />}
         {page === 'info' && <InfoPage />}
-      </main>
+      </div>
     </div>
   );
 }

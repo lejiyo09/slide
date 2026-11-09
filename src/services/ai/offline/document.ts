@@ -2,7 +2,6 @@
  * 문서 읽기: txt / md / docx → 구조(제목, 구역, 문단, 목록).
  * docx는 ZIP 안의 word/document.xml을 직접 해석한다 (제목 스타일 → 구역, 번호/글머리 목록 → 항목).
  */
-import JSZip from 'jszip';
 
 export interface DocSection {
   heading: string;
@@ -20,6 +19,8 @@ const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
 /** docx → 마크다운 비슷한 텍스트 (# 제목, - 목록) */
 export async function docxToText(data: ArrayBuffer | Uint8Array | Blob): Promise<string> {
+  // 압축 해제 라이브러리는 Word 문서를 읽을 때만 불러옴 (시작 화면 크기 절약)
+  const { default: JSZip } = await import('jszip');
   const zip = await JSZip.loadAsync(data);
   const xml = await zip.file('word/document.xml')?.async('string');
   if (!xml) throw new Error('Word 문서(.docx)가 아닙니다.');

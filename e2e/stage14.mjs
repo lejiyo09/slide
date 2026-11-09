@@ -607,6 +607,81 @@ try {
     await closeBackstage();
   }
 
+  if (want('a11y')) {
+    /* ───── 접근성 (axe-core): 심각·치명 위반 없음 ───── */
+    await closeBackstage();
+    const axeSrc = readFileSync('node_modules/axe-core/axe.min.js', 'utf8');
+    const scan = async (label, setup) => {
+      await setup();
+      await page.waitForTimeout(400);
+      if (!(await page.evaluate(() => !!window.axe))) await page.addScriptTag({ content: axeSrc });
+      const v = await page.evaluate(async () => (await window.axe.run(document, { resultTypes: ['violations'] })).violations.filter((x) => x.impact === 'critical' || x.impact === 'serious').map((x) => `${x.id}(${x.nodes.length}: ${x.nodes.slice(0, 1).map((n) => n.failureSummary.replace(/\s+/g, ' ') + ' | ' + document.querySelector(n.target[0])?.getAttribute('aria-label') + ' | visible=' + JSON.stringify(document.querySelector(n.target[0])?.innerText)).join(' ; ')})`));
+      check(`접근성: ${label}`, v.length === 0, v.join(', '));
+    };
+    const st = (patch) => page.evaluate((p) => window.__SLIDELAB__.getState().set(p), patch);
+    await scan('편집 화면', () => st({ backstageOpen: false, commentsPane: false, spellPane: false }));
+    // 리본의 모든 탭
+    for (const tab of await page.locator('.tab:not(.tab-file)').allTextContents()) {
+      await scan(`리본 [${tab}] 탭`, () => page.locator('.tab', { hasText: tab }).first().click());
+    }
+    await scan('메모 창', () => st({ commentsPane: true }));
+    await scan('맞춤법 창', () => st({ commentsPane: false, spellPane: true }));
+    await scan('내보내기', () => st({ spellPane: false, backstageOpen: true, backstagePage: 'export' }));
+    await scan('인쇄', () => st({ backstagePage: 'print' }));
+    await scan('수식 창', () => st({ backstageOpen: false, equationEditorId: 'new' }));
+    await page.keyboard.press('Escape');
+    await st({ equationEditorId: null });
+  }
+
+  if (want('perf')) {
+    /* ───── 성능: 슬라이드 1000장 ───── */
+    await closeBackstage();
+    const perf = await page.evaluate(async () => {
+      const st = window.__SLIDELAB__.getState();
+      const saved = st.doc;
+      const base = saved.slides[0];
+      const doc = JSON.parse(JSON.stringify(saved));
+      doc.id = 'perf-test';
+      doc.slides = Array.from({ length: 1000 }, (_, i) => {
+        const s = JSON.parse(JSON.stringify(base));
+        s.id = `p${i}`;
+        s.comments = undefined;
+        s.objects = s.objects.filter((o) => o.type === 'text').map((o, k) => ({ ...o, id: `p${i}o${k}`, text: { ...o.text, paragraphs: [{ runs: [{ text: `슬라이드 ${i + 1}` }] }] } }));
+        for (let k = 0; k < 8; k++) s.objects.push({ ...JSON.parse(JSON.stringify(s.objects[0])), id: `p${i}x${k}`, x: 50 + k * 60, y: 400, width: 200, height: 60 });
+        return s;
+      });
+      const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const t0 = performance.now();
+      st.loadDocument(doc);
+      await frame();
+      const load = performance.now() - t0;
+      const sw = [];
+      for (let i = 1; i <= 10; i++) {
+        const t = performance.now();
+        window.__SLIDELAB__.getState().setActiveSlide(`p${i * 90}`);
+        await frame();
+        sw.push(performance.now() - t);
+      }
+      const ed = [];
+      for (let i = 0; i < 10; i++) {
+        const t = performance.now();
+        window.__SLIDELAB__.getState().commit('편집', (d) => void (d.slides[500].objects[1].x += 1));
+        await frame();
+        ed.push(performance.now() - t);
+      }
+      const med = (a) => a.sort((x, y) => x - y)[Math.floor(a.length / 2)];
+      return { load: Math.round(load), switchMed: Math.round(med(sw)), editMed: Math.round(med(ed)), dom: document.getElementsByTagName('*').length };
+    });
+    check('슬라이드 1000장: 열기 1.5초 이내, 전환·편집 100ms 이내, DOM 2만 개 이하', perf.load < 1500 && perf.switchMed < 100 && perf.editMed < 100 && perf.dom < 20000, JSON.stringify(perf));
+    // 화면 밖 축소판은 아직 그리지 않음 → 아래로 내리면 그림
+    await page.evaluate(() => document.querySelector('[data-slide-id="p0"]').scrollIntoView());
+    await page.waitForTimeout(300);
+    check('화면에서 먼 축소판은 그리지 않음', (await page.locator('[data-slide-id="p999"] .sl-slide').count()) === 0 && (await page.locator('[data-slide-id="p999"] .thumb-placeholder').count()) === 1);
+    await page.evaluate(() => document.querySelector('[data-slide-id="p999"]').scrollIntoView());
+    await page.waitForFunction(() => !!document.querySelector('[data-slide-id="p999"] .sl-slide'), null, { timeout: 5000 });
+    check('맨 아래 축소판 표시', await page.evaluate(() => document.querySelector('[data-slide-id="p999"] .sl-slide')?.textContent.includes('슬라이드 1000')));
+  }
+
   if (want('equation')) {
     // 문서를 바꾸므로 마지막에: LibreOffice가 만든 수식 PPTX 가져오기
     await closeBackstage();

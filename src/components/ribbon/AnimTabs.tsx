@@ -45,7 +45,7 @@ export function TransitionsTab() {
         <RibbonButton size="large" icon={<Play size={26} />} label="미리 보기" title="현재 슬라이드의 전환 미리 보기" disabled={t.type === 'none'} onClick={AA.previewTransition} />
       </RibbonGroup>
       <RibbonGroup label="이 슬라이드로 전환" className="rg-gallery">
-        <div className="fx-gallery">
+        <div className="fx-gallery" tabIndex={0} role="group" aria-label="전환 효과 목록">
           {TRANSITIONS.map((x) => (
             <button key={x.id} type="button" className={`fx-item ${t.type === x.id ? 'is-active' : ''}`} title={x.name} data-transition={x.id} onClick={() => AA.applyTransition(x.id)}>
               <TransitionIcon id={x.id} />
@@ -130,7 +130,7 @@ export function AnimationsTab() {
         <RibbonButton size="large" icon={<Play size={26} />} label="미리 보기" title="이 슬라이드의 애니메이션 미리 보기" disabled={!list.length} onClick={AA.previewAnimation} />
       </RibbonGroup>
       <RibbonGroup label="애니메이션" className="rg-gallery">
-        <div className="fx-gallery fx-anim">
+        <div className="fx-gallery fx-anim" tabIndex={0} role="group" aria-label="애니메이션 효과 목록">
           {categories.map((cat) =>
             EFFECTS.filter((e) => e.category === cat && cat !== 'path').map((e) => (
               <button
