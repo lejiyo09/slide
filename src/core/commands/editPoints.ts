@@ -35,7 +35,49 @@ export async function startEditPoints(id: string) {
   useEditor.getState().set({ editPointsId: id, selectedIds: [id] });
 }
 
-export const endEditPoints = () => useEditor.getState().set({ editPointsId: null });
+export const endEditPoints = () => useEditor.getState().set({ editPointsId: null, editPointSel: null });
+
+/** 점 편집 중인 도형의 경로를 바꾸고 상자를 다시 맞춤 (실행 취소 한 단계) */
+function editGeometry(label: string, fn: (g: CustomGeometry, o: ShapeObject) => CustomGeometry) {
+  const s = useEditor.getState();
+  const id = s.editPointsId;
+  if (!id) return;
+  const slide = getActiveSlide();
+  const o = slide.objects.find((x) => x.id === id);
+  if (!o || o.type !== 'shape' || !o.geometry) return;
+  const g = fn(o.geometry, o);
+  if (g === o.geometry) return;
+  s.commit(label, (d) => {
+    const sl = d.slides.find((x) => x.id === slide.id)!;
+    const i = sl.objects.findIndex((x) => x.id === id);
+    const cur = sl.objects[i] as ShapeObject;
+    sl.objects[i] = { ...cur, ...refitBox({ ...cur, geometry: g }) } as ShapeObject;
+  });
+}
+
+export function deleteSelectedPoint() {
+  const sel = useEditor.getState().editPointSel;
+  if (!sel || sel.part !== 'pt') return;
+  editGeometry('점 편집: 점 삭제', (g) => deletePoint(g, sel));
+  useEditor.getState().set({ editPointSel: null });
+}
+
+export function toggleSelectedSegment() {
+  const sel = useEditor.getState().editPointSel;
+  if (!sel) return;
+  editGeometry('점 편집: 곡선/직선', (g) => toggleSegment(g, { ...sel, part: 'pt' }));
+}
+
+/** 슬라이드 좌표 (x, y) 근처 경로에 점 추가 (가까운 구간이 없으면 무시) */
+export function addPointAt(x: number, y: number, maxDist = 12) {
+  editGeometry('점 편집: 점 추가', (g, o) => {
+    const q = slideToLocal(o, x, y);
+    const n = nearestSegment(g, o.width, o.height, q.u, q.v);
+    if (!n || n.dist > maxDist) return g;
+    useEditor.getState().set({ editPointSel: { path: n.path, cmd: n.cmd, part: 'pt' } });
+    return insertPoint(g, n.path, n.cmd, n.t);
+  });
+}
 
 /* ───────────── 좌표 (순수 함수) ───────────── */
 
@@ -159,4 +201,122 @@ export function refitBox(o: Box & { geometry: CustomGeometry }): Box & { geometr
     })),
   };
   return { ...o, x: c.x - w / 2, y: c.y - h / 2, width: w, height: h, geometry };
+}
+
+/* ───────────── 점 추가·삭제·곡선/직선 전환 (순수 함수) ───────────── */
+
+/** 하위 경로 범위 [M 위치, 마지막 명령 위치] (Z 제외) */
+function subpathRange(cmds: PathCommand[], k: number): [number, number] {
+  let s = k;
+  while (s > 0 && cmds[s].c !== 'M') s--;
+  let e = k;
+  while (e + 1 < cmds.length && cmds[e + 1].c !== 'M' && cmds[e + 1].c !== 'Z') e++;
+  return [s, e];
+}
+
+const clonePaths = (g: CustomGeometry) => g.paths.map((p) => ({ ...p, cmds: p.cmds.map((c) => ({ ...c })) as PathCommand[] }));
+
+/** 앞 꼭짓점 좌표 */
+function prevPoint(cmds: PathCommand[], k: number): [number, number] {
+  for (let i = k - 1; i >= 0; i--) {
+    const c = cmds[i];
+    if (c.c !== 'Z') return [c.x, c.y];
+  }
+  return [0, 0];
+}
+
+/**
+ * 꼭짓점 삭제. 하위 경로에 꼭짓점이 3개 이하면 지우지 않음(면이 사라짐).
+ * 지운 점에서 끝나던 구간과 다음 구간을 하나로 합침 (다음 구간이 곡선이면 지운 점의 들어오는 조절점을 이어받음)
+ */
+export function deletePoint(g: CustomGeometry, ref: PointRef): CustomGeometry {
+  const paths = clonePaths(g);
+  const cmds = paths[ref.path].cmds;
+  const [s, e] = subpathRange(cmds, ref.cmd);
+  // 닫힌 경로의 끝점이 시작점과 같은 자리면 그 둘은 한 꼭짓점
+  const pE = get(cmds[e], 'pt'), pS = get(cmds[s], 'pt');
+  const anchors = e - s + 1 - (pE && pS && e !== s && Math.abs(pE[0] - pS[0]) < 1e-6 && Math.abs(pE[1] - pS[1]) < 1e-6 ? 1 : 0);
+  if (anchors <= 3 || ref.part !== 'pt') return g;
+  const k = ref.cmd;
+  if (k === s) {
+    // 시작점(M) 삭제: 다음 점이 새 시작점, 마지막 닫는 구간도 그 점으로
+    const n = cmds[s + 1];
+    if (!n || n.c === 'Z' || n.c === 'M') return g;
+    const pe = get(cmds[e], 'pt'), ps = get(cmds[s], 'pt');
+    const closeSame = !!pe && !!ps && Math.abs(pe[0] - ps[0]) < 1e-6 && Math.abs(pe[1] - ps[1]) < 1e-6;
+    cmds.splice(s, 2, { c: 'M', x: n.x, y: n.y });
+    if (closeSame) {
+      const last = cmds[e - 1];
+      if (last.c !== 'Z') {
+        last.x = n.x;
+        last.y = n.y;
+      }
+    }
+    return { ...g, paths };
+  }
+  const cur = cmds[k], next = cmds[k + 1];
+  if (cur.c === 'Z') return g;
+  if (next && next.c === 'C' && cur.c === 'C') {
+    // 두 곡선을 하나로: 앞 곡선의 c1 + 뒤 곡선의 c2
+    next.x1 = cur.x1;
+    next.y1 = cur.y1;
+  } else if (next && next.c === 'C' && cur.c !== 'C') {
+    const [px, py] = prevPoint(cmds, k);
+    next.x1 = px + (next.x1 - cur.x);
+    next.y1 = py + (next.y1 - cur.y);
+  }
+  cmds.splice(k, 1);
+  return { ...g, paths };
+}
+
+/** 구간 위 비율 t 자리에 꼭짓점 추가 (곡선은 드 카스텔조 분할로 모양 그대로) */
+export function insertPoint(g: CustomGeometry, path: number, cmd: number, t: number): CustomGeometry {
+  const paths = clonePaths(g);
+  const cmds = paths[path].cmds;
+  const c = cmds[cmd];
+  if (!c || c.c === 'M' || c.c === 'Z') return g;
+  const [x0, y0] = prevPoint(cmds, cmd);
+  const L = (a: number, b: number) => a + (b - a) * t;
+  if (c.c !== 'C') {
+    cmds.splice(cmd, 0, { c: 'L', x: L(x0, c.x), y: L(y0, c.y) });
+    return { ...g, paths };
+  }
+  const ax = L(x0, c.x1), ay = L(y0, c.y1), bx = L(c.x1, c.x2), by = L(c.y1, c.y2), cx = L(c.x2, c.x), cy = L(c.y2, c.y);
+  const dx = L(ax, bx), dy = L(ay, by), ex = L(bx, cx), ey = L(by, cy);
+  const mx = L(dx, ex), my = L(dy, ey);
+  cmds.splice(cmd, 1, { c: 'C', x1: ax, y1: ay, x2: dx, y2: dy, x: mx, y: my }, { c: 'C', x1: ex, y1: ey, x2: cx, y2: cy, x: c.x, y: c.y });
+  return { ...g, paths };
+}
+
+/** 이 꼭짓점에서 끝나는 구간을 곡선 ↔ 직선으로 (직선→곡선은 1/3·2/3 자리 조절점: 모양은 그대로, 이후 조절점을 끌어 휘게) */
+export function toggleSegment(g: CustomGeometry, ref: PointRef): CustomGeometry {
+  const paths = clonePaths(g);
+  const cmds = paths[ref.path].cmds;
+  const c = cmds[ref.cmd];
+  if (!c || c.c === 'M' || c.c === 'Z') return g;
+  if (c.c === 'C') cmds[ref.cmd] = { c: 'L', x: c.x, y: c.y };
+  else {
+    const [x0, y0] = prevPoint(cmds, ref.cmd);
+    cmds[ref.cmd] = { c: 'C', x1: x0 + (c.x - x0) / 3, y1: y0 + (c.y - y0) / 3, x2: x0 + ((c.x - x0) * 2) / 3, y2: y0 + ((c.y - y0) * 2) / 3, x: c.x, y: c.y };
+  }
+  return { ...g, paths };
+}
+
+/** 경로에서 (u, v)에 가장 가까운 구간과 비율 (도형 px 단위 거리; 점 추가용) */
+export function nearestSegment(g: CustomGeometry, w: number, h: number, u: number, v: number): { path: number; cmd: number; t: number; dist: number } | null {
+  let best: { path: number; cmd: number; t: number; dist: number } | null = null;
+  g.paths.forEach((p, pi) => {
+    p.cmds.forEach((c, ci) => {
+      if (c.c === 'M' || c.c === 'Z') return;
+      const [x0, y0] = prevPoint(p.cmds, ci);
+      for (let k = 0; k <= 40; k++) {
+        const t = k / 40, mt = 1 - t;
+        const x = c.c === 'C' ? mt * mt * mt * x0 + 3 * mt * mt * t * c.x1 + 3 * mt * t * t * c.x2 + t * t * t * c.x : x0 + (c.x - x0) * t;
+        const y = c.c === 'C' ? mt * mt * mt * y0 + 3 * mt * mt * t * c.y1 + 3 * mt * t * t * c.y2 + t * t * t * c.y : y0 + (c.y - y0) * t;
+        const d = Math.hypot((x - u) * w, (y - v) * h);
+        if (!best || d < best.dist) best = { path: pi, cmd: ci, t: Math.min(0.98, Math.max(0.02, t)), dist: d };
+      }
+    });
+  });
+  return best;
 }

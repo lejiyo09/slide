@@ -54,3 +54,33 @@ describe('점 편집', () => {
     expect(refitBox({ x: 0, y: 0, width: 10, height: 10, rotation: 0, geometry: tri })).toEqual({ x: 0, y: 0, width: 10, height: 10, rotation: 0, geometry: tri });
   });
 });
+
+import { deletePoint, insertPoint, nearestSegment, toggleSegment } from './editPoints';
+const sq: CustomGeometry = { paths: [{ cmds: [{ c: 'M', x: 0, y: 0 }, { c: 'L', x: 1, y: 0 }, { c: 'L', x: 1, y: 1 }, { c: 'L', x: 0, y: 1 }, { c: 'Z' }], fill: true, stroke: true }] };
+describe('점 추가·삭제·곡선/직선', () => {
+  it('점 추가: 직선 가운데, 곡선은 분할해도 같은 모양(분할점이 원래 곡선 위)', () => {
+    const a = insertPoint(sq, 0, 1, 0.5);
+    expect(a.paths[0].cmds.slice(0, 3)).toEqual([{ c: 'M', x: 0, y: 0 }, { c: 'L', x: 0.5, y: 0 }, { c: 'L', x: 1, y: 0 }]);
+    const b = insertPoint(curve, 0, 1, 0.5);
+    const m = b.paths[0].cmds[1] as { x: number; y: number };
+    // 원래 곡선 (0,1)-(0,0)-(1,0)-(1,1)의 t=0.5 = (0.5, 0.25)
+    expect(m.x).toBeCloseTo(0.5);
+    expect(m.y).toBeCloseTo(0.25);
+    expect(b.paths[0].cmds.filter((c) => c.c === 'C')).toHaveLength(3);
+  });
+  it('점 삭제: 꼭짓점 하나가 빠지고, 3개 이하는 지우지 않음, 시작점도 지울 수 있음', () => {
+    const five = insertPoint(sq, 0, 1, 0.5);
+    expect(deletePoint(five, { path: 0, cmd: 1, part: 'pt' })).toEqual(sq);
+    const tri3: CustomGeometry = { paths: [{ cmds: [{ c: 'M', x: 0, y: 0 }, { c: 'L', x: 1, y: 0 }, { c: 'L', x: 0, y: 1 }, { c: 'Z' }], fill: true, stroke: true }] };
+    expect(deletePoint(tri3, { path: 0, cmd: 1, part: 'pt' })).toBe(tri3);
+    const noStart = deletePoint(sq, { path: 0, cmd: 0, part: 'pt' });
+    expect(noStart.paths[0].cmds).toEqual([{ c: 'M', x: 1, y: 0 }, { c: 'L', x: 1, y: 1 }, { c: 'L', x: 0, y: 1 }, { c: 'Z' }]);
+  });
+  it('곡선 ↔ 직선 전환, 가장 가까운 구간 찾기', () => {
+    const c = toggleSegment(sq, { path: 0, cmd: 2, part: 'pt' });
+    expect(c.paths[0].cmds[2]).toMatchObject({ c: 'C', x: 1, y: 1 });
+    expect(toggleSegment(c, { path: 0, cmd: 2, part: 'pt' })).toEqual(sq);
+    const n = nearestSegment(sq, 100, 100, 0.5, 0.02)!;
+    expect([n.cmd, Math.round(n.t * 10) / 10, Math.round(n.dist)]).toEqual([1, 0.5, 2]);
+  });
+});

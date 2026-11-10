@@ -228,6 +228,8 @@ export const ObjectView = memo(function ObjectView({ obj: raw, assets, theme, ed
   };
   // 자유형(병합 결과 등)은 상자가 아니라 실제 채움 영역(구멍 제외)·선으로만 클릭되게: 상자는 통과, SVG 경로가 받음
   if (obj.type === 'shape' && obj.shape === 'custom' && editingTextId !== obj.id) style.pointerEvents = 'none';
+  // 도형 모양으로 자른 그림도 잘린 모양으로만 클릭 (clip-path가 클릭 영역도 자름)
+  if (obj.type === 'image' && obj.clip) style.pointerEvents = 'none';
   if (frame) {
     const fc = frameToCss(frame, obj.rotation);
     if (fc) {
@@ -449,6 +451,22 @@ function ImageContent({ obj, assets }: { obj: ImageObject; assets: Assets }) {
   const iw = obj.width / Math.max(0.01, fw);
   const ih = obj.height / Math.max(0.01, fh);
   const sw = obj.stroke ? ptToPx(obj.stroke.width) : 0;
+  // 도형 모양으로 자른 그림: 상자에 고정된 모양(뒤집기와 무관)으로 잘라 그리고, 테두리도 그 모양을 따라
+  if (obj.clip) {
+    const d = customPath(obj.clip, obj.width, obj.height);
+    return (
+      <>
+        <div style={{ position: 'absolute', inset: 0, clipPath: `path(${obj.clip.fillRule === 'evenodd' ? 'evenodd, ' : ''}'${d}')`, pointerEvents: 'auto' }} data-clipped="">
+          <ImageContent obj={{ ...obj, clip: undefined, stroke: null }} assets={assets} />
+        </div>
+        {obj.stroke && (
+          <svg width={obj.width} height={obj.height} style={{ position: 'absolute', inset: 0, overflow: 'visible', pointerEvents: 'none' }}>
+            <path d={d} fill="none" stroke={obj.stroke.color} strokeWidth={sw} strokeOpacity={obj.stroke.opacity ?? 1} strokeLinejoin="round" />
+          </svg>
+        )}
+      </>
+    );
+  }
   return (
     <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', transform: flipTransform(obj) }}>
       {a ? (

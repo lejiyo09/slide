@@ -19,6 +19,7 @@ import { planEmbeddedFonts, type EmbedPlanFont } from '../fonts/embed';
 import { EQ_IMAGE_RID, equationShapeXml } from './equationXml';
 import { buildComments } from './commentsXml';
 import { inlineMathToken } from './inlineMathXml';
+import { CLIP_IMAGE_RID, imageClipXml } from './imageClipXml';
 import { M3D_GLB_RID, M3D_POSTER_RID, model3dXml, REL_IMAGE, REL_MODEL3D, type ModelBox } from './model3dXml';
 import { buildTransitionXml } from './animXml';
 import { OoxmlPackage } from '../import/ooxml';
@@ -381,6 +382,21 @@ export async function buildPptx(source: Presentation, opts: BuildOptions = {}): 
           if (!a) {
             warn('찾을 수 없는 이미지가 있어 건너뛰었습니다.');
             break;
+          }
+          // 도형 모양으로 자른 그림: 자리 표시 → 후처리에서 custGeom p:pic (원본 그림 + srcRect)
+          if (o.clip) {
+            const url = a.blobKey && opts.loadMedia ? await opts.loadMedia(a) : a.dataUrl;
+            const m = url ? /^data:([^;,]+)[^,]*,(.*)$/.exec(url) : null;
+            if (m) {
+              const marker = `${KEEP_PREFIX}${o.id}`;
+              const bytes = Uint8Array.from(atob(m[2]), (ch) => ch.charCodeAt(0));
+              const ext = m[1].includes('png') ? 'png' : m[1].includes('gif') ? 'gif' : m[1].includes('svg') ? 'svg' : 'jpeg';
+              plan.markers.set(marker, { xml: imageClipXml(o, opacity), part: '', label: '자른 그림', generated: { files: { [CLIP_IMAGE_RID]: { data: bytes, ext, contentType: m[1], relType: REL_IMAGE } } } });
+              slide.addShape('rect' as PptxGenJS.ShapeType, { ...pos, flipH: undefined, flipV: undefined, objectName: marker });
+              emit();
+              break;
+            }
+            warn(`${o.name}: 도형 모양 자르기를 저장하지 못해 사각형 그림으로 저장했습니다.`);
           }
           const c = o.crop;
           const cropped = c.left || c.top || c.right || c.bottom;

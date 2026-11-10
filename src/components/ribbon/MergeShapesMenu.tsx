@@ -5,7 +5,7 @@
 import { Combine } from 'lucide-react';
 import { DropdownButton } from '../common/Buttons';
 import { useEditor } from '../../core/store/editorStore';
-import { MERGE_OPS, mergeAvailability, mergeShapes, previewMerge, selectedInOrder } from '../../core/commands/mergeShapes';
+import { IMAGE_OPS, MERGE_OPS, mergeAvailability, mergeShapes, previewMerge, selectedInOrder } from '../../core/commands/mergeShapes';
 import type { SlideObject } from '../../types/model';
 import type { MergeOp } from '../../engines/geometry/shapeBoolean';
 
@@ -82,6 +82,8 @@ export function MergeShapesMenu({ objs }: { objs: SlideObject[] }) {
               type="button"
               className="menu-item merge-item"
               data-merge-op={m.id}
+              disabled={av.image && !IMAGE_OPS.includes(m.id)}
+              title={av.image && !IMAGE_OPS.includes(m.id) ? '그림은 교차(도형 모양으로 자르기)·빼기(오려 내기)만' : undefined}
               onMouseEnter={() => void hover(m.id)}
               onFocus={() => void hover(m.id)}
               onClick={() => {
@@ -95,7 +97,7 @@ export function MergeShapesMenu({ objs }: { objs: SlideObject[] }) {
                 <strong>
                   {m.name} <span className="muted">({m.en})</span>
                 </strong>
-                <span className="muted">{m.desc}</span>
+                <span className="muted">{av.image && m.id === 'intersect' ? '그림을 도형 모양으로 자릅니다' : av.image && m.id === 'subtract' ? '그림에서 도형 모양을 오려 냅니다' : m.desc}</span>
               </span>
             </button>
           ))}

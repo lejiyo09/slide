@@ -295,3 +295,173 @@ export function shapeContains(m: MergedShape, x: number, y: number): boolean {
   const d = m.geometry.paths.map((p) => p.cmds.map((c) => (c.c === 'Z' ? 'Z' : c.c === 'C' ? `C${c.x1 * m.width + m.x},${c.y1 * m.height + m.y} ${c.x2 * m.width + m.x},${c.y2 * m.height + m.y} ${c.x * m.width + m.x},${c.y * m.height + m.y}` : `${c.c}${c.x * m.width + m.x},${c.y * m.height + m.y}`)).join(' ')).join(' ');
   return new s.CompoundPath({ pathData: d, insert: false }).contains(new s.Point(x, y));
 }
+
+/* ───────────── 선을 도형으로 (Stroke to Outline) ───────────── */
+
+/** 대시 무늬 (선 두께의 배수, 렌더러 dashArray와 같음) */
+const DASH: Record<string, number[] | undefined> = { dash: [4, 3], dot: [1, 1], dashDot: [4, 2, 1, 2] };
+
+/** 열린 점 목록을 대시 무늬대로 자름 */
+function dashSplit(pts: paper.Point[], closed: boolean, pattern: number[] | undefined, w: number): paper.Point[][] {
+  const ring = closed ? [...pts, pts[0]] : pts;
+  if (!pattern) return [ring];
+  const lens = pattern.map((x) => x * w);
+  const out: paper.Point[][] = [];
+  let pi = 0, left = lens[0], on = true;
+  let cur: paper.Point[] = [ring[0]];
+  for (let i = 1; i < ring.length; i++) {
+    let a = ring[i - 1];
+    const b = ring[i];
+    let seg = b.getDistance(a);
+    while (seg > 1e-9) {
+      const step = Math.min(seg, left);
+      const p = a.add(b.subtract(a).normalize(step));
+      if (on) cur.push(p);
+      seg -= step;
+      left -= step;
+      a = p;
+      if (left <= 1e-9) {
+        if (on && cur.length > 1) out.push(cur);
+        on = !on;
+        pi = (pi + 1) % lens.length;
+        left = lens[pi];
+        cur = [p];
+      }
+    }
+  }
+  if (on && cur.length > 1) out.push(cur);
+  return out;
+}
+
+/** 균형 잡힌 순서로 합치기 (작은 조각을 하나씩 더하는 것보다 빠름) */
+function unionAll(items: paper.PathItem[]): paper.PathItem | null {
+  let list = items;
+  while (list.length > 1) {
+    const next: paper.PathItem[] = [];
+    for (let i = 0; i < list.length; i += 2) next.push(i + 1 < list.length ? (list[i].unite(list[i + 1], { insert: false }) as paper.PathItem) : list[i]);
+    list = next;
+  }
+  return list[0] ?? null;
+}
+
+/** 점 목록(폴리라인) → 두께 w의 면 (구간 사각형 + 꺾이는 점마다 원 = 둥근 꺾임, 끝은 잘린 모양) */
+function thicken(pts: paper.Point[], w: number, roundEnds: boolean): paper.PathItem[] {
+  const s = S();
+  const r = w / 2;
+  const parts: paper.PathItem[] = [];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const d = b.subtract(a);
+    if (d.length < 1e-6) continue;
+    const n = new s.Point(-d.y, d.x).normalize(r);
+    parts.push(new s.Path({ segments: [a.add(n), b.add(n), b.subtract(n), a.subtract(n)], closed: true, insert: false }));
+  }
+  for (let i = roundEnds ? 0 : 1; i < (roundEnds ? pts.length : pts.length - 1); i++) parts.push(new s.Path.Circle({ center: pts[i], radius: r, insert: false }));
+  return parts;
+}
+
+/**
+ * 선(테두리)을 같은 모양의 면으로: 도형의 테두리 경로 또는 선 개체(화살표 포함). 대시는 무늬대로 끊음.
+ * 결과는 선 색으로 칠하는 자유형 (슬라이드 좌표의 상자)
+ */
+export function strokeOutline(o: SlideObject): MergedShape | null {
+  const s = S();
+  const stroke = (o as { stroke?: { width: number; dash: string } | null }).stroke;
+  if (!stroke || !(stroke.width > 0)) return null;
+  const w = (stroke.width * 96) / 72; // pt → px (렌더러와 같음)
+  let polylines: { pts: paper.Point[]; closed: boolean }[] = [];
+  const heads: paper.PathItem[] = [];
+  if (o.type === 'line') {
+    let x1 = 0, y1 = 0, x2 = o.width, y2 = o.height;
+    if (o.flipH) [x1, x2] = [x2, x1];
+    if (o.flipV) [y1, y2] = [y2, y1];
+    const m = objectMatrix({ ...o, flipH: false, flipV: false }, false);
+    const a = m.transform(new s.Point(x1, y1)), b = m.transform(new s.Point(x2, y2));
+    polylines = [{ pts: [a, b], closed: false }];
+    // 화살표: 렌더러 marker와 같은 크기 (선 두께 × 4, 끝이 끝점에서 0.8w 앞)
+    const head = (tip: paper.Point, from: paper.Point, kind: string) => {
+      if (kind === 'none') return;
+      const dir = tip.subtract(from).normalize();
+      const n = new s.Point(-dir.y, dir.x);
+      const size = 4 * w;
+      const end = tip.add(dir.multiply(0.8 * w));
+      const back = end.subtract(dir.multiply(size));
+      if (kind === 'oval') heads.push(new s.Path.Circle({ center: tip, radius: 1.6 * w, insert: false }));
+      else heads.push(new s.Path({ segments: [end, back.add(n.multiply(size / 2)), back.subtract(n.multiply(size / 2))], closed: true, insert: false }));
+    };
+    head(b, a, o.headEnd);
+    head(a, b, o.headStart);
+  } else {
+    const d = o.type === 'shape' ? shapePath(o.shape, o.width, o.height, o.geometry) : shapePath('rect', o.width, o.height);
+    const item = new s.CompoundPath({ pathData: d, insert: false });
+    item.transform(objectMatrix(o, true));
+    for (const c of childrenOf(item)) {
+      const f = c.clone({ insert: false }) as paper.Path;
+      f.flatten(0.25); // 곡선 → 촘촘한 직선 (오차 0.25px)
+      polylines.push({ pts: f.segments.map((sg) => sg.point), closed: c.closed });
+    }
+  }
+  const parts: paper.PathItem[] = [...heads];
+  for (const pl of polylines) for (const piece of dashSplit(pl.pts, pl.closed, DASH[stroke.dash], w)) parts.push(...thicken(piece, w, pl.closed && !DASH[stroke.dash]));
+  const u = unionAll(parts);
+  return u && !isEmpty(u) ? toShape(u) : null;
+}
+
+/* ───────────── 그림 자르기 (그림 ∩ 도형, 그림 − 도형) ───────────── */
+
+export interface ImageClipResult {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  crop: { left: number; top: number; right: number; bottom: number };
+  clip: CustomGeometry;
+}
+
+/** 0..1 경로 → Paper 경로 (상자 w×h 픽셀) */
+function geometryItem(g: CustomGeometry, w: number, h: number): paper.CompoundPath {
+  const s = S();
+  const d = g.paths
+    .filter((p) => p.fill)
+    .map((p) => p.cmds.map((c) => (c.c === 'Z' ? 'Z' : c.c === 'C' ? `C${c.x1 * w},${c.y1 * h} ${c.x2 * w},${c.y2 * h} ${c.x * w},${c.y * h}` : `${c.c}${c.x * w},${c.y * h}`)).join(' '))
+    .join(' ');
+  const item = new s.CompoundPath({ pathData: d, insert: false });
+  item.fillRule = g.fillRule === 'evenodd' ? 'evenodd' : 'nonzero';
+  return item;
+}
+
+/**
+ * 그림을 도형 모양으로 자름: 그림 영역(이미 잘려 있으면 그 모양)과 도형들의 교차 또는 차이.
+ * 픽셀은 제자리: 회전하지 않은 그림은 상자를 결과에 맞춰 줄이고 자르기(crop)를 그만큼 조정, 회전한 그림은 상자는 두고 모양만.
+ */
+export function clipImage(op: 'intersect' | 'subtract', img: Extract<SlideObject, { type: 'image' }>, shapes: SlideObject[]): ImageClipResult | null {
+  const s = S();
+  const m = objectMatrix(img, false); // 자르기 모양은 그림 상자에 고정 (뒤집기는 그림 내용만)
+  const baseLocal = img.clip ? geometryItem(img.clip, img.width, img.height) : new s.CompoundPath({ pathData: `M0,0 H${img.width} V${img.height} H0 Z`, insert: false });
+  baseLocal.transform(m);
+  let region: paper.PathItem = normalize(baseLocal);
+  const cut = union(shapes.flatMap((o) => toOperands(o)).map((x) => x.item));
+  if (!cut) return null;
+  region = (op === 'intersect' ? region.intersect(cut, { insert: false }) : region.subtract(cut, { insert: false })) as paper.PathItem;
+  if (isEmpty(region)) return null;
+  if (!img.rotation) {
+    const b = region.bounds;
+    const u0 = (b.x - img.x) / img.width, u1 = (b.x + b.width - img.x) / img.width;
+    const v0 = (b.y - img.y) / img.height, v1 = (b.y + b.height - img.y) / img.height;
+    const c = img.crop, sw = 1 - c.left - c.right, sh = 1 - c.top - c.bottom;
+    // 화면의 상자 비율 → 원본 그림 비율 (뒤집으면 거꾸로)
+    const [l, r] = img.flipH ? [c.left + (1 - u1) * sw, 1 - (c.left + (1 - u0) * sw)] : [c.left + u0 * sw, 1 - (c.left + u1 * sw)];
+    const [t, bt] = img.flipV ? [c.top + (1 - v1) * sh, 1 - (c.top + (1 - v0) * sh)] : [c.top + v0 * sh, 1 - (c.top + v1 * sh)];
+    const shape = toShape(region);
+    if (!shape) return null;
+    return { x: b.x, y: b.y, width: b.width, height: b.height, crop: { left: l, top: t, right: r, bottom: bt }, clip: shape.geometry };
+  }
+  // 회전한 그림: 상자 좌표로 되돌려 0..1로
+  region.transform(m.inverted());
+  const shape = toShape(region);
+  if (!shape) return null;
+  const sx = shape.width / img.width, sy = shape.height / img.height, ox = shape.x / img.width, oy = shape.y / img.height;
+  const map = (c: PathCommand): PathCommand =>
+    c.c === 'Z' ? c : c.c === 'C' ? { c: 'C', x1: ox + c.x1 * sx, y1: oy + c.y1 * sy, x2: ox + c.x2 * sx, y2: oy + c.y2 * sy, x: ox + c.x * sx, y: oy + c.y * sy } : { c: c.c, x: ox + c.x * sx, y: oy + c.y * sy };
+  return { x: img.x, y: img.y, width: img.width, height: img.height, crop: { ...img.crop }, clip: { ...shape.geometry, paths: shape.geometry.paths.map((p) => ({ ...p, cmds: p.cmds.map(map) })) } };
+}

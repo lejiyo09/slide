@@ -1,6 +1,7 @@
-import { Crop, ImageUp, RotateCcw, LayoutTemplate, RotateCw, FlipHorizontal2, FlipVertical2, Group, Ungroup, Spline } from 'lucide-react';
+import { Crop, ImageUp, RotateCcw, LayoutTemplate, RotateCw, FlipHorizontal2, FlipVertical2, Group, Ungroup, Spline, Trash2, PenLine, TypeOutline } from 'lucide-react';
 import { MergeShapesMenu } from './MergeShapesMenu';
-import { startEditPoints } from '../../core/commands/editPoints';
+import { convertStrokeToOutline, convertTextToOutlines } from '../../core/commands/mergeShapes';
+import { deleteSelectedPoint, endEditPoints, startEditPoints, toggleSelectedSegment } from '../../core/commands/editPoints';
 import { RibbonButton, DropdownButton, RibbonGroup } from '../common/Buttons';
 import { ArrangeMenu } from './ArrangeMenu';
 import { useEditor, getActiveSlide, useSelectedObjects } from '../../core/store/editorStore';
@@ -14,6 +15,7 @@ export function ContextualTab() {
   const objs = useSelectedObjects();
   const cropId = useEditor((s) => s.cropId);
   const editPointsId = useEditor((s) => s.editPointsId);
+  const editPointSel = useEditor((s) => s.editPointSel);
   if (!objs.length) return null;
   const first = objs[0];
   const isImage = objs.length === 1 && first.type === 'image';
@@ -57,13 +59,36 @@ export function ContextualTab() {
           <MergeShapesMenu objs={objs} />
           <RibbonButton
             size="large"
+            icon={<PenLine size={26} />}
+            label="선을 도형으로"
+            title="선·도형 테두리를 같은 모양의 면으로 바꾸기 (두께·대시·화살표 반영, 이후 병합 가능)"
+            disabled={!objs.some((o) => (o.type === 'line' || o.type === 'shape' || o.type === 'text') && (o as { stroke?: unknown }).stroke && !o.locked)}
+            onClick={() => void convertStrokeToOutline()}
+          />
+          <RibbonButton
+            size="large"
+            icon={<TypeOutline size={26} />}
+            label="텍스트를 윤곽선으로"
+            title="글자를 같은 모양의 도형(글자 색)으로 바꾸기 — 바꾼 뒤에는 글자로 편집할 수 없음 (Ctrl+Z로 되돌리기)"
+            disabled={!objs.some((o) => (o.type === 'text' || o.type === 'shape') && !o.locked && o.text.paragraphs.some((p) => p.runs.some((r) => r.text.trim())))}
+            onClick={() => void convertTextToOutlines()}
+          />
+          <RibbonButton
+            size="large"
             icon={<Spline size={26} />}
             label="점 편집"
             title="도형의 꼭짓점과 곡선 조절점을 끌어 모양 바꾸기 (Esc로 끝)"
             disabled={objs.length !== 1 || (first.type !== 'shape' && first.type !== 'text') || !!first.locked}
             active={editPointsId === first.id}
-            onClick={() => void startEditPoints(first.id)}
+            onClick={() => void (editPointsId === first.id ? endEditPoints() : startEditPoints(first.id))}
           />
+          {editPointsId === first.id && (
+            <div className="rb-col">
+              <RibbonButton icon={<Trash2 size={15} />} label="점 삭제" title="고른 꼭짓점 삭제 (Delete)" disabled={editPointSel?.part !== 'pt'} onClick={deleteSelectedPoint} />
+              <RibbonButton icon={<Spline size={15} />} label="곡선/직선" title="고른 점에서 끝나는 구간을 곡선 ↔ 직선으로" disabled={!editPointSel} onClick={toggleSelectedSegment} />
+              <span className="muted rb-hint">선을 두 번 클릭: 점 추가</span>
+            </div>
+          )}
         </RibbonGroup>
       )}
       <RibbonGroup label="정렬">

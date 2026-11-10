@@ -221,6 +221,7 @@ export function EditorCanvas() {
     e.preventDefault();
     const s = useEditor.getState();
     if (!s.editPointsId) return;
+    s.set({ editPointSel: ref });
     dragRef.current = { kind: 'point', id: s.editPointsId, ref };
     s.beginGesture('점 편집');
     canvasGesture.current = true;

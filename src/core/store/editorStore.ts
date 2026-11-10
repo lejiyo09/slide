@@ -79,6 +79,8 @@ export interface EditorState {
   mergePreview: { x: number; y: number; width: number; height: number; d: string }[] | null;
   /** 점 편집 중인 도형 */
   editPointsId: string | null;
+  /** 점 편집에서 고른 점 (삭제·곡선/직선 전환 대상) */
+  editPointSel: { path: number; cmd: number; part: 'pt' | 'c1' | 'c2' } | null;
   /** 메모 창 / 선택한 메모 ('new' = 새 메모 작성 중) / 편집 화면에 메모 표시 */
   commentsPane: boolean;
   activeCommentId: string | null;
@@ -180,6 +182,7 @@ export const useEditor = create<EditorState>()((set, get) => ({
   equationEditorId: null,
   mergePreview: null,
   editPointsId: null,
+  editPointSel: null,
   commentsPane: false,
   activeCommentId: null,
   showComments: true,
