@@ -208,6 +208,7 @@ export function PdfImageExport() {
   const [includeHidden, setIncludeHidden] = useState(false);
   const [imgFormat, setImgFormat] = useState<'png' | 'jpeg'>('png');
   const [imgWhich, setImgWhich] = useState<'current' | 'all'>('current');
+  const [svgWhich, setSvgWhich] = useState<'current' | 'all'>('current');
   const [imgScale, setImgScale] = useState(1.5);
   const abort = useRef<AbortController | null>(null);
   useEffect(() => () => abort.current?.abort(), []);
@@ -303,6 +304,35 @@ export function PdfImageExport() {
               }
             >
               그림 저장
+            </button>
+          </span>
+        </span>
+      </div>
+      <div className="bs-export-item bs-form" data-export-svg="">
+        <FileImage size={28} />
+        <span>
+          <strong>SVG 벡터 (.svg)</strong>
+          <span className="muted">도형·병합 도형·선·그림을 벡터 그대로(경로·채움 규칙·구멍·투명도·테두리) 저장합니다. 글자·표·차트는 HTML(foreignObject)로 들어갑니다.</span>
+          <span className="bs-form-row">
+            <select value={svgWhich} onChange={(e) => setSvgWhich(e.target.value as 'current')} aria-label="SVG로 내보낼 슬라이드">
+              <option value="current">현재 슬라이드만</option>
+              <option value="all">모든 슬라이드 (ZIP)</option>
+            </select>
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={!!busy}
+              data-export-svg-go=""
+              onClick={() =>
+                void run('SVG', async () => {
+                  const { exportSvg } = await import('../../services/export/svgExport');
+                  const r = await exportSvg(doc, svgWhich === 'current' ? [current] : doc.slides.map((s) => s.id));
+                  downloadBlob(r.blob, r.fileName);
+                  toast(r.count > 1 ? `슬라이드 ${r.count}장을 SVG로 내보냈습니다 (ZIP).` : '현재 슬라이드를 SVG로 내보냈습니다.', 'success');
+                })
+              }
+            >
+              SVG 저장
             </button>
           </span>
         </span>

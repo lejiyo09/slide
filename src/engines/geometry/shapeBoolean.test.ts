@@ -244,3 +244,92 @@ describe('저장: PPTX 자유형 (구멍 유지)', () => {
     expect(ringPx[0]).toBeLessThan(120);
   });
 });
+
+describe('선을 도형으로 (Stroke to Outline)', () => {
+  it('사각형 테두리 6pt(8px) → 고리 면: 넓이 = 바깥(둥근 모서리) − 안쪽', async () => {
+    const { strokeOutline } = await import('./shapeBoolean');
+    const r = strokeOutline(rect(100, 100, 100, 100, { stroke: { color: '#000000', width: 6, dash: 'solid' } }))!;
+    const outer = 108 * 108 - (4 - Math.PI) * 16; // 모서리 반지름 4(= 두께/2)인 둥근 정사각형
+    close(shapeArea(r), outer - 92 * 92);
+    expect(shapeContains(r, 150, 150)).toBe(false); // 가운데는 비어 있음
+    expect(shapeContains(r, 100, 150)).toBe(true); // 테두리 위
+  });
+  it('선 200px·두께 8px → 200×8 면, 화살표(삼각형)는 덧붙음, 대시는 무늬대로 끊김', async () => {
+    const { strokeOutline } = await import('./shapeBoolean');
+    const line = (extra: object) => ({ id: 'l', type: 'line', name: '선', x: 0, y: 100, width: 200, height: 0, rotation: 0, stroke: { color: '#000000', width: 6, dash: 'solid' }, headStart: 'none', headEnd: 'none', ...extra }) as unknown as SlideObject;
+    close(shapeArea(strokeOutline(line({}))!), 1600);
+    const arrow = strokeOutline(line({ headEnd: 'triangle' }))!;
+    expect(shapeArea(arrow)).toBeGreaterThan(1600 + 250); // 삼각형 512px² 중 선과 겹치지 않는 부분
+    expect(arrow.x + arrow.width).toBeGreaterThan(200); // 화살 끝이 끝점 앞으로
+    const dashed = strokeOutline(line({ stroke: { color: '#000000', width: 6, dash: 'dash' } }))!;
+    // 무늬 4w 켜짐 · 3w 꺼짐 (w=8): 200px에 32+24=56px 주기 → 4개 조각
+    expect(dashed.geometry.paths[0].cmds.filter((c) => c.c === 'M')).toHaveLength(4);
+  });
+});
+
+describe('그림 자르기 (그림 ∩ 도형, 그림 − 도형)', () => {
+  const RED = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+  const img = (extra: object = {}) => ({ id: 'img', type: 'image', name: '사진', x: 100, y: 100, width: 400, height: 400, rotation: 0, assetId: 'a', crop: { left: 0, top: 0, right: 0, bottom: 0 }, stroke: null, naturalWidth: 400, naturalHeight: 400, ...extra }) as unknown as Extract<SlideObject, { type: 'image' }>;
+  it('교차: 상자를 원에 맞춰 줄이고 자르기를 조정 (픽셀은 제자리), 모양은 원', async () => {
+    const { clipImage } = await import('./shapeBoolean');
+    const r = clipImage('intersect', img(), [circle(150, 150, 300)])!;
+    expect([r.x, r.y, r.width, r.height].map(Math.round)).toEqual([150, 150, 300, 300]);
+    expect(Object.values(r.crop).map((v) => +v.toFixed(3))).toEqual([0.125, 0.125, 0.125, 0.125]);
+    close(shapeArea({ x: r.x, y: r.y, width: r.width, height: r.height, geometry: r.clip }), Math.PI * 150 * 150);
+  });
+  it('뒤집은 그림: 왼쪽 절반을 자르면 원본의 오른쪽 절반', async () => {
+    const { clipImage } = await import('./shapeBoolean');
+    const r = clipImage('intersect', img({ flipH: true }), [rect(100, 100, 200, 400)])!;
+    expect(+r.crop.left.toFixed(3)).toBe(0.5);
+    expect(+r.crop.right.toFixed(3)).toBe(0);
+  });
+  it('빼기: 상자는 그대로, 가운데가 뚫린 모양 / 회전한 그림은 상자 기준 모양', async () => {
+    const { clipImage } = await import('./shapeBoolean');
+    const r = clipImage('subtract', img(), [circle(200, 200, 200)])!;
+    expect([r.x, r.y, r.width, r.height]).toEqual([100, 100, 400, 400]);
+    const m = { x: r.x, y: r.y, width: r.width, height: r.height, geometry: r.clip };
+    expect(shapeContains(m, 300, 300)).toBe(false);
+    expect(shapeContains(m, 120, 120)).toBe(true);
+    const rot = clipImage('intersect', img({ rotation: 90 }), [rect(100, 100, 400, 200)])!;
+    expect([rot.x, rot.width]).toEqual([100, 400]);
+    // 90° 회전: 화면 위쪽 절반 = 그림 상자의 왼쪽 절반 (x < 0.5)
+    const xs = (rot.clip.paths[0].cmds.filter((c) => c.c !== 'Z') as { x: number }[]).map((c) => c.x);
+    expect(Math.max(...xs)).toBeCloseTo(0.5, 3);
+    expect(clipImage('intersect', img(), [circle(900, 900, 50)])).toBeNull();
+  });
+  it('PPTX: custGeom 그림(srcRect 자르기), 스키마 통과, LibreOffice로 그리면 원 밖은 비어 있음', async () => {
+    const { clipImage } = await import('./shapeBoolean');
+    const { spawnSync, execFileSync } = await import('node:child_process');
+    const { mkdirSync, writeFileSync, readFileSync } = await import('node:fs');
+    const JSZip = (await import('jszip')).default;
+    const { produce } = await import('immer');
+    const { createPresentation } = await import('../../core/document/factory');
+    const { exportPptxBytes } = await import('../../services/export/pptxExport');
+    const { validateXml } = await import('../../test/ooxmlSchema');
+    const r = clipImage('intersect', img(), [circle(150, 150, 300)])!;
+    const doc = produce(createPresentation('자른 그림'), (d) => {
+      d.assets.a = { id: 'a', mime: 'image/png', dataUrl: `data:image/png;base64,${RED}` };
+      d.slides[0].objects = [{ ...img(), x: r.x, y: r.y, width: r.width, height: r.height, crop: r.crop, clip: r.clip } as SlideObject];
+    });
+    const { bytes } = await exportPptxBytes(doc);
+    const z = await JSZip.loadAsync(bytes);
+    const xml = await z.file('ppt/slides/slide1.xml')!.async('string');
+    expect(xml).toMatch(/<p:pic>[\s\S]*<a:blip r:embed="rIdSL\d+"\/><a:srcRect l="12500" t="12500" r="12500" b="12500"\/>[\s\S]*<a:custGeom>[\s\S]*<a:cubicBezTo>/);
+    expect(validateXml(xml)).toEqual([]);
+    if (spawnSync('soffice', ['--version'], { stdio: 'ignore' }).status !== 0) return;
+    mkdirSync('test-output', { recursive: true });
+    writeFileSync('test-output/merge-clip.pptx', bytes);
+    execFileSync('soffice', [`-env:UserInstallation=file://${process.cwd()}/test-output/lo-profile-${process.pid}-clip`, '--headless', '--convert-to', 'pdf', '--outdir', 'test-output', 'test-output/merge-clip.pptx'], { stdio: 'ignore', timeout: 120000 });
+    execFileSync('pdftoppm', ['-r', '24', '-singlefile', 'test-output/merge-clip.pdf', 'test-output/merge-clip']);
+    const ppm = readFileSync('test-output/merge-clip.ppm');
+    const h = ppm.toString('latin1', 0, 30).match(/^P6\s+(\d+)\s+(\d+)\s+255\s/)!;
+    const w = +h[1], off = h[0].length;
+    const px = (sx: number, sy: number) => {
+      const i = off + (Math.round((sy / 720) * (w * 720) / 1280) * w + Math.round((sx / 1280) * w)) * 3;
+      return [ppm[i], ppm[i + 1], ppm[i + 2]];
+    };
+    expect(px(300, 300)[0]).toBeGreaterThan(200); // 가운데: 빨간 그림
+    expect(px(300, 300)[1]).toBeLessThan(80);
+    expect(px(165, 165).every((v) => v > 230)).toBe(true); // 상자 모서리(원 밖): 비어 있음
+  });
+});

@@ -170,12 +170,14 @@ export function useShortcuts() {
           if (s.insertTool) return s.set({ insertTool: null });
           if (s.formatPainter) return s.set({ formatPainter: null });
           if (s.cropId) return s.set({ cropId: null });
-          if (s.editPointsId) return s.set({ editPointsId: null });
+          if (s.editPointsId) return s.set({ editPointsId: null, editPointSel: null });
           if (hasSel) return s.select([]);
           return;
         case 'Delete':
         case 'Backspace':
           handled();
+          // 점 편집 중: 고른 꼭짓점 삭제
+          if (s.editPointsId) return void import('../core/commands/editPoints').then((m) => m.deleteSelectedPoint());
           if (slidesFocus) return A.deleteSelectedSlides();
           return A.deleteSelection();
         case 'Enter':

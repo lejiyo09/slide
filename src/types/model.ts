@@ -206,6 +206,8 @@ export interface ImageObject extends BaseObject {
   type: 'image';
   assetId: ID;
   crop: ImageCrop;
+  /** 도형 모양으로 자르기 (도형 병합의 그림 ∩ 도형 / 그림 − 도형): 그림 상자 기준 0..1 경로. 그림 뒤집기와 무관하게 상자에 고정 */
+  clip?: CustomGeometry;
   stroke: Stroke | null;
   /** 원본 픽셀 크기 */
   naturalWidth: number;

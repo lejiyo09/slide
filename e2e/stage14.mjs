@@ -1276,6 +1276,211 @@ try {
     await page.evaluate(() => window.__SLIDELAB__.getState().commit('병합 정리', (d) => (d.slides[0].objects = d.slides[0].objects.filter((o) => !o.id.startsWith('mg') && !o.merged))));
   }
 
+  if (want('merge2')) {
+    /* ───── 도형 병합 확장: 텍스트 윤곽·선을 도형으로·그림 자르기·점 추가/삭제·SVG·저사양 성능 ───── */
+    await closeBackstage();
+    const body = (t, extra = {}) => ({ paragraphs: [{ runs: [{ text: t, ...extra }], align: 'left' }], vAlign: 'top', direction: 'horizontal', padding: { top: 0, right: 0, bottom: 0, left: 0 }, autoFit: 'none' });
+    const put = (objs, sel = objs.map((o) => o.id)) =>
+      page.evaluate(([objs, sel]) => {
+        const st = window.__SLIDELAB__.getState();
+        st.commit('준비', (d) => {
+          d.slides[0].objects = d.slides[0].objects.filter((o) => !o.id.startsWith('x2') && !o.merged && !String(o.name).includes('윤곽'));
+          d.slides[0].objects.push(...objs);
+        });
+        st.set({ activeSlideId: st.doc.slides[0].id, selectedSlideIds: [st.doc.slides[0].id], selectedIds: sel, editPointsId: null, editPointSel: null });
+      }, [objs, sel]);
+    const all = () => page.evaluate(() => window.__SLIDELAB__.getState().doc.slides[0].objects.map((o) => JSON.parse(JSON.stringify(o))));
+    const fmtTab = () => page.locator('.tab', { hasText: '도형 서식' }).click();
+    const lastToast = () => page.evaluate(() => [...document.querySelectorAll('.toast')].map((t) => t.textContent).pop() ?? '');
+    // ── 텍스트를 윤곽선으로 (내 글꼴 SlideLab Test Serif) ──
+    const T = { id: 'x2T', type: 'text', name: '글자', x: 200, y: 200, width: 400, height: 160, rotation: 0, fill: { type: 'none' }, stroke: null, text: body('Ab', { fontFamily: 'SlideLab Test Serif', fontSize: 96, color: '#C0392B' }) };
+    await put([T]);
+    await fmtTab();
+    await page.evaluate(() => window.__SLIDELAB__.getState().set({ zoom: 1, fitMode: false }));
+    await page.waitForTimeout(400);
+    const tb = await page.locator('[data-testid="slide-stage"]').boundingBox();
+    await page.evaluate(() => window.__SLIDELAB__.getState().select([]));
+    await page.waitForTimeout(150);
+    await page.screenshot({ path: `${OUT}/s14-text-before.png`, clip: { x: tb.x + 200, y: tb.y + 200, width: 400, height: 160 } });
+    await page.evaluate(() => window.__SLIDELAB__.getState().select(['x2T']));
+    await page.locator('.rb', { hasText: '텍스트를 윤곽선으로' }).click();
+    await page.waitForFunction(() => window.__SLIDELAB__.getState().doc.slides[0].objects.some((o) => String(o.name).includes('윤곽')), null, { timeout: 15000 });
+    const outl = (await all()).filter((o) => String(o.name).includes('윤곽'));
+    await page.evaluate(() => window.__SLIDELAB__.getState().select([]));
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: `${OUT}/s14-text-after.png`, clip: { x: tb.x + 200, y: tb.y + 200, width: 400, height: 160 } });
+    const textDiff = await imageDiff(`${OUT}/s14-text-before.png`, `${OUT}/s14-text-after.png`);
+    check('텍스트 윤곽이 원래 글자와 같은 자리·모양 (변환 전후 화면 차이 작음)', textDiff.diff < 6, textDiff.diff.toFixed(2));
+    await page.evaluate(() => window.__SLIDELAB__.getState().set({ fitMode: true }));
+    const textGone = !(await all()).some((o) => o.id === 'x2T');
+    const subs = outl[0].geometry.paths[0].cmds.filter((c) => c.c === 'M').length;
+    check('텍스트를 윤곽선으로: 글자 색 자유형, 글자 수만큼 이상 윤곽(구멍 포함), 원래 텍스트 상자 대신', outl.length === 1 && outl[0].shape === 'custom' && outl[0].fill.color === '#C0392B' && subs >= 3 && textGone && outl[0].x > 200 && outl[0].x < 260 && outl[0].width > 60 && outl[0].width < 260, `하위 경로 ${subs}, 상자 ${Math.round(outl[0].x)},${Math.round(outl[0].y)} ${Math.round(outl[0].width)}×${Math.round(outl[0].height)} / ${await lastToast()}`);
+    // 텍스트 상자 + 사각형 병합(빼기) → 글자 모양이 뚫린 사각형
+    await put([{ id: 'x2R', type: 'shape', name: '판', shape: 'rect', x: 180, y: 180, width: 460, height: 200, rotation: 0, fill: { type: 'solid', color: '#1F3864' }, stroke: null, text: body('') }, T]);
+    await fmtTab();
+    await page.locator('.rb', { hasText: '도형 병합' }).click();
+    await page.locator('[data-merge-op="subtract"]').click();
+    await page.waitForFunction(() => window.__SLIDELAB__.getState().doc.slides[0].objects.some((o) => o.merged?.op === 'subtract'), null, { timeout: 15000 });
+    const stencil = (await all()).find((o) => o.merged?.op === 'subtract');
+    check('텍스트 상자와 병합: 사각형 − 글자 = 글자 모양으로 뚫린 판(+ 글자 안 섬), 안내', stencil.geometry.paths[0].cmds.filter((c) => c.c === 'M').length >= 4 && stencil.fill.color === '#1F3864' && (await lastToast()).includes('윤곽선'), `${stencil.geometry.paths[0].cmds.filter((c) => c.c === 'M').length}개 윤곽`);
+    // 글꼴 파일이 없으면 바꾸지 않고 안내
+    await put([{ ...T, text: body('Zz', { fontFamily: 'No Such Font XYZ', fontSize: 60, color: '#000000' }) }]);
+    await fmtTab();
+    await page.locator('.rb', { hasText: '텍스트를 윤곽선으로' }).click();
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('글꼴 파일을 구할 수 없어')), null, { timeout: 15000 });
+    const mt = await page.evaluate(() => [...document.querySelectorAll('.toast')].map((t) => t.textContent).find((t) => t.includes('글꼴 파일을 구할 수 없어')) ?? '');
+    check('글꼴 파일이 없는 글자는 바꾸지 않고, 실제로 그려진 글꼴 이름을 안내', (await all()).some((o) => o.id === 'x2T') && !(await all()).some((o) => String(o.name).includes('윤곽')) && /: \S/.test(mt), mt.slice(0, 120));
+    // ── 선을 도형으로 ──
+    await put([
+      { id: 'x2S', type: 'shape', name: '테두리', shape: 'ellipse', x: 200, y: 200, width: 200, height: 200, rotation: 0, fill: { type: 'none' }, stroke: { color: '#2E7D32', width: 9, dash: 'solid' }, text: body('') },
+      { id: 'x2L', type: 'line', name: '화살표', x: 500, y: 300, width: 300, height: 0, rotation: 0, stroke: { color: '#6A1B9A', width: 6, dash: 'dash' }, headStart: 'none', headEnd: 'triangle' },
+    ]);
+    await fmtTab();
+    await page.locator('.rb', { hasText: '선을 도형으로' }).click();
+    await page.waitForFunction(() => window.__SLIDELAB__.getState().doc.slides[0].objects.filter((o) => String(o.name).includes('윤곽')).length === 2, null, { timeout: 15000 });
+    const so = (await all()).filter((o) => String(o.name).includes('윤곽'));
+    const ring = so.find((o) => o.fill.color === '#2E7D32'), arrow = so.find((o) => o.fill.color === '#6A1B9A');
+    check('선을 도형으로: 원 테두리 → 고리(구멍), 대시 화살표 → 끊긴 조각 + 화살촉, 원본 선 대신', ring.geometry.paths[0].cmds.filter((c) => c.c === 'M').length === 2 && !ring.stroke && arrow.geometry.paths[0].cmds.filter((c) => c.c === 'M').length >= 4 && !(await all()).some((o) => o.id === 'x2L'), `고리 ${ring.geometry.paths[0].cmds.filter((c) => c.c === 'M').length} / 화살 ${arrow.geometry.paths[0].cmds.filter((c) => c.c === 'M').length}`);
+    // 선만 고른 병합은 안내
+    await put([{ id: 'x2L', type: 'line', name: '선', x: 500, y: 300, width: 300, height: 0, rotation: 0, stroke: { color: '#000000', width: 3, dash: 'solid' }, headStart: 'none', headEnd: 'none' }, { id: 'x2S2', type: 'shape', name: '네모', shape: 'rect', x: 450, y: 250, width: 100, height: 100, rotation: 0, fill: { type: 'solid', color: '#999999' }, stroke: null, text: body('') }]);
+    await fmtTab();
+    check("선이 섞인 병합은 비활성 + '선을 도형으로' 안내", (await page.locator('.rb', { hasText: '도형 병합' }).isDisabled()) && ((await page.locator('.rb', { hasText: '도형 병합' }).getAttribute('title')) ?? '').includes('선을 도형으로'));
+    // ── 그림 ∩ 원: 그림을 원 모양으로 (픽셀 제자리), 모서리는 비어 있음 ──
+    const png = await page.evaluate(() => {
+      const c = document.createElement('canvas');
+      c.width = 200;
+      c.height = 200;
+      const g = c.getContext('2d');
+      const gr = g.createLinearGradient(0, 0, 200, 0);
+      gr.addColorStop(0, '#ff0000');
+      gr.addColorStop(1, '#0000ff');
+      g.fillStyle = gr;
+      g.fillRect(0, 0, 200, 200);
+      return c.toDataURL('image/png');
+    });
+    await page.evaluate((png) => window.__SLIDELAB__.getState().commit('그림 자산', (d) => (d.assets.x2img = { id: 'x2img', mime: 'image/png', dataUrl: png })), png);
+    const IMG = { id: 'x2I', type: 'image', name: '사진', x: 200, y: 150, width: 400, height: 400, rotation: 0, assetId: 'x2img', crop: { left: 0, top: 0, right: 0, bottom: 0 }, stroke: null, naturalWidth: 200, naturalHeight: 200 };
+    const C = { id: 'x2C', type: 'shape', name: '원', shape: 'ellipse', x: 300, y: 250, width: 200, height: 200, rotation: 0, fill: { type: 'solid', color: '#000000' }, stroke: null, text: body('') };
+    await put([IMG, C]);
+    await fmtTab();
+    await page.locator('.rb', { hasText: '도형 병합' }).click();
+    const unionDisabled = await page.locator('[data-merge-op="union"]').isDisabled();
+    await page.locator('[data-merge-op="intersect"]').click();
+    await page.waitForFunction(() => !!window.__SLIDELAB__.getState().doc.slides[0].objects.find((o) => o.id === 'x2I')?.clip);
+    const ci = (await all()).find((o) => o.id === 'x2I');
+    await page.evaluate(() => window.__SLIDELAB__.getState().select([]));
+    const sb = await page.locator('[data-testid="slide-stage"]').boundingBox();
+    const z = await page.evaluate(() => window.__SLIDELAB__.getState().zoom);
+    const hitAt = (x, y) => page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('[data-obj-id]')?.dataset.objId ?? null, [sb.x + x * z, sb.y + y * z]);
+    const centerHit = await hitAt(400, 350), cornerHit = await hitAt(310, 260);
+    await page.locator('.canvas-viewport').screenshot({ path: `${OUT}/s14-merge-imgclip.png` });
+    check('그림 ∩ 원: 같은 그림 개체가 원 모양으로 (상자 = 원, 자르기 25%), 원 밖 모서리는 클릭 통과, 통합 등은 그림에 비활성', unionDisabled && Math.round(ci.x) === 300 && Math.round(ci.width) === 200 && Math.abs(ci.crop.left - 0.25) < 0.001 && centerHit === 'x2I' && cornerHit !== 'x2I' && !(await all()).some((o) => o.id === 'x2C'), `${Math.round(ci.x)} ${Math.round(ci.width)} crop ${ci.crop.left.toFixed(3)} / 가운데 ${centerHit} 모서리 ${cornerHit}`);
+    // PPTX에 custGeom 그림
+    await openExport();
+    const [dlP] = await Promise.all([page.waitForEvent('download'), page.locator('.bs-export-item', { hasText: 'PowerPoint' }).click()]);
+    await dlP.saveAs(`${OUT}/s14-merge-imgclip.pptx`);
+    const zx = await (await JSZip.loadAsync(readFileSync(`${OUT}/s14-merge-imgclip.pptx`))).file('ppt/slides/slide1.xml').async('string');
+    check('PPTX: 원 모양 그림 = p:pic + srcRect + custGeom', /<p:pic[ >](?:(?!<\/p:pic>)[\s\S])*<a:srcRect l="25000" t="25000" r="25000" b="25000"\/>(?:(?!<\/p:pic>)[\s\S])*<a:custGeom>/.test(zx));
+    await closeBackstage();
+    // ── 점 추가(선 두 번 클릭)·삭제(Delete)·곡선/직선 ──
+    const SQ = { id: 'x2Q', type: 'shape', name: '네모', shape: 'rect', x: 300, y: 200, width: 300, height: 200, rotation: 0, fill: { type: 'solid', color: '#90CAF9' }, stroke: { color: '#000000', width: 1, dash: 'solid' }, text: body('') };
+    await put([SQ]);
+    await fmtTab();
+    await page.locator('.rb', { hasText: '점 편집' }).click();
+    await page.waitForSelector('[data-point-edit] .pe-point');
+    const n0 = await page.locator('[data-point-edit] .pe-point').count();
+    // 위쪽 변 가운데(450, 200)를 두 번 클릭 → 점 추가
+    await page.mouse.dblclick(sb.x + 450 * z, sb.y + 200 * z);
+    await page.waitForFunction((n) => document.querySelectorAll('[data-point-edit] .pe-point').length === n + 1, n0);
+    const nAdded = await page.locator('[data-point-edit] .pe-point').count();
+    // 추가된 점을 위로 끌기 → 지붕 모양
+    const sel = page.locator('[data-point-edit] .pe-point.is-sel');
+    const pb2 = await sel.boundingBox();
+    await page.mouse.move(pb2.x + pb2.width / 2, pb2.y + pb2.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(pb2.x + pb2.width / 2, pb2.y + pb2.height / 2 - 80 * z, { steps: 5 });
+    await page.mouse.up();
+    const roof = (await all()).find((o) => o.id === 'x2Q');
+    // 곡선/직선 전환
+    await page.locator('.rb', { hasText: '곡선/직선' }).click();
+    const curved = (await all()).find((o) => o.id === 'x2Q');
+    // Delete로 고른 점 삭제
+    await page.keyboard.press('Delete');
+    await page.waitForFunction((n) => document.querySelectorAll('[data-point-edit] .pe-point').length === n, n0);
+    const nRemoved = await page.locator('[data-point-edit] .pe-point').count();
+    await page.keyboard.press('Escape');
+    check('점 편집: 선 두 번 클릭 → 점 추가, 끌어 지붕 모양(상자 커짐), 곡선 전환, Delete로 삭제', nAdded === n0 + 1 && roof.height > 270 && curved.geometry.paths[0].cmds.some((c) => c.c === 'C') && nRemoved === n0, `점 ${n0}→${nAdded}→${nRemoved}, 높이 ${Math.round(roof.height)}`);
+    // ── SVG 내보내기: 도넛(구멍)·그라데이션·자른 그림이 벡터로, 브라우저로 다시 그려도 구멍이 투명 ──
+    await put([
+      { id: 'x2big', type: 'shape', name: '큰 원', shape: 'ellipse', x: 300, y: 150, width: 400, height: 400, rotation: 0, fill: { type: 'gradient', angle: 0, stops: [{ offset: 0, color: '#FF8800' }, { offset: 1, color: '#8800FF' }] }, stroke: { color: '#000000', width: 2, dash: 'solid' }, text: body('') },
+      { id: 'x2small', type: 'shape', name: '작은 원', shape: 'ellipse', x: 400, y: 250, width: 200, height: 200, rotation: 0, fill: { type: 'solid', color: '#000000' }, stroke: null, text: body('') },
+    ]);
+    await fmtTab();
+    await page.locator('.rb', { hasText: '도형 병합' }).click();
+    await page.locator('[data-merge-op="subtract"]').click();
+    await page.waitForFunction(() => window.__SLIDELAB__.getState().doc.slides[0].objects.some((o) => o.merged?.op === 'subtract'));
+    await openExport();
+    await page.locator('select[aria-label="SVG로 내보낼 슬라이드"]').selectOption('current');
+    // foreignObject가 든 SVG는 캔버스에 그리면 보안상 픽셀을 못 읽으므로, 새 탭에 띄워 스크린샷으로 확인
+    const svgShotOf = async (name) => {
+      const f = await download(() => page.locator('[data-export-svg-go]').click(), `${name}.svg`);
+      const text = readFileSync(f.path, 'utf8');
+      const sp = await context.newPage();
+      await sp.setViewportSize({ width: 1280, height: 720 });
+      await sp.setContent(`<!doctype html><html><body style="margin:0;background:#fff">${text.replace(/^<\?xml[^>]*>/, '')}</body></html>`);
+      await sp.waitForTimeout(300);
+      const shot = await sp.screenshot({ clip: { x: 0, y: 0, width: 1280, height: 720 } });
+      writeFileSync(`${OUT}/${name}.png`, shot);
+      await sp.close();
+      return { text, b64: shot.toString('base64') };
+    };
+    const pix = (b64) =>
+      page.evaluate(async (b64) => {
+        const img = await new Promise((ok) => Object.assign(new Image(), { onload() { ok(this); }, src: `data:image/png;base64,${b64}` }));
+        const c = document.createElement('canvas');
+        c.width = img.width;
+        c.height = img.height;
+        const g = c.getContext('2d');
+        g.drawImage(img, 0, 0);
+        const at = (x, y) => [...g.getImageData(x, y, 1, 1).data].slice(0, 3);
+        return { hole: at(500, 350), ring: at(320, 350) };
+      }, b64);
+    const withDonut = await svgShotOf('s14-merge-svg');
+    const svgText = withDonut.text;
+    // 구멍이 투명하다 = 도넛을 숨기고 내보낸 SVG의 같은 자리와 같은 색
+    await closeBackstage();
+    await page.evaluate(() => window.__SLIDELAB__.getState().commit('도넛 숨김', (d) => d.slides[0].objects.forEach((o) => o.merged?.op === 'subtract' && (o.hidden = true))));
+    await openExport();
+    const noDonut = await svgShotOf('s14-merge-svg-behind');
+    await closeBackstage();
+    await page.keyboard.press('Control+z');
+    await openExport();
+    const a = await pix(withDonut.b64), b = await pix(noDonut.b64);
+    const svgCheck = await page.evaluate((svg) => {
+      const docx = new DOMParser().parseFromString(svg, 'image/svg+xml');
+      const donut = [...docx.querySelectorAll('path')].find((p) => (p.getAttribute('d') ?? '').split('M').length - 1 === 2 && (p.getAttribute('fill') ?? '').startsWith('url(#g'));
+      return { err: !!docx.querySelector('parsererror'), donut: !!donut, gradient: !!docx.querySelector('linearGradient') };
+    }, svgText);
+    Object.assign(svgCheck, { hole: a.hole, behind: b.hole, ring: a.ring });
+    check('SVG: 도넛 경로(하위 경로 2·그라데이션), 브라우저로 다시 그리면 구멍은 뒤가 비쳐 보이고 고리는 칠해짐', !svgCheck.err && svgCheck.donut && svgCheck.gradient && svgCheck.hole.every((v, i) => Math.abs(v - svgCheck.behind[i]) <= 3) && svgCheck.ring[0] > 150 && svgText.includes('<svg xmlns="http://www.w3.org/2000/svg"'), JSON.stringify(svgCheck));
+    await closeBackstage();
+    // ── 저사양 기기: CPU 6배 느리게(크롬북급) 원 10개 조각 ──
+    const circles = Array.from({ length: 10 }, (_, i) => ({ id: `x2c${i}`, type: 'shape', name: `원${i}`, shape: 'ellipse', x: 150 + i * 80, y: 200 + (i % 2) * 80, width: 180, height: 180, rotation: 0, fill: { type: 'solid', color: '#4FC3F7' }, stroke: null, text: body('') }));
+    await put(circles);
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
+    await fmtTab();
+    await page.locator('.rb', { hasText: '도형 병합' }).click();
+    const t0 = Date.now();
+    await page.locator('[data-merge-op="fragment"]').click();
+    await page.waitForFunction(() => window.__SLIDELAB__.getState().doc.slides[0].objects.filter((o) => o.merged?.op === 'fragment').length > 10, null, { timeout: 60000 });
+    const slowMs = Date.now() - t0;
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+    const pieces = (await all()).filter((o) => o.merged?.op === 'fragment').length;
+    check('저사양(CPU 6배 감속): 원 10개 조각 계산이 10초 안에', slowMs < 10000, `${pieces}조각, ${(slowMs / 1000).toFixed(1)}초`);
+    await page.evaluate(() => window.__SLIDELAB__.getState().commit('정리', (d) => (d.slides[0].objects = d.slides[0].objects.filter((o) => !o.id.startsWith('x2') && !o.merged && !String(o.name).includes('윤곽')))));
+  }
+
   if (want('perf')) {
     /* ───── 성능: 슬라이드 1000장 ───── */
     await closeBackstage();
