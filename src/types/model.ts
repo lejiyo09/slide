@@ -125,6 +125,8 @@ export type PathCommand =
 
 export interface CustomGeometry {
   paths: { cmds: PathCommand[]; fill: boolean; stroke: boolean }[];
+  /** 채움 규칙 (기본 nonzero). 도형 병합 결과는 바깥 시계 방향·구멍 반대 방향으로 정리되어 어느 규칙이든 구멍이 뚫림 */
+  fillRule?: 'nonzero' | 'evenodd';
 }
 
 interface BaseObject {
@@ -178,6 +180,8 @@ export interface ShapeObject extends BaseObject {
   geometry?: CustomGeometry;
   /** 원본 프리셋 이름 (PPTX prstGeom, 근사 렌더링된 경우) */
   sourcePreset?: string;
+  /** 도형 병합으로 만든 도형: 연산과 원본 개체 ID */
+  merged?: { op: 'union' | 'combine' | 'fragment' | 'intersect' | 'subtract'; sources: string[] };
   fill: Fill;
   stroke: Stroke | null;
   text: TextBody;

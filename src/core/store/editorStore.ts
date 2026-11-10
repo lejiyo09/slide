@@ -75,6 +75,10 @@ export interface EditorState {
   fontDialog: null | 'manage' | 'add' | 'replace';
   /** 수식 편집 창: 개체 ID 또는 'new' */
   equationEditorId: string | null;
+  /** 도형 병합 미리 보기 (메뉴에 마우스를 올린 연산의 결과 윤곽, 슬라이드 좌표) */
+  mergePreview: { x: number; y: number; width: number; height: number; d: string }[] | null;
+  /** 점 편집 중인 도형 */
+  editPointsId: string | null;
   /** 메모 창 / 선택한 메모 ('new' = 새 메모 작성 중) / 편집 화면에 메모 표시 */
   commentsPane: boolean;
   activeCommentId: string | null;
@@ -174,6 +178,8 @@ export const useEditor = create<EditorState>()((set, get) => ({
   aiPane: null,
   fontDialog: null,
   equationEditorId: null,
+  mergePreview: null,
+  editPointsId: null,
   commentsPane: false,
   activeCommentId: null,
   showComments: true,
@@ -314,10 +320,10 @@ export const useEditor = create<EditorState>()((set, get) => ({
     });
   },
   setSelectedSlides: (ids) => set({ selectedSlideIds: ids }),
-  select: (ids) => set({ cellSelection: get().cellSelection && ids.includes(get().cellSelection!.id) ? get().cellSelection : null, cropId: ids.includes(get().cropId ?? '') ? get().cropId : null, selectedIds: ids, editingTextId: get().editingTextId && ids.includes(get().editingTextId!) ? get().editingTextId : null }),
+  select: (ids) => set({ cellSelection: get().cellSelection && ids.includes(get().cellSelection!.id) ? get().cellSelection : null, cropId: ids.includes(get().cropId ?? '') ? get().cropId : null, selectedIds: ids, editingTextId: get().editingTextId && ids.includes(get().editingTextId!) ? get().editingTextId : null, editPointsId: get().editPointsId && ids.length === 1 && ids[0] === get().editPointsId ? get().editPointsId : null }),
   toggleSelect: (id) => {
     const cur = get().selectedIds;
-    set({ selectedIds: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id], editingTextId: null });
+    set({ selectedIds: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id], editingTextId: null, editPointsId: null });
   },
   setEditingText: (id, cell) => {
     const sel = get().cellSelection;

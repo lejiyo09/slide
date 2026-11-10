@@ -45,7 +45,7 @@ describe('문단 안 수식 (a14:m)', () => {
     expect(validateXml(sx)).toEqual([]);
     // LibreOffice가 설치된 환경에서만 (CI 배포 서버에는 없음): 문단 안 a14:m을 읽지 않아 Fallback(LaTeX 글자)을 보여 줌
     if (HAS_SOFFICE) {
-      execFileSync('soffice', ['--headless', '--convert-to', 'pdf', '--outdir', 'test-output', 'test-output/inline-math.pptx'], { stdio: 'ignore', timeout: 120000 });
+      execFileSync('soffice', [`-env:UserInstallation=file://${process.cwd()}/test-output/lo-profile-${process.pid}-${Math.random().toString(36).slice(2)}`, '--headless', '--convert-to', 'pdf', '--outdir', 'test-output', 'test-output/inline-math.pptx'], { stdio: 'ignore', timeout: 120000 });
       const txt = execFileSync('pdftotext', ['test-output/inline-math.pdf', '-'], { encoding: 'utf8' });
       expect(txt).toContain('원의 넓이는');
       expect(txt).not.toContain('SLM');

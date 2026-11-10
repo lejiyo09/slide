@@ -1107,6 +1107,175 @@ try {
     await page.evaluate(() => window.__SLIDELAB__.getState().commit('바깥 개체 정리', (d) => (d.slides[0].objects = d.slides[0].objects.filter((o) => !o.id.startsWith('off-')))));
   }
 
+  if (want('merge')) {
+    /* ───── 도형 병합 (통합·결합·조각·교차·빼기) + 점 편집 ───── */
+    await closeBackstage();
+    const setup = (objs) =>
+      page.evaluate((objs) => {
+        const st = window.__SLIDELAB__.getState();
+        const body = { paragraphs: [{ runs: [{ text: '' }] }], vAlign: 'middle', direction: 'horizontal', padding: { top: 4, right: 8, bottom: 4, left: 8 }, autoFit: 'none' };
+        st.commit('병합 준비', (d) => {
+          d.slides[0].objects = d.slides[0].objects.filter((o) => !o.id.startsWith('mg') && !o.merged);
+          for (const o of objs) d.slides[0].objects.push({ type: 'shape', rotation: 0, stroke: { color: '#203040', width: 2, dash: 'solid' }, text: body, ...o });
+        });
+        st.set({ activeSlideId: st.doc.slides[0].id, selectedSlideIds: [st.doc.slides[0].id], selectedIds: objs.map((o) => o.id), editPointsId: null });
+      }, objs);
+    const objsNow = () => page.evaluate(() => window.__SLIDELAB__.getState().doc.slides[0].objects.filter((o) => o.id.startsWith('mg') || o.merged).map((o) => JSON.parse(JSON.stringify(o))));
+    const openMerge = async () => {
+      await page.locator('.tab', { hasText: '도형 서식' }).click();
+      await page.locator('.rb', { hasText: '도형 병합' }).click();
+      await page.waitForSelector('[data-merge-items]');
+    };
+    const A = { id: 'mgA', name: '원 A', shape: 'ellipse', x: 300, y: 250, width: 200, height: 200, fill: { type: 'solid', color: '#3B82F6' } };
+    const B = { id: 'mgB', name: '원 B', shape: 'ellipse', x: 420, y: 250, width: 200, height: 200, fill: { type: 'solid', color: '#F59E0B' } };
+    // 한 개만 선택하면 비활성
+    await setup([A]);
+    await page.locator('.tab', { hasText: '도형 서식' }).click();
+    await page.screenshot({ path: `${OUT}/s14-merge-ribbon.png` });
+    check('도형 하나만 선택하면 도형 병합 비활성', await page.locator('.rb', { hasText: '도형 병합' }).isDisabled());
+    // 메뉴: 다섯 가지 + 아이콘·설명 + 빼기 기준 안내, 마우스를 올리면 결과 미리 보기
+    await setup([B, A]);
+    await openMerge();
+    const items = await page.locator('[data-merge-op]').allTextContents();
+    const base = await page.locator('[data-merge-base]').textContent();
+    check('메뉴: 통합·결합·조각·교차·빼기 (아이콘·설명), 빼기 기준 = 처음 선택한 도형', items.length === 5 && ['통합', '결합', '조각', '교차', '빼기'].every((n, i) => items[i].includes(n)) && (await page.locator('[data-merge-op] svg').count()) === 5 && base.includes('원 B') && base.includes('원 B → 원 A'), `${items.map((x) => x.slice(0, 8)).join('|')} / ${base}`);
+    await page.locator('[data-merge-op="intersect"]').hover();
+    await page.waitForSelector('[data-merge-preview] path', { timeout: 10000 });
+    check('마우스를 올리면 결과 윤곽 미리 보기', (await page.locator('[data-merge-preview] path').count()) === 1);
+    await page.keyboard.press('Escape');
+    // 통합: 하나의 자유형, 첫 선택(B)의 서식, 원본 삭제, 결과 선택
+    await setup([A, B]);
+    const before = await objsNow();
+    await openMerge();
+    await page.locator('[data-merge-op="union"]').click();
+    await page.waitForFunction(() => window.__SLIDELAB__.getState().doc.slides[0].objects.some((o) => o.merged));
+    let after = await objsNow();
+    const sel = await page.evaluate(() => window.__SLIDELAB__.getState().selectedIds);
+    check('통합: 원본 대신 자유형 하나 (첫 선택 서식, 결과 선택됨)', after.length === 1 && after[0].shape === 'custom' && after[0].merged.op === 'union' && after[0].fill.color === '#3B82F6' && sel[0] === after[0].id && Math.abs(after[0].width - 320) < 1, JSON.stringify(after.map((o) => [o.shape, o.merged?.op, o.fill?.color, Math.round(o.width)])));
+    // J. 실행 취소 / 다시 실행
+    await page.keyboard.press('Control+z');
+    const undone = await objsNow();
+    await page.keyboard.press('Control+y');
+    const redone = await objsNow();
+    check('실행 취소 → 원본 그대로 복원, 다시 실행 → 같은 결과', JSON.stringify(undone) === JSON.stringify(before) && JSON.stringify(redone) === JSON.stringify(after), `${undone.length} / ${redone.length}`);
+    // 결합·교차·빼기 (각각 실행 → 실행 취소)
+    const res = {};
+    for (const op of ['combine', 'intersect', 'subtract']) {
+      await setup([A, B]);
+      await openMerge();
+      await page.locator(`[data-merge-op="${op}"]`).click();
+      await page.waitForFunction((op) => window.__SLIDELAB__.getState().doc.slides[0].objects.some((o) => o.merged?.op === op), op);
+      res[op] = (await objsNow()).map((o) => Math.round(o.width));
+      await page.keyboard.press('Control+z');
+      res[op].push(JSON.stringify(await objsNow()) === JSON.stringify(await (async () => { await setup([A, B]); return objsNow(); })()) ? 'undo-ok' : 'undo-bad');
+    }
+    check('결합(전체 폭)·교차(렌즈 폭 80)·빼기(A − B 초승달 폭 160), 각각 실행 취소', res.combine[0] === 320 && res.intersect[0] === 80 && res.subtract[0] === 160 && Object.values(res).every((r) => r.at(-1) === 'undo-ok'), JSON.stringify(res));
+    // I. 조각 → 세 조각 모두 선택, 가운데 조각만 색 바꾸고 옮기기
+    await setup([A, B]);
+    await openMerge();
+    await page.locator('[data-merge-op="fragment"]').click();
+    await page.waitForFunction(() => window.__SLIDELAB__.getState().doc.slides[0].objects.filter((o) => o.merged?.op === 'fragment').length === 3);
+    const frag = await objsNow();
+    const fragSel = await page.evaluate(() => window.__SLIDELAB__.getState().selectedIds.length);
+    check('조각: 독립 개체 3개, 모두 선택됨', frag.length === 3 && fragSel === 3, frag.map((o) => Math.round(o.width)).join(','));
+    const mid = frag.find((o) => Math.round(o.width) === 80);
+    // 가운데 조각을 화면에서 클릭해 선택
+    await page.evaluate(() => window.__SLIDELAB__.getState().select([]));
+    const stageBox = await page.locator('[data-testid="slide-stage"]').boundingBox();
+    const z = await page.evaluate(() => window.__SLIDELAB__.getState().zoom);
+    await page.mouse.click(stageBox.x + 460 * z, stageBox.y + 350 * z);
+    const picked = await page.evaluate(() => window.__SLIDELAB__.getState().selectedIds);
+    await page.evaluate((id) => window.__SLIDELAB__.getState().commit('조각 색', (d) => (d.slides[0].objects.find((o) => o.id === id).fill = { type: 'solid', color: '#10B981' })), mid.id);
+    await page.mouse.move(stageBox.x + 460 * z, stageBox.y + 350 * z);
+    await page.mouse.down();
+    await page.mouse.move(stageBox.x + 460 * z, stageBox.y + 250 * z, { steps: 6 });
+    await page.mouse.up();
+    const frag2 = await objsNow();
+    const others = frag2.filter((o) => o.id !== mid.id), m2 = frag2.find((o) => o.id === mid.id);
+    check('가운데 조각 클릭 선택 → 색·위치만 바뀌고 나머지 조각은 그대로', picked.length === 1 && picked[0] === mid.id && m2.fill.color === '#10B981' && m2.y < mid.y - 50 && JSON.stringify(others) === JSON.stringify(frag.filter((o) => o.id !== mid.id)), `${picked} y ${Math.round(mid.y)}→${Math.round(m2.y)}`);
+    // C. 빼기로 도넛: 가운데가 실제로 비어 있음 (클릭하면 도형이 아니라 슬라이드, 화면도 배경색)
+    await setup([{ ...A, id: 'mgBig', name: '큰 원', x: 300, y: 150, width: 400, height: 400 }, { ...B, id: 'mgSmall', name: '작은 원', x: 400, y: 250, width: 200, height: 200 }]);
+    await openMerge();
+    await page.locator('[data-merge-op="subtract"]').click();
+    await page.waitForFunction(() => window.__SLIDELAB__.getState().doc.slides[0].objects.some((o) => o.merged?.op === 'subtract'));
+    await page.evaluate(() => window.__SLIDELAB__.getState().select([]));
+    const donut = (await objsNow())[0];
+    const hole = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('[data-obj-id]')?.dataset.objId ?? null, [stageBox.x + 500 * z, stageBox.y + 350 * z]);
+    const ring = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('[data-obj-id]')?.dataset.objId ?? null, [stageBox.x + 330 * z, stageBox.y + 350 * z]);
+    const pixelAt = async (name) => {
+      const shot = await page.screenshot({ clip: { x: stageBox.x + 500 * z - 2, y: stageBox.y + 350 * z - 2, width: 4, height: 4 } });
+      writeFileSync(`${OUT}/${name}.png`, shot);
+      return page.evaluate(async (b64) => {
+        const img = await new Promise((ok) => Object.assign(new Image(), { onload() { ok(this); }, src: `data:image/png;base64,${b64}` }));
+        const c = document.createElement('canvas');
+        c.width = img.width;
+        c.height = img.height;
+        const g = c.getContext('2d');
+        g.drawImage(img, 0, 0);
+        return [...g.getImageData(1, 1, 1, 1).data].slice(0, 3);
+      }, shot.toString('base64'));
+    };
+    // 구멍이 투명하다 = 도형을 숨겼을 때와 같은 색 (뒤에 있는 것이 그대로 보임)
+    const holePx = await pixelAt('s14-donut-hole');
+    await page.evaluate((id) => window.__SLIDELAB__.getState().set({ doc: { ...window.__SLIDELAB__.getState().doc, slides: window.__SLIDELAB__.getState().doc.slides.map((s, i) => (i ? s : { ...s, objects: s.objects.map((o) => (o.id === id ? { ...o, hidden: true } : o)) })) } }), donut.id);
+    await page.waitForTimeout(150);
+    const behindPx = await pixelAt('s14-donut-behind');
+    await page.evaluate((id) => window.__SLIDELAB__.getState().set({ doc: { ...window.__SLIDELAB__.getState().doc, slides: window.__SLIDELAB__.getState().doc.slides.map((s, i) => (i ? s : { ...s, objects: s.objects.map((o) => (o.id === id ? { ...o, hidden: false } : o)) })) } }), donut.id);
+    await page.waitForTimeout(150);
+    await page.locator('.canvas-viewport').screenshot({ path: `${OUT}/s14-merge-donut.png` });
+    check('빼기: 도넛 — 구멍은 비어 있음(클릭 통과·뒤의 것이 그대로 보임), 고리는 도형', donut.geometry.paths[0].cmds.filter((c) => c.c === 'M').length === 2 && hole !== donut.id && ring === donut.id && holePx.every((v, i) => Math.abs(v - behindPx[i]) <= 3), `hole=${hole} ring=${ring} 구멍 ${holePx} / 뒤 ${behindPx}`);
+    // 점 편집: 꼭짓점을 끌면 모양·상자가 바뀌고, 실행 취소 한 번에 되돌아감, Esc로 끝
+    await page.evaluate((id) => window.__SLIDELAB__.getState().select([id]), donut.id);
+    await page.locator('.tab', { hasText: '도형 서식' }).click();
+    await page.locator('.rb', { hasText: '점 편집' }).click();
+    await page.waitForSelector('[data-point-edit] .pe-point');
+    const nPts = await page.locator('[data-point-edit] .pe-point').count();
+    const nCtrl = await page.locator('[data-point-edit] .pe-ctrl').count();
+    const pt = page.locator('[data-point-edit] .pe-point').first();
+    const pb = await pt.boundingBox();
+    const g0 = (await objsNow())[0];
+    await page.mouse.move(pb.x + pb.width / 2, pb.y + pb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(pb.x + pb.width / 2 - 60 * z, pb.y + pb.height / 2, { steps: 6 });
+    await page.mouse.up();
+    const g1 = (await objsNow())[0];
+    await page.keyboard.press('Control+z');
+    const g2 = (await objsNow())[0];
+    await page.keyboard.press('Escape');
+    const peOff = await page.evaluate(() => window.__SLIDELAB__.getState().editPointsId);
+    check('점 편집: 꼭짓점·곡선 조절점 표시, 끌면 모양과 상자가 바뀜, 실행 취소 한 번, Esc로 끝', nPts >= 8 && nCtrl >= 8 && g1.width > g0.width + 30 && JSON.stringify(g1.geometry) !== JSON.stringify(g0.geometry) && JSON.stringify(g2) === JSON.stringify(g0) && peOff === null, `점 ${nPts} 조절점 ${nCtrl} 폭 ${Math.round(g0.width)}→${Math.round(g1.width)}`);
+    // 원(프리셋)도 점 편집 → 베지어 자유형으로
+    await setup([A]);
+    await page.locator('.tab', { hasText: '도형 서식' }).click();
+    await page.locator('.rb', { hasText: '점 편집' }).click();
+    await page.waitForSelector('[data-point-edit] .pe-ctrl');
+    const conv = (await objsNow())[0];
+    await page.keyboard.press('Escape');
+    check('프리셋 원 → 점 편집 시 같은 모양의 베지어 자유형', conv.shape === 'custom' && conv.geometry.paths[0].cmds.filter((c) => c.c === 'C').length >= 4 && Math.abs(conv.width - 200) < 0.5);
+    // 그림이 섞이면 비활성 + 이유
+    await page.evaluate(() => {
+      const st = window.__SLIDELAB__.getState();
+      st.commit('그림 섞기', (d) => d.slides[0].objects.push({ id: 'mgImg', type: 'image', name: '그림', x: 10, y: 10, width: 50, height: 50, rotation: 0, assetId: 'none', crop: { left: 0, top: 0, right: 0, bottom: 0 }, stroke: null, naturalWidth: 50, naturalHeight: 50 }));
+      st.set({ selectedIds: ['mgA', 'mgImg'] });
+    });
+    await page.locator('.tab', { hasText: '도형 서식' }).click();
+    const imgBtn = page.locator('.rb', { hasText: '도형 병합' });
+    check('그림이 섞이면 도형 병합 비활성 + 이유 안내', (await imgBtn.isDisabled()) && ((await imgBtn.getAttribute('title')) ?? '').includes('그림'));
+    // L. 저장 → 새로 고침 → 복잡한 병합 도형(구멍 포함) 그대로
+    await setup([{ ...A, id: 'mgBig', name: '큰 원', x: 300, y: 150, width: 400, height: 400 }, { ...B, id: 'mgSmall', name: '작은 원', x: 400, y: 250, width: 200, height: 200 }, { id: 'mgBar', name: '막대', shape: 'rect', x: 250, y: 330, width: 500, height: 40, rotation: 20, fill: { type: 'solid', color: '#222222' } }]);
+    await openMerge();
+    await page.locator('[data-merge-op="subtract"]').click();
+    await page.waitForFunction(() => window.__SLIDELAB__.getState().doc.slides[0].objects.some((o) => o.merged?.op === 'subtract'));
+    const saved = await objsNow();
+    await page.waitForFunction(() => window.__SLIDELAB__.getState().saveStatus === 'saved', null, { timeout: 8000 });
+    await page.reload();
+    await page.waitForSelector('[data-testid="slide-stage"]');
+    await page.waitForTimeout(500);
+    const restored = await page.evaluate(() => window.__SLIDELAB__.getState().doc.slides[0].objects.filter((o) => o.merged).map((o) => JSON.parse(JSON.stringify(o))));
+    check('새로 고침 후 병합 도형(회전 막대로 잘린 도넛 조각들) 경로 그대로', JSON.stringify(restored) === JSON.stringify(saved) && saved.length >= 1, `${saved.length}개, 하위 경로 ${saved.map((o) => o.geometry.paths[0].cmds.filter((c) => c.c === 'M').length)}`);
+    await page.evaluate(() => window.__SLIDELAB__.getState().commit('병합 정리', (d) => (d.slides[0].objects = d.slides[0].objects.filter((o) => !o.id.startsWith('mg') && !o.merged))));
+  }
+
   if (want('perf')) {
     /* ───── 성능: 슬라이드 1000장 ───── */
     await closeBackstage();

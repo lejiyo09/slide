@@ -5,7 +5,9 @@ import { SlideView } from '../../engines/rendering/SlideView';
 import { TextEditor } from '../../editors/text/TextEditor';
 import * as C from '../../core/commands/commands';
 import * as A from '../../core/commands/actions';
-import type { ImageObject, SlideObject } from '../../types/model';
+import type { ImageObject, ShapeObject, SlideObject } from '../../types/model';
+import { PointEditOverlay } from './PointEditOverlay';
+import { movePoint, refitBox, slideToLocal, type PointRef } from '../../core/commands/editPoints';
 import type { EditableObject } from '../../engines/rendering/ObjectView';
 import { setCellSelectionFromPoint } from '../../editors/table/tableActions';
 import { expandRange, normRange } from '../../editors/table/table';
@@ -26,7 +28,8 @@ type Drag =
   | { kind: 'draw'; start: Point; current: Point }
   | { kind: 'lineEnd'; id: string; end: 'start' | 'end'; other: Point }
   | { kind: 'crop'; handle: HandleId; start: Point; origin: ImageObject }
-  | { kind: 'cells'; tableId: string; start: Point; anchor: [number, number]; started: boolean; clientX: number; clientY: number };
+  | { kind: 'cells'; tableId: string; start: Point; anchor: [number, number]; started: boolean; clientX: number; clientY: number }
+  | { kind: 'point'; id: string; ref: PointRef };
 
 export function EditorCanvas() {
   const slide = useActiveSlide();
@@ -39,6 +42,8 @@ export function EditorCanvas() {
   const showGrid = useEditor((s) => s.showGrid);
   const formatPainter = useEditor((s) => s.formatPainter);
   const cropId = useEditor((s) => s.cropId);
+  const editPointsId = useEditor((s) => s.editPointsId);
+  const mergePreview = useEditor((s) => s.mergePreview);
   const viewportRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -209,6 +214,19 @@ export function EditorCanvas() {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
+  /* ───── 점 편집: 꼭짓점·조절점 끌기 (실행 취소 한 단계) ───── */
+  const onPointDown = (e: React.PointerEvent, ref: PointRef) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const s = useEditor.getState();
+    if (!s.editPointsId) return;
+    dragRef.current = { kind: 'point', id: s.editPointsId, ref };
+    s.beginGesture('점 편집');
+    canvasGesture.current = true;
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+  };
+
   /* ───── 포인터 이동 ───── */
   const onMove = (e: PointerEvent | React.PointerEvent) => {
     const d = dragRef.current;
@@ -219,6 +237,16 @@ export function EditorCanvas() {
     const th = 6 / zoom;
 
     switch (d.kind) {
+      case 'point': {
+        s.updateGesture((doc) =>
+          C.updateObjects(doc, slide.id, [d.id], (o) => {
+            if (o.type !== 'shape' || !o.geometry) return;
+            const q = slideToLocal(o, p.x, p.y);
+            o.geometry = movePoint(o.geometry, d.ref, q.u, q.v);
+          }),
+        );
+        break;
+      }
       case 'move': {
         let dx = p.x - d.start.x;
         let dy = p.y - d.start.y;
@@ -424,6 +452,15 @@ export function EditorCanvas() {
       }
       return;
     }
+    if (d.kind === 'point') {
+      // 놓으면 상자를 점들에 맞춰 다시 계산 (같은 실행 취소 단계 안에서)
+      s.updateGesture((doc) =>
+        C.updateObjects(doc, slide.id, [d.id], (o) => {
+          if (o.type !== 'shape' || !o.geometry) return;
+          Object.assign(o, refitBox(o as ShapeObject & { geometry: NonNullable<ShapeObject['geometry']> }));
+        }),
+      );
+    }
     if (d.kind === 'move' && !d.started) {
       // 클릭만: 이미 선택된 텍스트 개체를 다시 클릭하면 편집 모드 (PowerPoint와 동일)
       return;
@@ -508,6 +545,10 @@ export function EditorCanvas() {
   const off = offRef.current;
   const pad = { l: PAD + off.l * zoom, t: PAD + off.t * zoom, r: PAD + off.r * zoom, b: PAD + off.b * zoom };
   const selectedObjs = slide.objects.filter((o) => selectedIds.includes(o.id));
+  const editPoints = (() => {
+    const o = editPointsId ? slide.objects.find((x) => x.id === editPointsId) : undefined;
+    return o?.type === 'shape' && o.shape === 'custom' && o.geometry ? o : null;
+  })();
   // 왼쪽·위쪽 여백이 바뀌면 그만큼 스크롤을 옮겨 슬라이드가 화면에서 움직이지 않게
   useLayoutEffect(() => {
     const vp = viewportRef.current;
@@ -563,8 +604,16 @@ export function EditorCanvas() {
           </div>
           <AnimBadges slide={slide} zoom={zoom} />
           <CommentMarkers zoom={zoom} />
+          {editPoints && <PointEditOverlay obj={editPoints} zoom={zoom} onPointDown={onPointDown} />}
+          {mergePreview && (
+            <svg className="overlay-svg merge-preview" width={stageW} height={stageH} data-merge-preview="">
+              {mergePreview.map((m, i) => (
+                <path key={i} d={m.d} transform={`scale(${zoom})`} className="merge-preview-path" />
+              ))}
+            </svg>
+          )}
           <SelectionOverlay
-            objects={selectedObjs}
+            objects={editPoints ? [] : selectedObjs}
             zoom={zoom}
             editingTextId={editingTextId}
             cropId={cropId}
