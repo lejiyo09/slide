@@ -1,4 +1,6 @@
-import { Crop, ImageUp, RotateCcw, LayoutTemplate, RotateCw, FlipHorizontal2, FlipVertical2, Group, Ungroup } from 'lucide-react';
+import { Crop, ImageUp, RotateCcw, LayoutTemplate, RotateCw, FlipHorizontal2, FlipVertical2, Group, Ungroup, Spline } from 'lucide-react';
+import { MergeShapesMenu } from './MergeShapesMenu';
+import { startEditPoints } from '../../core/commands/editPoints';
 import { RibbonButton, DropdownButton, RibbonGroup } from '../common/Buttons';
 import { ArrangeMenu } from './ArrangeMenu';
 import { useEditor, getActiveSlide, useSelectedObjects } from '../../core/store/editorStore';
@@ -11,6 +13,7 @@ import { NumberField } from '../properties/fields';
 export function ContextualTab() {
   const objs = useSelectedObjects();
   const cropId = useEditor((s) => s.cropId);
+  const editPointsId = useEditor((s) => s.editPointsId);
   if (!objs.length) return null;
   const first = objs[0];
   const isImage = objs.length === 1 && first.type === 'image';
@@ -46,6 +49,20 @@ export function ContextualTab() {
                 }),
               )
             }
+          />
+        </RibbonGroup>
+      )}
+      {!isImage && (
+        <RibbonGroup label="도형 편집">
+          <MergeShapesMenu objs={objs} />
+          <RibbonButton
+            size="large"
+            icon={<Spline size={26} />}
+            label="점 편집"
+            title="도형의 꼭짓점과 곡선 조절점을 끌어 모양 바꾸기 (Esc로 끝)"
+            disabled={objs.length !== 1 || (first.type !== 'shape' && first.type !== 'text') || !!first.locked}
+            active={editPointsId === first.id}
+            onClick={() => void startEditPoints(first.id)}
           />
         </RibbonGroup>
       )}

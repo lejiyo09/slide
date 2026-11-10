@@ -226,6 +226,8 @@ export const ObjectView = memo(function ObjectView({ obj: raw, assets, theme, ed
     transform,
     opacity: obj.opacity ?? 1,
   };
+  // 자유형(병합 결과 등)은 상자가 아니라 실제 채움 영역(구멍 제외)·선으로만 클릭되게: 상자는 통과, SVG 경로가 받음
+  if (obj.type === 'shape' && obj.shape === 'custom' && editingTextId !== obj.id) style.pointerEvents = 'none';
   if (frame) {
     const fc = frameToCss(frame, obj.rotation);
     if (fc) {
@@ -331,9 +333,10 @@ function ShapeContent({ obj, assets, editor }: { obj: ShapeObject; assets: Asset
         <defs>
           <SvgFill id={gid} fill={obj.fill} assets={assets} />
         </defs>
-        {custom && <path d={d} {...svgFillAttrs(obj.fill, gid)} stroke="none" />}
+        {custom && <path d={d} {...svgFillAttrs(obj.fill, gid)} fillRule={obj.geometry?.fillRule} stroke="none" style={{ pointerEvents: 'fill' }} />}
         <path
           d={custom ? strokeD : d}
+          style={custom ? { pointerEvents: 'stroke' } : undefined}
           {...(custom ? { fill: 'none' } : svgFillAttrs(obj.fill, gid))}
           stroke={obj.stroke ? obj.stroke.color : 'none'}
           strokeOpacity={obj.stroke?.opacity ?? 1}
@@ -349,6 +352,8 @@ function ShapeContent({ obj, assets, editor }: { obj: ShapeObject; assets: Asset
           top: obj.height * inset.t,
           right: obj.width * inset.r,
           bottom: obj.height * inset.b,
+          // 자유형의 글자 영역은 클릭을 경로로 넘김 (편집 중에는 받음)
+          ...(custom && !editor ? { pointerEvents: 'none' as const } : {}),
         }}
       >
         {editor ?? <TextBodyView body={obj.text} />}

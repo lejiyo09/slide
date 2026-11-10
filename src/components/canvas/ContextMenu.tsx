@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Scissors, Copy, Clipboard, CopyPlus, Trash2, Type, BringToFront, SendToBack, Group, Ungroup, Paintbrush, Plus, Grid3x3, Crop, ImageUp } from 'lucide-react';
 import { MenuItem, MenuSeparator } from '../common/Buttons';
+import { Spline } from 'lucide-react';
+import { startEditPoints } from '../../core/commands/editPoints';
 import * as A from '../../core/commands/actions';
 import { useEditor, getSelectedObjects } from '../../core/store/editorStore';
 
@@ -60,6 +62,9 @@ export function CanvasContextMenu({ state, onClose }: { state: MenuState; onClos
           <MenuSeparator />
           {sel.length === 1 && (first.type === 'text' || first.type === 'shape') && (
             <MenuItem icon={<Type size={15} />} label="텍스트 편집" shortcut="Enter" onClick={run(() => useEditor.getState().setEditingText(first.id))} />
+          )}
+          {sel.length === 1 && (first.type === 'shape' || (first.type === 'text' && !first.ph)) && !first.locked && (
+            <MenuItem icon={<Spline size={15} />} label="점 편집" onClick={run(() => void startEditPoints(first.id))} />
           )}
           {sel.length === 1 && first.type === 'image' && (
             <>

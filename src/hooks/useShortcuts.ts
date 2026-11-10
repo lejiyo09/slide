@@ -170,6 +170,7 @@ export function useShortcuts() {
           if (s.insertTool) return s.set({ insertTool: null });
           if (s.formatPainter) return s.set({ formatPainter: null });
           if (s.cropId) return s.set({ cropId: null });
+          if (s.editPointsId) return s.set({ editPointsId: null });
           if (hasSel) return s.select([]);
           return;
         case 'Delete':
